@@ -23,18 +23,20 @@ export function loadGoogleMaps(apiKey: string): Promise<GoogleNamespace> {
   if (loadPromise) return loadPromise;
 
   loadPromise = new Promise((resolve, reject) => {
-    const existing = document.getElementById("google-maps-js") as HTMLScriptElement | null;
-    if (existing) {
-      existing.addEventListener("load", () => resolve((window as unknown as { google: GoogleNamespace }).google));
-      existing.addEventListener("error", () => reject(new Error("Google Maps failed to load.")));
-      return;
-    }
+    // With loading=async, google.maps.Map only exists once the callback fires,
+    // not at script onload.
+    const cb = "__nbGoogleMapsReady";
+    (window as unknown as Record<string, () => void>)[cb] = () =>
+      resolve((window as unknown as { google: GoogleNamespace }).google);
     const script = document.createElement("script");
     script.id = "google-maps-js";
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&callback=${cb}`;
     script.async = true;
-    script.onload = () => resolve((window as unknown as { google: GoogleNamespace }).google);
-    script.onerror = () => reject(new Error("Google Maps failed to load."));
+    script.onerror = () => {
+      loadPromise = null;
+      script.remove();
+      reject(new Error("Google Maps failed to load."));
+    };
     document.head.appendChild(script);
   });
 
