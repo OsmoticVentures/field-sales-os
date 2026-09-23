@@ -22,7 +22,6 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote } from "../../../lib/core/ui";
-import { PIco } from "../../../lib/features/prospect/icons";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 
@@ -214,7 +213,7 @@ function GlobalSearch({ todayIso, onView, onAdded }: { todayIso: string; onView:
       <div className="relative">
         <input value={query} onChange={(e) => search(e.target.value)} placeholder="Search your accounts and contacts" className={`${inputCls} pl-10`} />
         <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[#8A928C]">
-          <PIco name="search" size={15} />
+          <Ico name="search" size={15} />
         </div>
       </div>
       {query.trim().length >= 2 && (
@@ -331,7 +330,7 @@ function AddToDayForm({ date, onAdded }: { date: string; onAdded: (item: Schedul
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[#D8D4C8] text-[13.5px] font-medium text-[#8A928C] transition-colors hover:border-[#B8B3A4] hover:text-[#5B6560]">
-        <PIco name="plus" size={13} />
+        <Ico name="plus" size={13} />
         Add to this day
       </button>
     );
@@ -427,17 +426,17 @@ function ScheduleRow({
         <div className="flex shrink-0 items-center gap-1.5">
           {item.displayPhone && (
             <a href={`tel:${item.displayPhone.replace(/[^0-9+]/g, "")}`} className={`${iconBtn} border-[#8A2E2E] bg-[#8A2E2E] text-white`} title={`Call ${item.displayPhone}`}>
-              <PIco name="phone" size={15} />
+              <Ico name="phone" size={15} />
             </a>
           )}
           {!done && !skipped && (
             <button onClick={() => setMoving((v) => !v)} title="Move to another day" className={`${iconBtn} ${moving ? "border-[#14201B]" : "border-[#E2DFD5]"}`}>
-              <PIco name="clock" size={15} />
+              <Ico name="clock" size={15} />
             </button>
           )}
           {!done && !skipped && (
             <button onClick={onDone} title="Mark done" className={`${iconBtn} border-[#E2DFD5]`}>
-              <PIco name="check" size={15} />
+              <Ico name="check" size={15} />
             </button>
           )}
         </div>
@@ -456,7 +455,7 @@ function ScheduleRow({
 
       {statusError && (
         <div className="flex items-center gap-1.5 text-[12px] text-[#8A6D2F]">
-          <PIco name="alert" size={12} />
+          <Ico name="alert" size={12} />
           <span>{statusError}</span>
         </div>
       )}
@@ -567,7 +566,7 @@ function PhoneEditable({ accountId, phone }: { accountId: string; phone: string 
   return (
     <button type="button" onClick={() => { setValue(saved ?? ""); setEditing(true); }} title="Correct this number" className="flex min-h-[44px] items-center gap-1.5 text-[14.5px] font-medium text-[#3D4A44] hover:text-[#14201B]">
       {saved ?? <span className="font-normal text-[#8A928C]">No phone on file</span>}
-      <PIco name="edit" size={13} />
+      <Ico name="edit" size={13} />
     </button>
   );
 }
@@ -659,13 +658,13 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             {phone && (
               <a href={`tel:${phone.replace(/[^0-9+]/g, "")}`} className={callBtn}>
-                <PIco name="phone" size={14} />
+                <Ico name="phone" size={14} />
                 Call {phone}
               </a>
             )}
             {item.account_id && (
               <button type="button" onClick={handleEnrich} disabled={enriching} className={ghostBtn}>
-                <PIco name="wand" size={13} />
+                <Ico name="wand" size={13} />
                 {enriching ? "Enriching" : "Enrich further"}
               </button>
             )}
@@ -683,7 +682,7 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
 
         {loadError && !loading && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-2.5 text-[13.5px] text-[#5B6560]">
-            <PIco name="alert" size={13} />
+            <Ico name="alert" size={13} />
             <span>Couldn&rsquo;t load the rest of this account. You can still call and mark it done.</span>
           </div>
         )}
@@ -702,7 +701,7 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
                 </div>
               ) : (
                 <span className="inline-flex items-center gap-1.5 text-[#8A928C]">
-                  <PIco name="alert" size={13} />
+                  <Ico name="alert" size={13} />
                   No angle on file yet, nobody has run discovery on this account.
                 </span>
               )}
@@ -724,7 +723,7 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
                   />
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A6D2F]">
-                    <PIco name="alert" size={13} />
+                    <Ico name="alert" size={13} />
                     Enrich further failed.
                   </span>
                 )}
@@ -776,12 +775,12 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
             <div className="mt-3 flex flex-wrap items-center gap-4">
               {panel.website ? (
                 <a href={panel.website.startsWith("http") ? panel.website : `https://${panel.website}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#3D6B4A] hover:underline">
-                  <PIco name="globe" size={13} />
+                  <Ico name="globe" size={13} />
                   Open website
                 </a>
               ) : (
                 <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A928C]">
-                  <PIco name="alert" size={13} />
+                  <Ico name="alert" size={13} />
                   No website on file
                 </span>
               )}
@@ -791,12 +790,12 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
                 rel="noopener noreferrer"
                 className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#3D6B4A] hover:underline"
               >
-                <PIco name="pin" size={13} />
+                <Ico name="pin" size={13} />
                 Open in Google Maps
               </a>
               {panel.hubspotCompanyId && (
                 <a href={HUBSPOT_COMPANY_URL(panel.hubspotCompanyId)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#5B6560] hover:text-[#14201B]">
-                  <PIco name="hubspot" size={13} />
+                  <Ico name="hubspot" size={13} />
                   Open in HubSpot
                 </a>
               )}
@@ -835,7 +834,7 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
 
       {item.status === "pending" && (
         <button onClick={onDone} className={primaryBtn}>
-          <PIco name="check" size={14} />
+          <Ico name="check" size={14} />
           Mark done
         </button>
       )}

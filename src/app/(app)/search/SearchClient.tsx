@@ -27,7 +27,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
-import { SearchIco } from "../../../lib/features/search/icons";
 import { rankMatches } from "../../../lib/features/search/search-match";
 import { AreaPicker, mapsUrl, type Pin } from "./AreaPicker";
 
@@ -470,7 +469,7 @@ export function SearchClient() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
-              <SearchIco name="search" size={15} />
+              <Ico name="search" size={15} />
             </span>
             <input
               value={query}
@@ -493,7 +492,7 @@ export function SearchClient() {
             className={secondaryBtn}
             title="Keeps splitting any part of the area still at Google's cap until none of it is, for a complete list"
           >
-            <SearchIco name="search" size={13} />
+            <Ico name="search" size={13} />
             {busy === "search" && deepRun ? "Finding everything..." : "Find all"}
           </button>
         </div>
@@ -512,7 +511,7 @@ export function SearchClient() {
             className="flex min-h-11 items-center justify-between gap-2 border-b border-[#E2DFD5] px-3 py-2.5 text-left"
           >
             <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Filters</span>
-            <SearchIco name={filtersOpen ? "chevron-up" : "chevron-down"} size={13} />
+            <Ico name={filtersOpen ? "chevron-up" : "chevron-down"} size={13} />
           </button>
 
           <div className={filtersOpen ? "flex flex-col gap-3 p-3" : "hidden"}>
@@ -635,7 +634,7 @@ export function SearchClient() {
                   className={`${secondaryBtn} px-2.5`}
                   aria-label="Add excluded category"
                 >
-                  <SearchIco name="plus" size={13} />
+                  <Ico name="plus" size={13} />
                 </button>
               </div>
               <button
@@ -644,7 +643,7 @@ export function SearchClient() {
                 disabled={suggestBusy || !query.trim()}
                 className="inline-flex min-h-11 items-center gap-1.5 self-start text-[13px] font-medium text-[#3D6B4A] disabled:cursor-not-allowed disabled:text-[#A9AFA9]"
               >
-                <SearchIco name="wand" size={12} />
+                <Ico name="wand" size={12} />
                 {suggestBusy ? "Thinking..." : "Suggest categories to exclude"}
               </button>
               {suggestError && <span className="text-[12.5px] text-[#8A928C]">{suggestError}</span>}
@@ -662,7 +661,7 @@ export function SearchClient() {
                         <span className="font-medium">{s.category}</span>
                         <span className="ml-1 text-[#8A928C]">{s.why}</span>
                       </span>
-                      <SearchIco name="plus" size={11} />
+                      <Ico name="plus" size={11} />
                     </button>
                   ))}
                 </div>
@@ -711,7 +710,7 @@ export function SearchClient() {
                       className={`${secondaryBtn} px-2.5`}
                       aria-label="Add chain name"
                     >
-                      <SearchIco name="plus" size={13} />
+                      <Ico name="plus" size={13} />
                     </button>
                   </div>
                 </>
@@ -816,7 +815,7 @@ export function SearchClient() {
               className={secondaryBtn}
               title="Read these businesses' own websites for an about line, a named decision maker and category fit"
             >
-              <SearchIco name="globe" size={13} />
+              <Ico name="globe" size={13} />
               {busy === "enrich"
                 ? "Reading their sites..."
                 : `Look further into ${selectedUnlanded.length}`}
@@ -828,7 +827,7 @@ export function SearchClient() {
               className={primaryBtn}
               title="Reads any un-enriched site first, then adds these as prospects and queues a call for each"
             >
-              <SearchIco name="phone-arrow" size={13} />
+              <Ico name="phone-arrow" size={13} />
               {busy === "land" ? "Adding..." : `Add ${selectedUnlanded.length} to SDR`}
             </button>
           </div>
@@ -887,7 +886,7 @@ function BookSearch() {
     <div className={`${panel} relative p-3`}>
       <div className="relative">
         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
-          <SearchIco name="search" size={15} />
+          <Ico name="search" size={15} />
         </span>
         <input
           value={q}
@@ -1004,7 +1003,7 @@ function RunBar({
               aria-expanded={open}
               className="inline-flex items-center gap-1 text-[#3D4A44] underline-offset-2 hover:underline"
             >
-              <SearchIco name={open ? "chevron-up" : "chevron-down"} size={12} />
+              <Ico name={open ? "chevron-up" : "chevron-down"} size={12} />
               Dropped, and why
             </button>
           )}
@@ -1296,7 +1295,7 @@ function SortTh({
         }`}
       >
         {label}
-        {sort === k && <SearchIco name="chevron-down" size={10} />}
+        {sort === k && <Ico name="chevron-down" size={10} />}
       </button>
     </th>
   );

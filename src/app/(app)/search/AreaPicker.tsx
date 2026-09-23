@@ -26,7 +26,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SearchIco } from "../../../lib/features/search/icons";
+import { Ico } from "../../../lib/core/ui";
 import { loadGoogleMaps } from "../../../lib/shared/google-maps-loader";
 
 export type Pin = { lat: number; lng: number };
@@ -301,7 +301,7 @@ export function AreaPicker({
             className={toolBtn}
             title="Remove the last pin"
           >
-            <SearchIco name="close" size={12} />
+            <Ico name="close" size={12} />
             Undo pin
           </button>
           <button

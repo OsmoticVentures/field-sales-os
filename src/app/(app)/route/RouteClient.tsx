@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
-import { RouteIco as Ico } from "@/lib/features/route/icons";
+import { Ico } from "@/lib/core/ui";
 import { RouteMap } from "./RouteMap";
 import { dayLabel, defaultActiveDay, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";

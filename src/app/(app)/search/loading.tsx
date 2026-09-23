@@ -1,4 +1,4 @@
-import { SkeletonBar } from "../../../lib/features/search/icons";
+import { SkeletonBar } from "../../../lib/core/ui";
 
 export default function Loading() {
   return (

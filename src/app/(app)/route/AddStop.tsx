@@ -16,7 +16,7 @@
  */
 import { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
-import { RouteIco as Ico } from "@/lib/features/route/icons";
+import { Ico } from "@/lib/core/ui";
 import { rankMatches } from "@/lib/features/route/search-match";
 import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
 import type { CallEntry, CustomStop, CustomStopKind, RouteAccount } from "@/lib/features/route/types";

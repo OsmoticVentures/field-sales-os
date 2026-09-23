@@ -20,28 +20,6 @@ import { useEffect, useRef, useState, useTransition, type ReactNode } from "reac
 import { apiFetch } from "../../core/api";
 import { Ico } from "../../core/ui";
 
-// ---------------------------------------------------------------------------
-// icons this feature needs beyond lib/core/ui.tsx's set
-// ---------------------------------------------------------------------------
-
-function FeatureIco({ name, size = 16 }: { name: "send" | "plus" | "search"; size?: number }) {
-  const paths: Record<string, ReactNode> = {
-    send: <path d="M2 8 13.6 2.4 8.4 13.6l-1.6-4.4L2 8Zm4.8 1.2L11.2 4.8" />,
-    plus: <path d="M8 2.8v10.4M2.8 8h10.4" />,
-    search: (
-      <>
-        <circle cx="6.8" cy="6.8" r="4.2" />
-        <path d="m13 13-3.2-3.2" />
-      </>
-    ),
-  };
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-      {paths[name]}
-    </svg>
-  );
-}
-
 /** A confirmation beat that also carries the HubSpot filing line, since
  *  lib/core/ui.tsx's SuccessNote does not. Local rather than an edit to the
  *  shared file, per this port's file-scope. */
@@ -312,7 +290,7 @@ export function TouchpointCapture() {
                 {pending ? (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                 ) : (
-                  <FeatureIco name="send" size={17} />
+                  <Ico name="send" size={17} />
                 )}
                 {pending ? "Logging" : "Log"}
               </button>
@@ -462,7 +440,7 @@ function AccountMatchResolver({
             aria-label="Search"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#14201B] text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40"
           >
-            <FeatureIco name="search" size={16} />
+            <Ico name="search" size={16} />
           </button>
         </div>
 
@@ -490,7 +468,7 @@ function AccountMatchResolver({
             disabled={creating}
             className="mt-2 flex h-10 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3 text-[12.5px] font-medium text-[#5B6560] transition-transform active:scale-[0.97] disabled:opacity-40"
           >
-            <FeatureIco name="plus" size={13} />
+            <Ico name="plus" size={13} />
             {creating ? "Creating…" : `New account: ${query.trim()}`}
           </button>
         )}
