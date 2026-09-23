@@ -91,7 +91,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
         aria-modal="true"
         aria-label="More screens"
         aria-hidden={!moreOpen}
-        className={`fixed inset-x-0 bottom-0 z-40 origin-bottom rounded-t-xl border-t border-[#E2DFD5] bg-[#FAF9F5]/95 backdrop-blur transition-[transform,opacity] duration-250 ease-out motion-reduce:transition-opacity md:hidden [padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))] ${
+        className={`fixed inset-x-0 bottom-0 z-40 origin-bottom rounded-t-xl border-t border-[#E2DFD5] bg-[#FAF9F5]/95 backdrop-blur transition-[transform,opacity] duration-250 ease-out motion-reduce:transition-opacity md:hidden [padding-bottom:calc(4.25rem+env(safe-area-inset-bottom))] ${
           moreOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0 motion-reduce:translate-y-0"
         }`}
       >
