@@ -46,7 +46,8 @@ def main() -> int:
                 input=value, text=True, capture_output=True, cwd=HERE,
             )
             ok = r.returncode == 0 or "already exists" in r.stderr
-            print(f"{'set' if ok else 'FAILED'} {key} ({env})")
+            why = "" if ok else " " + (r.stderr.strip().splitlines() or ["no error text"])[-1][:100]
+            print(f"{'set' if ok else 'FAILED'} {key} ({env}){why}")
     missing = [n for n in names if n not in values]
     if missing:
         print("not on file, left unset:", " ".join(missing))
