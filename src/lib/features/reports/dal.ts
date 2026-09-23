@@ -18,6 +18,7 @@
  * below reads or renders either.
  */
 import "server-only";
+import { apiPath } from "@/lib/core/api";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -70,13 +71,15 @@ async function mutate(
  *  SUM(value) already done by nb_v_report_metrics_alltime. field_report.py
  *  writes the underlying rows every time it builds a day, so a correction to
  *  one day moves this total automatically. */
+/** Each metric is null, not 0, when nb_v_report_metrics_alltime has no row
+ *  for it: a metric with no source is absent, never a fabricated zero. */
 export type AllTimeMetrics = {
-  visits: number;
-  touchpoints: number;
-  miles: number;
-  daysWorked: number;
-  newAccounts: number;
-  accountsClosed: number;
+  visits: number | null;
+  touchpoints: number | null;
+  miles: number | null;
+  daysWorked: number | null;
+  newAccounts: number | null;
+  accountsClosed: number | null;
   throughDate: string | null;
 };
 
@@ -91,12 +94,12 @@ export async function getAllTimeMetrics(): Promise<AllTimeMetrics | null> {
       null,
     );
     return {
-      visits: byMetric.visits ?? 0,
-      touchpoints: byMetric.touchpoints ?? 0,
-      miles: byMetric.miles ?? 0,
-      daysWorked: byMetric.day_worked ?? 0,
-      newAccounts: byMetric.new_accounts ?? 0,
-      accountsClosed: byMetric.accounts_closed ?? 0,
+      visits: byMetric.visits ?? null,
+      touchpoints: byMetric.touchpoints ?? null,
+      miles: byMetric.miles ?? null,
+      daysWorked: byMetric.day_worked ?? null,
+      newAccounts: byMetric.new_accounts ?? null,
+      accountsClosed: byMetric.accounts_closed ?? null,
       throughDate,
     };
   } catch {
@@ -164,6 +167,13 @@ export type ReportPayload = {
   closed?: Array<{ id?: string; name?: string; city?: string | null; state?: string | null }>;
   /** Weekly draft only: weekly_report.py's own rollup, read-only here. */
   totals?: { touchpoints?: number; visits?: number; calls?: number; miles?: number; new_accounts?: number; accounts_closed?: number };
+  /** Weekly draft only: one entry per day in the week, read here only to
+   *  tell a sourced 0 from an unlogged day (see WeeklyReport's miles tile).
+   *  weekly_report.py's odometer_miles() records a day's own `miles` as null
+   *  when no trip was photographed that day; totals.miles then sums those
+   *  days as 0, which reads as "drove nothing" even when the real answer is
+   *  "not logged." */
+  days?: Array<{ miles?: number | null }>;
   range_label?: string;
   [k: string]: unknown;
 };
@@ -276,7 +286,7 @@ export async function signReportObject(name: string): Promise<string | null> {
 }
 
 export function reportHref(name: string): string {
-  return `/api/reports/pdf?name=${encodeURIComponent(name)}`;
+  return apiPath(`/api/reports/pdf?name=${encodeURIComponent(name)}`);
 }
 
 /** Whether an object exists in the bucket, without minting a signature just

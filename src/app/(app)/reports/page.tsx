@@ -21,7 +21,6 @@ import {
   getAllTimeMetrics,
   getReportDraft,
   listPlaybookReportArchive,
-  listPlaybookReports,
   reportDateLA,
   reportPreviewHref,
   weekWindowFor,
@@ -42,10 +41,11 @@ const METRIC_TILES: Array<{ key: NumericMetricKey; label: string; fmt?: (n: numb
   { key: "accountsClosed", label: "Accounts confirmed closed" },
 ];
 
-const REPORT_TITLE: Record<"daily" | "weekly", string> = {
-  daily: "Daily field report",
-  weekly: "Weekly field report",
-};
+/** month-day-year, never a raw ISO string, for the one date this screen
+ *  shows in prose. */
+function formatDateLabel(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
 
 export default async function ReportsPage({
   searchParams,
@@ -57,13 +57,17 @@ export default async function ReportsPage({
   const selectedDate = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) && sp.date <= today ? sp.date : today;
   const week = weekWindowFor(selectedDate);
 
-  const [allTime, daily, weekly, reports, archive] = await Promise.all([
+  const [allTime, daily, weekly, archive] = await Promise.all([
     getAllTimeMetrics(),
     getReportDraft(selectedDate, "daily"),
     week ? getReportDraft(week.end, "weekly") : Promise.resolve(null),
-    listPlaybookReports(),
     listPlaybookReportArchive(),
   ]);
+
+  // through_date is a max() over metric rows and has read as a day past
+  // today when a write landed in a later UTC day than the LA date it was
+  // for; capped here rather than trusted raw.
+  const throughDate = allTime?.throughDate && allTime.throughDate <= today ? allTime.throughDate : allTime?.throughDate ? today : null;
 
   const dailyPreviewUrl = daily?.preview_path && !daily.dirty ? await reportPreviewHref(daily.preview_path) : null;
   const dailyArchivedUrl = await reportPreviewHref(`daily-${selectedDate}.pdf`);
@@ -78,17 +82,19 @@ export default async function ReportsPage({
         <section className="mb-7">
           <div className="mb-2 flex items-baseline justify-between gap-2">
             <div className={eyebrowCls}>All time</div>
-            {allTime.throughDate && <div className="text-[11px] text-[#8A928C]">through {allTime.throughDate}</div>}
+            {throughDate && <div className="text-[11px] text-[#8A928C]">through {formatDateLabel(throughDate)}</div>}
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {METRIC_TILES.map((t) => (
-              <Card key={t.key} className="p-3.5 text-center">
-                <div className="text-[22px] leading-none font-semibold tracking-tight tabular-nums">
-                  {(t.fmt ?? String)(allTime[t.key])}
-                </div>
-                <div className="mt-1.5 text-[11px] leading-snug text-[#5B6560]">{t.label}</div>
-              </Card>
-            ))}
+            {METRIC_TILES.map((t) => {
+              const value = allTime[t.key];
+              if (value == null) return null;
+              return (
+                <Card key={t.key} className="p-3.5 text-center">
+                  <div className="text-[22px] leading-none font-semibold tracking-tight tabular-nums">{(t.fmt ?? String)(value)}</div>
+                  <div className="mt-1.5 text-[11px] leading-snug text-[#5B6560]">{t.label}</div>
+                </Card>
+              );
+            })}
           </div>
         </section>
       )}
@@ -106,32 +112,9 @@ export default async function ReportsPage({
       />
 
       <section className="mb-7">
-        <div className="grid gap-3.5 md:grid-cols-2">
-          {(["daily", "weekly"] as const).map((kind) => {
-            const report = reports.find((r) => r.kind === kind);
-            return (
-              <Card key={kind} className="flex h-full flex-col gap-1.5">
-                <span className="text-[16.5px] font-semibold tracking-tight">{REPORT_TITLE[kind]}</span>
-                {report ? (
-                  <>
-                    <p className="text-[13px] leading-relaxed text-[#5B6560]">{report.label}</p>
-                    <a
-                      href={report.url}
-                      className="mt-1 text-[13px] font-medium text-[#2C6A46] underline decoration-[#2C6A46]/40 underline-offset-2 hover:decoration-[#2C6A46]"
-                    >
-                      Open PDF
-                    </a>
-                  </>
-                ) : (
-                  <p className="text-[13px] leading-relaxed text-[#8A928C]">Nothing published yet.</p>
-                )}
-              </Card>
-            );
-          })}
-        </div>
         {archive.reports.length > 0 ? (
-          <details className="mt-3">
-            <summary className="cursor-pointer text-[11.5px] text-[#8A928C]">
+          <details>
+            <summary className="flex min-h-11 cursor-pointer items-center text-[13px] font-medium text-[#5B6560]">
               Archive ({archive.reports.length} earlier report{archive.reports.length === 1 ? "" : "s"})
             </summary>
             <div className="mt-2 grid gap-3.5 md:grid-cols-2">

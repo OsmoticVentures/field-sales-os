@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/core/api";
-import { Ico, SuccessNote, Card, primaryBtn, ghostBtn, inputCls, eyebrowCls } from "../../../lib/core/ui";
+import { Ico, SuccessNote, Card, primaryBtn, ghostBtn, inputCls, labelCls, eyebrowCls } from "../../../lib/core/ui";
 import type { ReportDraft, ReportHqNote } from "../../../lib/features/reports/dal";
 import { stopGist } from "../../../lib/features/reports/stop-gist";
 
@@ -94,8 +94,8 @@ export function ReportsClient(props: Props) {
 
   return (
     <>
-      <div className="mb-5 flex items-center gap-2">
-        <label htmlFor="report-date" className={eyebrowCls}>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <label htmlFor="report-date" className={labelCls}>
           Reviewing
         </label>
         <input
@@ -104,13 +104,13 @@ export function ReportsClient(props: Props) {
           value={date}
           max={props.today}
           onChange={(e) => onDateChange(e.target.value)}
-          className={`${inputCls} w-auto tabular-nums`}
+          className={`${inputCls} !w-auto tabular-nums`}
         />
         {date !== props.today && (
           <button
             type="button"
             onClick={() => onDateChange(props.today)}
-            className="text-[13px] text-[#2C6A46] underline decoration-[#2C6A46]/40 underline-offset-2 hover:decoration-[#2C6A46]"
+            className="inline-flex min-h-11 items-center text-[13px] text-[#2C6A46] underline decoration-[#2C6A46]/40 underline-offset-2 hover:decoration-[#2C6A46]"
           >
             Back to today
           </button>
@@ -125,6 +125,7 @@ export function ReportsClient(props: Props) {
 
       <DailyReport
         date={date}
+        today={props.today}
         draft={daily}
         previewUrl={dailyPreviewUrl}
         archivedUrl={dailyArchivedUrl}
@@ -154,6 +155,7 @@ export function ReportsClient(props: Props) {
 
 function DailyReport({
   date,
+  today,
   draft,
   previewUrl,
   archivedUrl,
@@ -161,6 +163,7 @@ function DailyReport({
   onError,
 }: {
   date: string;
+  today: string;
   draft: ReportDraft | null;
   previewUrl: string | null;
   archivedUrl: string | null;
@@ -276,19 +279,24 @@ function DailyReport({
 
   const shownUrl = draft?.status === "published" && archivedUrl ? archivedUrl : previewUrl;
   const locked = pending;
-  const statusLine = draft?.rebuild_requested
-    ? "Rebuilding from today's data"
-    : draft?.dirty
-      ? "Re-rendering from your edits"
-      : draft?.status === "published"
-        ? "Published. Edit it any time."
-        : "Building";
+  const isToday = date === today;
+  const statusLine = !draft
+    ? null
+    : draft.rebuild_requested
+      ? isToday
+        ? "Rebuilding from today's data"
+        : "Rebuilding from that day's data"
+      : draft.dirty
+        ? "Re-rendering from your edits"
+        : draft.status === "published"
+          ? "Published. Edit it any time."
+          : null;
 
   return (
     <Card className="mb-8">
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-[19px] font-semibold tracking-tight">The day&rsquo;s report</h2>
-        <span className="text-[12.5px] text-[#8A928C]">{statusLine}</span>
+        {statusLine && <span className="text-[12.5px] text-[#8A928C]">{statusLine}</span>}
       </div>
 
       {!payload ? (
@@ -322,7 +330,7 @@ function DailyReport({
               </button>
             )}
             <button type="button" onClick={rebuild} disabled={locked} className={ghostBtn}>
-              Rebuild from today&rsquo;s data
+              {isToday ? "Rebuild from today’s data" : "Rebuild from that day’s data"}
             </button>
             {draft?.dirty && <span className="text-[12px] text-[#8A6D2F]">The PDF is behind your edits.</span>}
           </div>
@@ -348,14 +356,21 @@ function DailyReport({
                   const set = (patch: Partial<StopEdit>) => setStopEdits((prev) => ({ ...prev, [key]: { ...e, ...patch } }));
                   const gist = stopGist(s);
                   return (
-                    <li key={key} className={`flex flex-wrap items-center gap-2 px-3 py-2.5 ${e.hidden ? "opacity-45" : ""}`}>
-                      <div className="flex shrink-0 gap-1">
+                    <li key={key} className={`flex flex-col gap-2 px-3 py-2.5 ${e.hidden ? "opacity-45" : ""}`}>
+                      <div className="min-w-0">
+                        <div className="text-[13.5px]">
+                          {s.name}
+                          {s.city && <span className="text-[#8A928C]"> · {s.city}</span>}
+                        </div>
+                        {gist && <div className="mt-0.5 text-[12px] text-[#8A928C]">{gist}</div>}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => moveStop(n, -1)}
                           disabled={locked || i === 0}
                           aria-label={`Move ${s.name} earlier`}
-                          className="flex h-11 w-11 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#3D4A44] transition-colors hover:bg-[#FAF9F5] disabled:opacity-30"
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#3D4A44] transition-colors hover:bg-[#FAF9F5] disabled:opacity-30"
                         >
                           <Chevron dir="up" />
                         </button>
@@ -364,19 +379,10 @@ function DailyReport({
                           onClick={() => moveStop(n, 1)}
                           disabled={locked || i === orderedStops.length - 1}
                           aria-label={`Move ${s.name} later`}
-                          className="flex h-11 w-11 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#3D4A44] transition-colors hover:bg-[#FAF9F5] disabled:opacity-30"
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#3D4A44] transition-colors hover:bg-[#FAF9F5] disabled:opacity-30"
                         >
                           <Chevron dir="down" />
                         </button>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13.5px]">
-                          {s.name}
-                          {s.city && <span className="text-[#8A928C]"> · {s.city}</span>}
-                        </div>
-                        {gist && <div className="mt-0.5 truncate text-[12px] text-[#8A928C]">{gist}</div>}
-                      </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
                         <Toggle on={e.call_only} onClick={() => set({ call_only: !e.call_only })} disabled={locked}>
                           Call only
                         </Toggle>
@@ -404,7 +410,6 @@ function DailyReport({
               placeholder={payload.miles != null ? String(payload.miles) : ""}
               className={`${inputCls} w-24 tabular-nums`}
             />
-            <span className="text-[12px] text-[#8A928C]">Blank recomputes it from the stops above.</span>
           </div>
 
           <div className="mb-5">
@@ -489,7 +494,7 @@ function Toggle({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={on}
-      className={`h-9 rounded-md border px-2.5 text-[12px] font-medium transition-colors disabled:opacity-40 ${
+      className={`h-11 shrink-0 rounded-md border px-2.5 text-[12px] font-medium transition-colors disabled:opacity-40 ${
         on
           ? danger
             ? "border-[#8A2E2E] bg-[#8A2E2E] text-[#F7F6F1]"
@@ -516,6 +521,11 @@ function WeeklyReport({
   const shownUrl = draft.status === "published" && archivedUrl ? archivedUrl : previewUrl;
   const totals = payload.totals ?? {};
   const rangeLabel = payload.range_label ?? draft.report_date;
+  // weekly_report.py sums each day's own miles, and a day with no odometer
+  // photo logs that day as null, not 0; the week total then sums those days
+  // as 0, which reads as "drove nothing" rather than "not logged." Only show
+  // the tile when at least one day in the week actually reported miles.
+  const milesSourced = (payload.days ?? []).some((d) => d.miles != null);
   const statusLine = draft.rebuild_requested
     ? "Rebuilding"
     : draft.dirty
@@ -542,11 +552,11 @@ function WeeklyReport({
 
       <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {tiles.map(([key, label]) =>
-          totals[key] != null ? (
-            <div key={key} className="rounded-lg border border-[#E2DFD5] p-3 text-center">
-              <div className="text-[18px] font-semibold tabular-nums leading-none">{totals[key]}</div>
-              <div className="mt-1 text-[10.5px] leading-snug text-[#5B6560]">{label}</div>
-            </div>
+          totals[key] != null && (key !== "miles" || milesSourced) ? (
+            <Card key={key} className="p-3.5 text-center">
+              <div className="text-[22px] leading-none font-semibold tracking-tight tabular-nums">{totals[key]}</div>
+              <div className="mt-1.5 text-[11px] leading-snug text-[#5B6560]">{label}</div>
+            </Card>
           ) : null,
         )}
       </div>
