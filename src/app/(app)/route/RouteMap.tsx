@@ -40,6 +40,7 @@ export function RouteMap({
   end,
   coords,
   doneIds,
+  focus,
 }: {
   stops: RouteStopView[];
   start: RouteEndpoint | null;
@@ -47,6 +48,8 @@ export function RouteMap({
   /** OSRM geometry as [lng, lat] pairs; null while loading or unavailable. */
   coords: [number, number][] | null;
   doneIds: Set<string>;
+  /** A stop to pan to; `n` changes on every tap so the same stop re-centers. */
+  focus?: { id: string; n: number } | null;
 }) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const [loaded, setLoaded] = useState(false);
@@ -57,6 +60,25 @@ export function RouteMap({
   const lineRef = useRef<G>(null);
   const meRef = useRef<G>(null);
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
+
+  // Google reports a rejected key (referrer, billing) through this one global
+  // hook after the script itself loaded fine; without it the card sits blank.
+  useEffect(() => {
+    const w = window as unknown as { gm_authFailure?: () => void; __gmAuthFailed?: boolean };
+    if (w.__gmAuthFailed) {
+      setFailed(true);
+      return;
+    }
+    const prev = w.gm_authFailure;
+    w.gm_authFailure = () => {
+      w.__gmAuthFailed = true;
+      prev?.();
+      setFailed(true);
+    };
+    return () => {
+      if (w.gm_authFailure && !w.__gmAuthFailed) w.gm_authFailure = prev;
+    };
+  }, []);
 
   useEffect(() => {
     if (!apiKey || !containerRef.current) return;
@@ -181,7 +203,24 @@ export function RouteMap({
     });
   }, [me, loaded]);
 
-  if (!apiKey || failed) return null;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!focus || !map || !loaded) return;
+    const s = stops.find((x) => x.id === focus.id);
+    if (!s) return;
+    map.panTo({ lat: s.lat, lng: s.lng });
+    map.setZoom(15);
+    // Only a new tap should move the map, not a re-render of the same stops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, loaded]);
+
+  if (!apiKey || failed) {
+    return (
+      <div className="flex min-h-11 items-center gap-2 rounded-lg border border-[#E2DFD5] bg-white px-4 py-3 text-[13px] text-[#8A928C]">
+        Map unavailable
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-[220px] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:h-[320px]">

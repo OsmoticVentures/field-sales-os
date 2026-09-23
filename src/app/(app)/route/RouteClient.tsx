@@ -14,7 +14,7 @@
  * vanilla google.maps canvas, no map dependency added.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { RouteMap } from "./RouteMap";
@@ -34,6 +34,8 @@ import type {
   RouteStopView,
 } from "@/lib/features/route/types";
 import { AddStop } from "./AddStop";
+import { DayMoveMenu, RowIco } from "./RowControls";
+import { HUBSPOT_COMPANY_URL } from "@/lib/features/prospect/format";
 
 type StatePayload = {
   ok: boolean;
@@ -98,6 +100,20 @@ function appleMapsUrl(p: { address?: string | null; lat: number; lng: number }):
 }
 function fullAddress(a: RouteAccount): string {
   return [a.street, a.city, a.state].filter(Boolean).join(", ");
+}
+/** One Apple Maps URL for the whole day: last stop is the destination, the rest ride along as waypoints. */
+function appleMapsRouteUrl(stops: { lat: number; lng: number }[]): string {
+  return `https://maps.apple.com/?daddr=${stops.map((s) => `${s.lat},${s.lng}`).join("+to:")}`;
+}
+function prettyPhone(value: string): string {
+  const m = value.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  return m ? `(${m[1]}) ${m[2]}-${m[3]}` : value;
+}
+function prettyUrl(value: string): string {
+  return value.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
+}
+function absoluteUrl(value: string): string {
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
 
 type ScheduleRow = { arrive: number; leave: number; stay: number };
@@ -182,6 +198,8 @@ const dayBtn = (active: boolean) =>
 /** ghostBtn plus the icon+label layout most row actions need; composed, not
  *  a fork, so the base still comes from lib/core/ui. */
 const iconBtn = `${ghostBtn} inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-medium text-[#3D4A44]`;
+/** Square 44px icon-only row control. */
+const sqBtn = `${ghostBtn} inline-flex min-w-11 items-center justify-center bg-white px-0 py-0`;
 
 export function RouteClient() {
   const [data, setData] = useState<StatePayload | null>(null);
@@ -264,7 +282,46 @@ function RouteDay({
   const [coords, setCoords] = useState<[number, number][] | null>(null);
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">("loading");
   const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
+  const mapBoxRef = useRef<HTMLDivElement | null>(null);
+
+  // Drag to reorder: the dragged row dims and an insertion line shows where it
+  // lands; the array reorders once, on drop.
+  const listRef = useRef<HTMLUListElement>(null);
+  const [drag, setDrag] = useState<{ id: string; dropIndex: number } | null>(null);
+  function dropIndexAt(clientY: number, excludeId: string): number {
+    const items = listRef.current ? Array.from(listRef.current.querySelectorAll<HTMLLIElement>("li[data-stop-id]")) : [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].dataset.stopId === excludeId) continue;
+      const rect = items[i].getBoundingClientRect();
+      if (clientY < rect.top + rect.height / 2) return i;
+    }
+    return items.length;
+  }
+  function handleGripDown(e: PointerEvent<HTMLButtonElement>, id: string, index: number) {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({ id, dropIndex: index });
+  }
+  function handleGripMove(e: PointerEvent<HTMLButtonElement>) {
+    if (!drag) return;
+    e.preventDefault();
+    const next = dropIndexAt(e.clientY, drag.id);
+    if (next !== drag.dropIndex) setDrag({ ...drag, dropIndex: next });
+  }
+  function handleGripUp(e: PointerEvent<HTMLButtonElement>) {
+    if (!drag) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const ids = stops.map((s) => s.id);
+    const from = ids.indexOf(drag.id);
+    const filtered = ids.filter((id) => id !== drag.id);
+    let insertAt = drag.dropIndex;
+    if (from !== -1 && from < drag.dropIndex) insertAt -= 1;
+    insertAt = Math.max(0, Math.min(filtered.length, insertAt));
+    filtered.splice(insertAt, 0, drag.id);
+    setDrag(null);
+    if (filtered.some((id, i) => id !== ids[i])) reorder(filtered);
+  }
 
   const pathKey = useMemo(
     () =>
@@ -318,26 +375,31 @@ function RouteDay({
   const shownLegs = schedule?.priced ?? legs;
 
   const returnByMin = prefs.returnBy ? minutesOfDay(prefs.returnBy) : null;
+  // Only a hard conflict makes a stop not fit: the door is shut for the rest
+  // of the day, or the drive misses a stated time. The return-by clock is a
+  // target the day bar reports against, never a reason to drop a stop.
   const wontFit = useMemo(() => {
     if (!schedule) return [];
     return stops
-      .map((s, i) => ({ s, i }))
-      .filter(
-        ({ s, i }) =>
-          schedule.closedToday.has(s.id) ||
-          schedule.missedAnchors.has(s.id) ||
-          (returnByMin !== null && schedule.rows[i].arrive > returnByMin),
-      )
-      .map(({ s, i }) => {
+      .filter((s) => schedule.closedToday.has(s.id) || schedule.missedAnchors.has(s.id))
+      .map((s) => {
         const anchor = stopTimes[s.id];
         const reason = schedule.closedToday.has(s.id)
           ? "closed the rest of the day"
-          : schedule.missedAnchors.has(s.id) && anchor
-            ? `arrives after its ${clock(minutesOfDay(anchor))} time`
-            : `arrives after ${clock(returnByMin ?? 0)}`;
+          : `arrives after its ${clock(minutesOfDay(anchor))} time`;
         return { id: s.id, name: s.type === "account" ? s.account.name : s.custom.label, reason };
       });
-  }, [schedule, stops, returnByMin, stopTimes]);
+  }, [schedule, stops, stopTimes]);
+  // Potential-A stops landing after the return-by target, named so the
+  // highest-upside door is never the one quietly cut when the day runs long.
+  const atRiskIds = useMemo(() => {
+    if (!schedule || returnByMin === null) return new Set<string>();
+    return new Set(
+      stops
+        .filter((s, i) => s.type === "account" && s.account.tier === "A" && schedule.rows[i].arrive > returnByMin)
+        .map((s) => s.id),
+    );
+  }, [schedule, stops, returnByMin]);
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
     try {
@@ -447,9 +509,26 @@ function RouteDay({
     const fromEntries = draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id));
     const targetEntries = [...(data.draft[targetDay] ?? []), entry];
     setData((prev) => ({ ...prev, draft: { ...prev.draft, [activeDay]: fromEntries, [targetDay]: targetEntries } }));
-    postJson("/api/route/draft", { day: activeDay, entries: fromEntries }).catch(() => {});
-    postJson("/api/route/draft", { day: targetDay, entries: targetEntries }).catch(() => {});
-    setOpenMenuId(null);
+    // Sequential: each write reads the whole draft and rewrites it, so two in flight at once can undo each other.
+    postJson("/api/route/draft", { day: activeDay, entries: fromEntries })
+      .then(() => postJson("/api/route/draft", { day: targetDay, entries: targetEntries }))
+      .catch(() => {});
+  }
+  function moveToTop(id: string) {
+    const ids = stops.map((s) => s.id);
+    if (ids.indexOf(id) <= 0) return;
+    reorder([id, ...ids.filter((x) => x !== id)]);
+  }
+  function showInMap(id: string) {
+    setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+    mapBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  function clearDay() {
+    const day = activeDay;
+    setData((prev) => ({ ...prev, draft: { ...prev.draft, [day]: [] }, done: { ...prev.done, [day]: [] } }));
+    postJson("/api/route/draft", { day, entries: [] })
+      .then(() => postJson("/api/route/done", { day, done: [] }))
+      .catch(() => {});
   }
 
   async function optimize() {
@@ -513,7 +592,11 @@ function RouteDay({
         over={Boolean(over)}
       />
 
-      {(stops.length > 0 || start) && <RouteMap stops={stops} start={start} end={end} coords={coords} doneIds={doneIds} />}
+      {(stops.length > 0 || start) && (
+        <div ref={mapBoxRef}>
+          <RouteMap stops={stops} start={start} end={end} coords={coords} doneIds={doneIds} focus={focus} />
+        </div>
+      )}
 
       {calls.length > 0 && (
         <ul className="divide-y divide-[#EEECE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
@@ -569,7 +652,7 @@ function RouteDay({
               )}
             </div>
           )}
-          <ul className="divide-y divide-[#EEECE3]">
+          <ul ref={listRef} className="divide-y divide-[#EEECE3]">
             {stops.map((s, i) => {
               const a = s.type === "account" ? s.account : null;
               const c = s.type === "custom" ? s.custom : null;
@@ -580,8 +663,16 @@ function RouteDay({
               const hours = a ? hoursStatusNow(a.business_hours) : null;
               const closed = schedule?.closedToday.has(s.id);
               const missedAnchor = schedule?.missedAnchors.has(s.id);
+              const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
+              const dropAtEnd = drag && drag.dropIndex === stops.length && i === stops.length - 1;
               return (
-                <li key={s.id} className="flex flex-col gap-2 px-4 py-3">
+                <li
+                  key={s.id}
+                  data-stop-id={s.id}
+                  className={`flex flex-col gap-2 px-4 py-3 ${drag?.id === s.id ? "opacity-40" : ""} ${
+                    dropBefore ? "border-t-2 border-[#2C6A46]" : ""
+                  } ${dropAtEnd ? "border-b-2 border-[#2C6A46]" : ""}`}
+                >
                   <div className="flex items-start gap-3">
                     <span
                       className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[12px] font-semibold tabular-nums text-white ${
@@ -607,6 +698,12 @@ function RouteDay({
                         {missedAnchor && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">later than stated time</span>
                         )}
+                        {atRiskIds.has(s.id) && (
+                          <span className="inline-flex items-center gap-1 rounded bg-[#FBF4F2] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">
+                            <RowIco name="flag" size={10} />
+                            at risk
+                          </span>
+                        )}
                         {hours && (
                           <span className={`text-[12px] font-medium ${hours.open ? "text-[#2C6A46]" : "text-[#8A928C]"}`}>{hours.label}</span>
                         )}
@@ -626,7 +723,69 @@ function RouteDay({
                               12m <span className="font-medium tabular-nums text-[#3D4A44]">{usd(a.trailing_12m_revenue)}</span>
                             </span>
                           )}
+                          {a.lifetime_revenue !== null && (
+                            <span>
+                              lifetime <span className="font-medium tabular-nums text-[#3D4A44]">{usd(a.lifetime_revenue)}</span>
+                            </span>
+                          )}
                         </div>
+                      )}
+                      {a && (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]">
+                          {a.hubspot_company_id ? (
+                            <a
+                              href={HUBSPOT_COMPANY_URL(a.hubspot_company_id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex min-h-8 items-center gap-1 font-medium text-[#3D4A44] hover:underline"
+                            >
+                              <Ico name="hubspot" size={12} />
+                              HubSpot
+                            </a>
+                          ) : (
+                            <span className="text-[#A9AFA9]">not in HubSpot</span>
+                          )}
+                          {a.website ? (
+                            <a
+                              href={absoluteUrl(a.website)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex min-h-8 min-w-0 items-center gap-1 font-medium text-[#3D4A44] hover:underline"
+                            >
+                              <Ico name="globe" size={12} />
+                              <span className="max-w-[22ch] truncate">{prettyUrl(a.website)}</span>
+                            </a>
+                          ) : (
+                            <span className="text-[#A9AFA9]">no site on file</span>
+                          )}
+                          {a.phone ? (
+                            <a
+                              href={`tel:${a.phone}`}
+                              className="inline-flex min-h-8 items-center gap-1 font-medium tabular-nums text-[#3D4A44] hover:underline"
+                            >
+                              <Ico name="phone" size={12} />
+                              {prettyPhone(a.phone)}
+                            </a>
+                          ) : (
+                            <span className="text-[#A9AFA9]">no phone on file</span>
+                          )}
+                        </div>
+                      )}
+                      {c && (c.kind === "lunch" || c.kind === "hotel") && (
+                        <label className="mt-1 flex items-center gap-1.5 text-[12.5px] text-[#5B6560]">
+                          At
+                          <input
+                            type="time"
+                            value={stopTimes[s.id] ?? ""}
+                            onChange={(e) => {
+                              const next = { ...stopTimes };
+                              if (e.target.value) next[s.id] = e.target.value;
+                              else delete next[s.id];
+                              patchTimes(activeDay, next);
+                            }}
+                            className={`${inputCls} w-[8rem]`}
+                          />
+                        </label>
                       )}
                       {prev &&
                         (leg ? (
@@ -648,95 +807,87 @@ function RouteDay({
                         ))}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {confirmingDone.has(s.id) ? (
-                      <div className="min-w-[170px] flex-1">
-                        <SuccessNote title="Marked done" />
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => toggleDone(s.id)} className={iconBtn} aria-pressed={isDone}>
+                  {confirmingDone.has(s.id) ? (
+                    <div className="max-w-xs">
+                      <SuccessNote title="Marked done" />
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onPointerDown={(e) => handleGripDown(e, s.id, i)}
+                        onPointerMove={handleGripMove}
+                        onPointerUp={handleGripUp}
+                        onPointerCancel={() => setDrag(null)}
+                        aria-label={`Drag ${title} to reorder`}
+                        style={{ touchAction: "none" }}
+                        className={`${sqBtn} cursor-grab active:cursor-grabbing`}
+                      >
+                        <RowIco name="grip" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleDone(s.id)}
+                        aria-pressed={isDone}
+                        className={
+                          isDone
+                            ? "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#2C6A46] px-3 py-2 text-[13px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none"
+                            : `${iconBtn} bg-white`
+                        }
+                      >
                         <Ico name="check" size={13} />
                         {isDone ? "Done" : "Mark done"}
                       </button>
-                    )}
-                    <a
-                      href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
-                      className="min-h-11 rounded-md bg-[#2C6A46] px-4 py-2 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
-                    >
-                      GO
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => setOpenMenuId(openMenuId === s.id ? null : s.id)}
-                      aria-label={`More actions for ${title}`}
-                      aria-expanded={openMenuId === s.id}
-                      className={iconBtn}
-                    >
-                      <Ico name="more" size={14} />
-                    </button>
-                  </div>
-                  {openMenuId === s.id && (
-                    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-2">
-                      <button type="button" onClick={() => moveStop(s.id, -1)} disabled={i === 0} className={iconBtn} aria-label={`Move ${title} earlier`}>
-                        <Ico name="chevron-up" size={13} />
-                        Earlier
+                      <button
+                        type="button"
+                        onClick={() => moveToTop(s.id)}
+                        disabled={i === 0}
+                        aria-label={`Move ${title} to the top of the route`}
+                        className={sqBtn}
+                      >
+                        <RowIco name="chevrons-up" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveStop(s.id, -1)}
+                        disabled={i === 0}
+                        aria-label={`Move ${title} earlier`}
+                        className={sqBtn}
+                      >
+                        <Ico name="chevron-up" size={14} />
                       </button>
                       <button
                         type="button"
                         onClick={() => moveStop(s.id, 1)}
                         disabled={i === stops.length - 1}
-                        className={iconBtn}
                         aria-label={`Move ${title} later`}
+                        className={sqBtn}
                       >
-                        <Ico name="chevron-down" size={13} />
-                        Later
+                        <Ico name="chevron-down" size={14} />
                       </button>
-                      {c && (c.kind === "lunch" || c.kind === "hotel") && (
-                        <label className="flex min-h-11 items-center gap-1.5 text-[12.5px] text-[#5B6560]">
-                          Pin time
-                          <input
-                            type="time"
-                            value={stopTimes[s.id] ?? ""}
-                            onChange={(e) => {
-                              const next = { ...stopTimes };
-                              if (e.target.value) next[s.id] = e.target.value;
-                              else delete next[s.id];
-                              patchTimes(activeDay, next);
-                            }}
-                            className={`${inputCls} w-[7.5rem]`}
-                          />
-                        </label>
-                      )}
                       {days.length > 1 && (
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            const target = e.target.value;
-                            if (target) moveStopToDay(s.id, target);
-                          }}
-                          className="min-h-11 rounded-md border border-[#E2DFD5] bg-white px-2 text-[13px] text-[#3D4A44]"
-                        >
-                          <option value="">Move to day</option>
-                          {days
-                            .filter((d) => d !== activeDay)
-                            .map((d) => {
-                              const { weekday, short } = dayLabel(d);
-                              return (
-                                <option key={d} value={d}>
-                                  {weekday} {short}
-                                </option>
-                              );
-                            })}
-                        </select>
+                        <DayMoveMenu
+                          days={days}
+                          active={activeDay}
+                          onPick={(day) => moveStopToDay(s.id, day)}
+                          label={`Move ${title} to a day`}
+                          className={sqBtn}
+                        />
                       )}
+                      <button type="button" onClick={() => showInMap(s.id)} aria-label={`Show ${title} on the map`} className={sqBtn}>
+                        <RowIco name="locate" />
+                      </button>
+                      <a
+                        href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
+                        className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+                      >
+                        GO
+                      </a>
                       <button
                         type="button"
-                        onClick={() => {
-                          removeStop(s.id);
-                          setOpenMenuId(null);
-                        }}
-                        aria-label={`Remove ${title}`}
-                        className="min-h-11 min-w-11 rounded-md border border-[#E2DFD5] text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]"
+                        onClick={() => removeStop(s.id)}
+                        aria-label={`Remove ${title} from the route`}
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]"
                       >
                         <Ico name="close" size={14} />
                       </button>
@@ -756,6 +907,24 @@ function RouteDay({
               </span>
             </div>
           )}
+        </div>
+      )}
+
+      {stops.length > 0 && (
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {stops.length > 1 && (
+            <a href={appleMapsRouteUrl(stops)} className={`${iconBtn} bg-white`}>
+              <Ico name="pin" size={13} />
+              Open all in Maps
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={clearDay}
+            className="inline-flex min-h-11 items-center rounded-md border border-[#E2DFD5] bg-white px-3 text-[13px] font-medium text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]"
+          >
+            Clear route
+          </button>
         </div>
       )}
 
@@ -964,6 +1133,13 @@ function DayBar({
                 Back {end?.label !== "Home" && end?.label ? `at ${end.label} ` : ""}
                 <span className="tabular-nums">{clock(finish)}</span>
               </span>
+              {prefs.returnBy && (
+                <span className={over ? "text-[#B5372A]" : "text-[#5B6560]"}>
+                  {over
+                    ? `${duration(finish - minutesOfDay(prefs.returnBy))} past ${clock(minutesOfDay(prefs.returnBy))}`
+                    : `${duration(minutesOfDay(prefs.returnBy) - finish)} spare`}
+                </span>
+              )}
               {driveMinutes !== null && (
                 <span className="text-[#5B6560]">
                   <span className="tabular-nums">{duration(driveMinutes)}</span> driving
