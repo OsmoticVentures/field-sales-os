@@ -22,9 +22,16 @@ import {
   registerSuccess,
   requestUserAgent,
 } from "../../../lib/core/session";
-import { deviceLabel, enrollDevice, trustedDeviceId } from "../../../lib/core/devices";
+import { deviceLabel, enrollDevice, trustedDeviceIdFrom } from "../../../lib/core/devices";
 
 export async function POST(req: Request) {
+  // Request-scoped APIs first, awaited directly in the handler: in Next 16
+  // `cookies()` and `headers()` only resolve inside this request's async
+  // chain, so the jar is taken here and handed down, never fetched by a
+  // helper of its own.
+  const jar = await cookies();
+  const ua = await requestUserAgent();
+
   const lockMs = lockRemainingMs();
   if (lockMs > 0) {
     return NextResponse.json(
@@ -67,7 +74,6 @@ export async function POST(req: Request) {
   }
 
   registerSuccess();
-  const jar = await cookies();
   const opts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
@@ -81,12 +87,11 @@ export async function POST(req: Request) {
   let remembered: "already" | "ok" | "full" | "off" | "error" = "off";
   if (remember) {
     try {
-      const existing = await trustedDeviceId();
+      const existing = await trustedDeviceIdFrom(jar.get(DEVICE_COOKIE)?.value);
       if (existing) {
         jar.set(DEVICE_COOKIE, await mintDeviceToken(existing), { ...opts, maxAge: DEVICE_TTL });
         remembered = "already";
       } else {
-        const ua = await requestUserAgent();
         const id = await enrollDevice(deviceLabel(ua, surface), ua, DEVICE_LIMIT);
         if (id) {
           jar.set(DEVICE_COOKIE, await mintDeviceToken(id), { ...opts, maxAge: DEVICE_TTL });

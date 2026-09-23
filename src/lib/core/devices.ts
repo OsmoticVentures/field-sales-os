@@ -18,7 +18,7 @@
 
 import "server-only";
 import { cache } from "react";
-import { claimedDeviceId, hasValidSession } from "./session";
+import { readAuthCookies, readDeviceToken, verifyToken } from "./session";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -48,12 +48,13 @@ function newDeviceId(): string {
 }
 
 /**
- * The device this request is trusted as, or null. `cache()` because one
- * render pass asks this many times and it must not be many round trips.
+ * Is this claimed device id still trusted? `cache()` keyed on the id because
+ * one render pass asks this many times and it must not be many round trips.
+ * The cookie is read by the caller, never in here: `cookies()` must resolve
+ * inside the request's own async chain, not behind a memoized function.
  */
-export const trustedDeviceId = cache(async (): Promise<string | null> => {
-  const claimed = await claimedDeviceId();
-  if (!claimed || !configured()) return null;
+const lookupTrusted = cache(async (claimed: string): Promise<string | null> => {
+  if (!configured()) return null;
 
   const params = new URLSearchParams({
     select: "id,last_seen_at",
@@ -77,6 +78,19 @@ export const trustedDeviceId = cache(async (): Promise<string | null> => {
   return rows[0].id;
 });
 
+/** The device a given remembered-device cookie value proves, or null. */
+export async function trustedDeviceIdFrom(deviceCookie: string | undefined): Promise<string | null> {
+  const claimed = await readDeviceToken(deviceCookie);
+  if (!claimed) return null;
+  return lookupTrusted(claimed);
+}
+
+/** The device this request is trusted as, or null. */
+export async function trustedDeviceId(): Promise<string | null> {
+  const { device } = await readAuthCookies();
+  return trustedDeviceIdFrom(device);
+}
+
 /** Stamp last-seen, but only once every six hours. */
 async function touch(id: string, lastSeen: string | null): Promise<void> {
   const stale = !lastSeen || Date.now() - Date.parse(lastSeen) > 6 * 60 * 60 * 1000;
@@ -93,11 +107,13 @@ async function touch(id: string, lastSeen: string | null): Promise<void> {
 }
 
 /** The gate every route handler asks: a valid PIN session, or a remembered
- *  device. */
-export const hasAccess = cache(async (): Promise<boolean> => {
-  if (await hasValidSession()) return true;
-  return (await trustedDeviceId()) !== null;
-});
+ *  device. Reads the jar itself, first thing, inside the caller's await
+ *  chain; the only memoized part is the database lookup behind it. */
+export async function hasAccess(): Promise<boolean> {
+  const { session, device } = await readAuthCookies();
+  if (await verifyToken(session)) return true;
+  return (await trustedDeviceIdFrom(device)) !== null;
+}
 
 export async function liveDeviceCount(): Promise<number> {
   if (!configured()) return 0;

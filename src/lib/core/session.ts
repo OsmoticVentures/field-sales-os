@@ -122,16 +122,31 @@ export async function readDeviceToken(token: string | undefined): Promise<string
   return payload.slice(0, expAt);
 }
 
+/**
+ * Both auth cookies, read once. `cookies()` is async in Next 16 and only
+ * resolves inside the request's own async chain, so this is the ONE place
+ * outside the PIN endpoint that touches the jar: callers await it at the top
+ * of a route handler or layout and pass the raw values down to the pure
+ * verifiers above. Never call it from module scope, from inside a `cache()`d
+ * or `"use cache"` function, or after the response has been returned.
+ */
+export type AuthCookies = { session: string | undefined; device: string | undefined };
+
+export async function readAuthCookies(): Promise<AuthCookies> {
+  const jar = await cookies();
+  return { session: jar.get(COOKIE)?.value, device: jar.get(DEVICE_COOKIE)?.value };
+}
+
 /** The device id claimed by this request's cookie, signature-checked only. */
 export async function claimedDeviceId(): Promise<string | null> {
-  const jar = await cookies();
-  return readDeviceToken(jar.get(DEVICE_COOKIE)?.value);
+  const { device } = await readAuthCookies();
+  return readDeviceToken(device);
 }
 
 /** The one gate every route handler calls: a valid signed session cookie. */
 export async function hasValidSession(): Promise<boolean> {
-  const jar = await cookies(); // async in Next 16
-  return verifyToken(jar.get(COOKIE)?.value);
+  const { session } = await readAuthCookies();
+  return verifyToken(session);
 }
 
 /** Used by the PIN endpoint to label a remembered device with which tile
