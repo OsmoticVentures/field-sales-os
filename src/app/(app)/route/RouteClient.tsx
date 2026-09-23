@@ -9,17 +9,15 @@
  * that will not fit named before the day starts.
  *
  * Adapted from the NutriBiotic OS's map/page.tsx, MapScreen.tsx and
- * RoutePanel.tsx. See this folder's AddStop.tsx for the one deliberate
- * scope cut (no live HubSpot call search yet) and the port's handback for
- * the rest: no interactive map canvas (the source's @react-google-maps/api
- * is not a dependency this repo carries, and PORTING.md bars adding one
- * without asking), so this is a phone-first list, which reads better at a
- * red light than a small map would anyway.
+ * RoutePanel.tsx. The list is the working surface (44px buttons, readable
+ * at a red light); RouteMap.tsx above it shows the shape of the day on a
+ * vanilla google.maps canvas, no map dependency added.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { RouteIco as Ico } from "@/lib/features/route/icons";
+import { RouteMap } from "./RouteMap";
 import { dayLabel, defaultActiveDay, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
@@ -256,6 +254,7 @@ function RouteDay({
 
   const [busy, setBusy] = useState(false);
   const [legs, setLegs] = useState<DriveLeg[] | null>(null);
+  const [coords, setCoords] = useState<[number, number][] | null>(null);
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">("loading");
 
   const pathKey = useMemo(
@@ -272,6 +271,7 @@ function RouteDay({
     const points = [...(start ? [start] : []), ...stops, ...(end ? [end] : [])];
     if (points.length < 2) {
       setLegs(null);
+      setCoords(null);
       setLegState("ok");
       return;
     }
@@ -283,14 +283,16 @@ function RouteDay({
       body: JSON.stringify({ points: points.map((p) => ({ lat: p.lat, lng: p.lng })), mode: "legs" }),
     })
       .then((r) => r.json())
-      .then((j: { ok: boolean; legs: DriveLeg[] | null }) => {
+      .then((j: { ok: boolean; legs: DriveLeg[] | null; coords?: [number, number][] | null }) => {
         if (!live) return;
         setLegs(j.ok ? j.legs : null);
+        setCoords(j.ok ? (j.coords ?? null) : null);
         setLegState(j.ok && j.legs ? "ok" : "unavailable");
       })
       .catch(() => {
         if (live) {
           setLegs(null);
+          setCoords(null);
           setLegState("unavailable");
         }
       });
@@ -457,6 +459,8 @@ function RouteDay({
         hasStops={stops.length > 0}
         over={Boolean(over)}
       />
+
+      {(stops.length > 0 || start) && <RouteMap stops={stops} start={start} end={end} coords={coords} doneIds={doneIds} />}
 
       {calls.length > 0 && (
         <ul className="divide-y divide-[#EEECE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">

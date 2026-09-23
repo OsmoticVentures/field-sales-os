@@ -30,12 +30,17 @@ export const TRAFFIC_FACTOR = 1.35;
 
 const MAX_STOPS = 25;
 
-export async function routeDriveLegs(points: { lat: number; lng: number }[]): Promise<DriveLeg[] | null> {
+/** The road shape as OSRM draws it, [lng, lat] pairs (GeoJSON order), for
+ *  the map's polyline. Same single call as the legs; the geometry rides
+ *  along at `overview=simplified`, which is plenty at a route's zoom. */
+export type DriveShape = { legs: DriveLeg[]; coords: [number, number][] };
+
+export async function routeDriveShape(points: { lat: number; lng: number }[]): Promise<DriveShape | null> {
   if (points.length < 2 || points.length > MAX_STOPS) return null;
   if (points.some((p) => !Number.isFinite(p.lat) || !Number.isFinite(p.lng))) return null;
 
   const path = points.map((p) => `${p.lng},${p.lat}`).join(";");
-  const url = `${OSRM}/route/v1/driving/${path}?overview=false&annotations=false`;
+  const url = `${OSRM}/route/v1/driving/${path}?overview=simplified&geometries=geojson&annotations=false`;
 
   let res: Response;
   try {
@@ -45,7 +50,10 @@ export async function routeDriveLegs(points: { lat: number; lng: number }[]): Pr
   }
   if (!res.ok) return null;
 
-  let data: { code?: string; routes?: { legs?: { duration?: number; distance?: number }[] }[] };
+  let data: {
+    code?: string;
+    routes?: { legs?: { duration?: number; distance?: number }[]; geometry?: { coordinates?: [number, number][] } }[];
+  };
   try {
     data = await res.json();
   } catch {
@@ -65,7 +73,14 @@ export async function routeDriveLegs(points: { lat: number; lng: number }[]): Pr
       miles: l.distance / 1609.344,
     });
   }
-  return out;
+  const coords = (data.routes?.[0]?.geometry?.coordinates ?? []).filter(
+    (c): c is [number, number] => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1]),
+  );
+  return { legs: out, coords };
+}
+
+export async function routeDriveLegs(points: { lat: number; lng: number }[]): Promise<DriveLeg[] | null> {
+  return (await routeDriveShape(points))?.legs ?? null;
 }
 
 export async function routeDriveMatrix(points: { lat: number; lng: number }[]): Promise<number[][] | null> {

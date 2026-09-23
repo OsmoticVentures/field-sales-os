@@ -4,7 +4,7 @@
  * Read-only (no Idempotency-Key), calls OSRM server-side so the 1.35 factor
  * and the fallback rule live in one place.
  */
-import { routeDriveLegs, routeDriveMatrix } from "../../../../lib/features/route/drive";
+import { routeDriveMatrix, routeDriveShape } from "../../../../lib/features/route/drive";
 import { hasAccess } from "../../../../lib/core/devices";
 
 export const runtime = "nodejs";
@@ -23,12 +23,12 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "Expected JSON." }, { status: 400 });
   }
   const points = Array.isArray(body.points) ? body.points : [];
-  if (points.length < 2) return Response.json({ ok: true, legs: null, matrix: null });
+  if (points.length < 2) return Response.json({ ok: true, legs: null, coords: null, matrix: null });
 
   if (body.mode === "matrix") {
     const matrix = await routeDriveMatrix(points);
     return Response.json({ ok: true, matrix });
   }
-  const legs = await routeDriveLegs(points);
-  return Response.json({ ok: true, legs });
+  const shape = await routeDriveShape(points);
+  return Response.json({ ok: true, legs: shape?.legs ?? null, coords: shape?.coords ?? null });
 }
