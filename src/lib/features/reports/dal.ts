@@ -148,16 +148,6 @@ export type ReportStop = {
   events?: Array<{ body?: string | null }>;
 };
 
-/** The first logged event body at a stop, trimmed to one line. Absent, never
- *  a placeholder, when nothing was logged (a call-only or message-only stop
- *  often has no body at all). */
-export function stopGist(stop: ReportStop): string | null {
-  const body = (stop.events ?? []).map((e) => e.body?.trim()).find((b) => b);
-  if (!body) return null;
-  const oneLine = body.replace(/\s+/g, " ").trim();
-  return oneLine.length > 140 ? `${oneLine.slice(0, 140).trimEnd()}…` : oneLine;
-}
-
 /** Only the slice of build_report()'s dict this screen reads or writes.
  *  Everything else in the stored payload passes through untouched on a save
  *  (see actionSaveReportEdits below), because it belongs to HubSpot. */

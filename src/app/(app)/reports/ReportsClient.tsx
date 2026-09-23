@@ -16,7 +16,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, Card, primaryBtn, ghostBtn, inputCls, eyebrowCls } from "../../../lib/core/ui";
-import { stopGist, type ReportDraft, type ReportHqNote } from "../../../lib/features/reports/dal";
+import type { ReportDraft, ReportHqNote } from "../../../lib/features/reports/dal";
+import { stopGist } from "../../../lib/features/reports/stop-gist";
 
 const HQ_CATEGORIES = ["FORMULATION & PRODUCT", "DISCOUNTS & PRICING", "ENTERPRISE & HQ ACCESS", "COMPETITIVE INTEL", "OTHER"];
 
