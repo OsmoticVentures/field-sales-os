@@ -15,7 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { apiFetch } from "@/lib/core/api";
-import { Card, Ico, inputCls, primaryBtn } from "../../../lib/core/ui";
+import { Card, Ico } from "../../../lib/core/ui";
 import { FAVORITES, GALLON_STEP, TANK_GALLONS } from "../../../lib/features/fuel/constants";
 import type { Scored } from "../../../lib/features/fuel/score";
 
@@ -50,6 +50,11 @@ function appleMapsTwoStops(stop: { name: string; address: string }, destAddress:
   const end = encodeURIComponent(destAddress);
   return `https://maps.apple.com/?saddr=Current%20Location&daddr=${s}+to:${end}&dirflg=d`;
 }
+
+const inputCls =
+  "h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3 text-[16px] text-[#14201B] outline-none placeholder:text-[#8A928C] focus:border-[#14201B]";
+const primaryBtn =
+  "flex h-14 w-full items-center justify-center rounded-md bg-[#14201B] text-[16px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100";
 
 export function FuelClient() {
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
@@ -106,6 +111,10 @@ export function FuelClient() {
     if (!loc) {
       locate();
       setFormError("Allow location first.");
+      return;
+    }
+    if (gallons < GALLON_STEP) {
+      setFormError("Raise the fill-to handle above what's in the tank.");
       return;
     }
     if (!fav && !query.trim()) {
@@ -179,7 +188,7 @@ export function FuelClient() {
 
       <Card>
         <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
-          <Ico name="pin" size={13} />
+          <Ico name="external" size={13} />
           Going to
         </div>
         <div className="flex flex-wrap gap-2">
@@ -220,7 +229,7 @@ export function FuelClient() {
         </div>
       </Card>
 
-      <button type="button" onClick={find} disabled={pending} className={`${primaryBtn} flex h-14 w-full items-center justify-center text-[16px]`}>
+      <button type="button" onClick={find} disabled={pending} className={primaryBtn}>
         {pending ? "Checking prices" : "Find gas"}
       </button>
       {formError && <p className="text-[13px] text-[#8A6D2F]">{formError}</p>}
@@ -230,7 +239,9 @@ export function FuelClient() {
           {result.ok ? (
             <>
               <div className="text-[19px] font-semibold leading-tight tracking-tight">To {result.dest.label}</div>
-              <div className="mt-1 text-[13px] text-[#5B6560]">{Math.round(result.directMinutes)} min straight there</div>
+              <div className="mt-1 text-[13px] text-[#5B6560]">
+                {Math.round(result.directMinutes)} min straight there, {result.considered} stations priced
+              </div>
               <ol className="mt-4 flex flex-col gap-3">
                 {result.best.map((s, i) => (
                   <StationCard key={s.id} s={s} rank={i + 1} gallons={result.gallons} destAddress={result.dest.address} />
@@ -246,41 +257,48 @@ export function FuelClient() {
   );
 }
 
-function StationCard({ s, rank, gallons, destAddress }: { s: Scored; rank: number; gallons: number; destAddress: string }) {
+function StationCard({ s, gallons, destAddress }: { s: Scored; rank: number; gallons: number; destAddress: string }) {
   const minutes = Math.round(s.detourMinutes);
   return (
-    <li>
+    <li className="rounded-lg border border-[#E2DFD5] bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[16px] font-semibold">{s.name}</div>
+          {s.address && <div className="truncate text-[13px] text-[#5B6560]">{s.address}</div>}
+        </div>
+        <div className="shrink-0 text-right text-[15px] font-semibold">{minutes <= 0 ? "on the way" : `+${minutes} min`}</div>
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className="text-[34px] font-semibold leading-none tracking-tight">{usd(s.regular)}</span>
+        <span className="text-[13px] text-[#5B6560]">per gallon</span>
+      </div>
+      {s.stale && (
+        <div className="mt-2">
+          <span className="rounded-full bg-[#8A6D2F]/10 px-2.5 py-1 text-[12px] font-medium text-[#8A6D2F]">Price may be outdated</span>
+        </div>
+      )}
+      <div className="mt-2 text-[13px] text-[#3D4A44]">
+        {usd(s.total)} for {gal(gallons)} gal
+        {s.updatedAt && <span className={s.stale ? "font-medium text-[#8A6D2F]" : "text-[#8A928C]"}> · price {ago(s.updatedAt)}</span>}
+      </div>
       <a
         href={appleMapsTwoStops(s, destAddress)}
-        className="block rounded-lg border border-[#E2DFD5] bg-white p-4 transition-transform active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100"
+        className="mt-3 flex h-11 items-center justify-center rounded-md bg-[#14201B] text-[15px] font-medium text-white transition-transform active:scale-[0.97]"
       >
-        <div className="flex items-start gap-3">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#E2DFD5] bg-[#FAF9F5] text-[13px] font-semibold text-[#5B6560]">
-            {rank}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[16px] font-semibold">{s.name}</div>
-            {s.address && <div className="truncate text-[13px] text-[#5B6560]">{s.address}</div>}
-          </div>
-          <div className="shrink-0 text-right text-[15px] font-semibold">{minutes <= 0 ? "on the way" : `+${minutes} min`}</div>
-        </div>
-        <div className="mt-3 flex items-baseline gap-2">
-          <span className="text-[34px] font-semibold leading-none tracking-tight">{usd(s.total)}</span>
-          <span className="text-[13px] text-[#5B6560]">for {gal(gallons)} gal</span>
-        </div>
-        <div className="mt-1 text-[13px] text-[#3D4A44]">{usd(s.regular)} per gallon</div>
-        {s.updatedAt && <div className="mt-2 text-[13px] text-[#8A928C]">Price {ago(s.updatedAt)}</div>}
-        <div className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-[#14201B]">
-          <Ico name="pin" size={13} />
-          Open in Apple Maps
-        </div>
+        Apple Maps
       </a>
     </li>
   );
 }
 
 function LocationPill({ state, onRetry }: { state: LocState; onRetry: () => void }) {
-  if (state === "ok") return null;
+  if (state === "ok")
+    return (
+      <span className="flex items-center gap-1.5 text-[12px] text-[#5B6560]">
+        <span className="h-2 w-2 rounded-full bg-[#2C6A46]" />
+        Located
+      </span>
+    );
   if (state === "asking")
     return (
       <span className="flex items-center gap-1.5 text-[12px] text-[#8A928C]">
@@ -305,7 +323,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`flex h-11 items-center rounded-full border px-4 text-[14px] font-medium transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 ${
+      className={`flex h-11 items-center rounded-full border px-4 text-[14px] font-medium transition-transform active:scale-[0.97] ${
         active ? "border-[#14201B] bg-[#14201B] text-white" : "border-[#E2DFD5] bg-white text-[#14201B]"
       }`}
     >
@@ -335,16 +353,9 @@ function Segment({ active, onClick, children }: { active: boolean; onClick: () =
  * about to be bought, which is the only number the ranking cares about.
  * Pointer-captured drag plus arrow-key nudging, unchanged from the source.
  */
-/** Fixed track and thumb geometry (both in px): lets the thumb's own bottom
- *  offset be clamped so it can never sit half outside the track, which a
- *  pure-percentage bottom does at the very top (Full) and bottom (0). */
-const TRACK_PX = 240;
-const THUMB_PX = 32;
-
 function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChange: (now: number, fillTo: number) => void }) {
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<"now" | "fill" | null>(null);
-  const [pressed, setPressed] = useState<"now" | "fill" | null>(null);
 
   const valueAt = (clientY: number) => {
     const r = track.current!.getBoundingClientRect();
@@ -359,7 +370,6 @@ function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChang
     const v = valueAt(e.clientY);
     const which = Math.abs(v - now) <= Math.abs(v - fillTo) ? "now" : "fill";
     drag.current = which;
-    setPressed(which);
     e.currentTarget.setPointerCapture(e.pointerId);
     apply(which, v);
   };
@@ -369,7 +379,6 @@ function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChang
   };
   const onUp = () => {
     drag.current = null;
-    setPressed(null);
   };
   const key = (which: "now" | "fill") => (e: React.KeyboardEvent) => {
     const d = e.key === "ArrowUp" || e.key === "ArrowRight" ? GALLON_STEP : e.key === "ArrowDown" || e.key === "ArrowLeft" ? -GALLON_STEP : 0;
@@ -379,10 +388,6 @@ function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChang
   };
 
   const pct = (v: number) => `${(v / TANK_GALLONS) * 100}%`;
-  const thumbBottom = (v: number) => {
-    const center = clamp((v / TANK_GALLONS) * TRACK_PX, THUMB_PX / 2, TRACK_PX - THUMB_PX / 2);
-    return `${center - THUMB_PX / 2}px`;
-  };
   return (
     <div className="flex select-none gap-2">
       <div className="flex h-[240px] flex-col justify-between py-[3px] text-right text-[11px] leading-none text-[#8A928C]">
@@ -405,26 +410,14 @@ function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChang
         ))}
         <div className="absolute inset-x-0 bottom-0 rounded-b-[15px] bg-[#C9CFCB]" style={{ height: pct(now) }} />
         <div className="absolute inset-x-0 bg-[#2C6A46]" style={{ bottom: pct(now), height: pct(fillTo - now), borderRadius: fillTo === TANK_GALLONS ? "15px 15px 0 0" : 0 }} />
-        <Thumb value={now} label="Now" bottom={thumbBottom(now)} pressed={pressed === "now"} onKeyDown={key("now")} />
-        <Thumb value={fillTo} label="Fill to" bottom={thumbBottom(fillTo)} pressed={pressed === "fill"} onKeyDown={key("fill")} />
+        <Thumb value={now} label={`Now, ${gal(now)} gallons`} bottom={pct(now)} onKeyDown={key("now")} />
+        <Thumb value={fillTo} label={`Fill to, ${gal(fillTo)} gallons`} bottom={pct(fillTo)} onKeyDown={key("fill")} />
       </div>
     </div>
   );
 }
 
-function Thumb({
-  value,
-  label,
-  bottom,
-  pressed,
-  onKeyDown,
-}: {
-  value: number;
-  label: string;
-  bottom: string;
-  pressed: boolean;
-  onKeyDown: (e: React.KeyboardEvent) => void;
-}) {
+function Thumb({ value, label, bottom, onKeyDown }: { value: number; label: string; bottom: string; onKeyDown: (e: React.KeyboardEvent) => void }) {
   return (
     <div
       role="slider"
@@ -433,13 +426,8 @@ function Thumb({
       aria-valuemin={0}
       aria-valuemax={TANK_GALLONS}
       aria-valuenow={value}
-      aria-valuetext={`${gal(value)} gallons`}
       onKeyDown={onKeyDown}
-      className={`absolute left-1/2 h-8 w-[68px] -translate-x-1/2 rounded-full border bg-white transition-[transform,box-shadow] duration-150 ease-out motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C6A46] ${
-        pressed
-          ? "scale-110 -translate-y-1 border-[#14201B] shadow-[0_6px_16px_rgba(20,32,27,0.32)] motion-reduce:scale-100 motion-reduce:translate-y-0"
-          : "border-[#E2DFD5] shadow-[0_1px_4px_rgba(20,32,27,0.18)]"
-      }`}
+      className="absolute left-1/2 h-8 w-[68px] -translate-x-1/2 translate-y-1/2 rounded-full border border-[#E2DFD5] bg-white shadow-[0_1px_4px_rgba(20,32,27,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C6A46]"
       style={{ bottom }}
     >
       <span className="absolute left-1/2 top-1/2 h-1 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#C9CFCB]" />
