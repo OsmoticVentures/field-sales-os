@@ -374,10 +374,8 @@ function RouteDay({
   );
   const shownLegs = schedule?.priced ?? legs;
 
-  const returnByMin = prefs.returnBy ? minutesOfDay(prefs.returnBy) : null;
   // Only a hard conflict makes a stop not fit: the door is shut for the rest
-  // of the day, or the drive misses a stated time. The return-by clock is a
-  // target the day bar reports against, never a reason to drop a stop.
+  // of the day, or the drive misses a stated time.
   const wontFit = useMemo(() => {
     if (!schedule) return [];
     return stops
@@ -390,16 +388,6 @@ function RouteDay({
         return { id: s.id, name: s.type === "account" ? s.account.name : s.custom.label, reason };
       });
   }, [schedule, stops, stopTimes]);
-  // Potential-A stops landing after the return-by target, named so the
-  // highest-upside door is never the one quietly cut when the day runs long.
-  const atRiskIds = useMemo(() => {
-    if (!schedule || returnByMin === null) return new Set<string>();
-    return new Set(
-      stops
-        .filter((s, i) => s.type === "account" && s.account.tier === "A" && schedule.rows[i].arrive > returnByMin)
-        .map((s) => s.id),
-    );
-  }, [schedule, stops, returnByMin]);
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
     try {
@@ -546,7 +534,6 @@ function RouteDay({
 
   const driveMinutes = shownLegs ? shownLegs.reduce((s, l) => s + l.minutes, 0) : null;
   const driveMiles = shownLegs ? shownLegs.reduce((s, l) => s + l.miles, 0) : null;
-  const over = schedule && returnByMin !== null && schedule.finish > returnByMin;
 
   function legBetween(i: number): DriveLeg | null {
     if (!shownLegs || i < 1) return null;
@@ -589,7 +576,6 @@ function RouteDay({
         driveMiles={driveMiles}
         state={legState}
         hasStops={stops.length > 0}
-        over={Boolean(over)}
       />
 
       {(stops.length > 0 || start) && (
@@ -697,12 +683,6 @@ function RouteDay({
                         )}
                         {missedAnchor && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">later than stated time</span>
-                        )}
-                        {atRiskIds.has(s.id) && (
-                          <span className="inline-flex items-center gap-1 rounded bg-[#FBF4F2] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">
-                            <RowIco name="flag" size={10} />
-                            at risk
-                          </span>
                         )}
                         {hours && (
                           <span className={`text-[12px] font-medium ${hours.open ? "text-[#2C6A46]" : "text-[#8A928C]"}`}>{hours.label}</span>
@@ -1065,7 +1045,6 @@ function DayBar({
   driveMiles,
   state,
   hasStops,
-  over,
 }: {
   prefs: RouteSchedulePrefs;
   onChange: (p: RouteSchedulePrefs) => void;
@@ -1079,7 +1058,6 @@ function DayBar({
   driveMiles: number | null;
   state: "loading" | "ok" | "unavailable";
   hasStops: boolean;
-  over: boolean;
 }) {
   return (
     <div className="rounded-lg border border-[#E2DFD5] bg-white p-3">
@@ -1113,13 +1091,6 @@ function DayBar({
         </label>
         <span className="flex items-center gap-1.5">
           Arrive <EndpointField label="End" value={end} fallback={home} home={home} onChange={onChangeEnd} />
-          by
-          <input
-            type="time"
-            value={prefs.returnBy ?? ""}
-            onChange={(e) => onChange({ ...prefs, returnBy: e.target.value || null })}
-            className={inputCls}
-          />
         </span>
       </div>
 
@@ -1129,17 +1100,10 @@ function DayBar({
           {state === "unavailable" && <span className="text-[#8A928C]">Drive times unavailable</span>}
           {state === "ok" && finish !== null && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span className={over ? "font-semibold text-[#B5372A]" : "font-semibold text-[#2C6A46]"}>
+              <span className="font-semibold text-[#2C6A46]">
                 Back {end?.label !== "Home" && end?.label ? `at ${end.label} ` : ""}
                 <span className="tabular-nums">{clock(finish)}</span>
               </span>
-              {prefs.returnBy && (
-                <span className={over ? "text-[#B5372A]" : "text-[#5B6560]"}>
-                  {over
-                    ? `${duration(finish - minutesOfDay(prefs.returnBy))} past ${clock(minutesOfDay(prefs.returnBy))}`
-                    : `${duration(minutesOfDay(prefs.returnBy) - finish)} spare`}
-                </span>
-              )}
               {driveMinutes !== null && (
                 <span className="text-[#5B6560]">
                   <span className="tabular-nums">{duration(driveMinutes)}</span> driving

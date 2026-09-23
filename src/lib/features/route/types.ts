@@ -12,7 +12,6 @@ export type RouteSchedulePrefs = {
   depart: string; // "09:30", local wall clock, no zone
   dwellMinutes: number;
   lunchMinutes: number;
-  returnBy: string | null;
 };
 
 export type CustomStopKind = "lunch" | "hotel" | "stop";

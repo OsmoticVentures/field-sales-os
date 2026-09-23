@@ -33,7 +33,7 @@ export async function GET() {
         days,
         activeDay: days[0],
         home: null,
-        prefs: { depart: "09:30", dwellMinutes: 20, lunchMinutes: 30, returnBy: null },
+        prefs: { depart: "09:30", dwellMinutes: 20, lunchMinutes: 30 },
         accounts: [],
         startByDay: {},
         endByDay: {},

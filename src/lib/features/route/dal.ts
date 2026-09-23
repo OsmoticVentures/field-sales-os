@@ -98,7 +98,7 @@ export async function getHomeEndpoint(): Promise<RouteEndpoint | null> {
 
 // --- Schedule prefs -----------------------------------------------------
 
-const DEFAULT_PREFS: RouteSchedulePrefs = { depart: "09:30", dwellMinutes: 20, lunchMinutes: 30, returnBy: null };
+const DEFAULT_PREFS: RouteSchedulePrefs = { depart: "09:30", dwellMinutes: 20, lunchMinutes: 30 };
 
 function hhmm(t: string | null): string | null {
   if (!t) return null;
@@ -111,14 +111,12 @@ export async function getRouteSchedulePrefs(): Promise<RouteSchedulePrefs> {
     route_depart: string | null;
     route_dwell_minutes: number | null;
     route_lunch_minutes: number | null;
-    route_return_by: string | null;
-  }>("route_depart,route_dwell_minutes,route_lunch_minutes,route_return_by");
+  }>("route_depart,route_dwell_minutes,route_lunch_minutes");
   if (!row) return DEFAULT_PREFS;
   return {
     depart: hhmm(row.route_depart) ?? DEFAULT_PREFS.depart,
     dwellMinutes: row.route_dwell_minutes ?? DEFAULT_PREFS.dwellMinutes,
     lunchMinutes: row.route_lunch_minutes ?? DEFAULT_PREFS.lunchMinutes,
-    returnBy: hhmm(row.route_return_by),
   };
 }
 
@@ -127,7 +125,6 @@ export async function saveRouteSchedulePrefs(p: RouteSchedulePrefs): Promise<voi
     route_depart: p.depart,
     route_dwell_minutes: p.dwellMinutes,
     route_lunch_minutes: p.lunchMinutes,
-    route_return_by: p.returnBy,
   });
 }
 
