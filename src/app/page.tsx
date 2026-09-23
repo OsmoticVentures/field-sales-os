@@ -1,7 +1,8 @@
+import { redirect } from "next/navigation";
+
+// Only one feature is ported so far (m7, Expenses). Each later port adds its
+// own route under (app)/; once more than one exists this should become a
+// real landing screen instead of a redirect.
 export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center p-8">
-      <p className="text-sm text-neutral-500">Field Sales OS</p>
-    </main>
-  );
+  redirect("/expenses");
 }
