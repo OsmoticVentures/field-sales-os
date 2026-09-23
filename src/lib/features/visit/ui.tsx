@@ -18,7 +18,18 @@
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { apiFetch } from "../../core/api";
-import { Ico } from "../../core/ui";
+import { Ico, SkeletonBar, ghostBtn, inputCls, primaryBtn } from "../../core/ui";
+
+/** A small inline spinner for a button mid-write, in place of a "..." label. */
+function Spinner({ light = true }: { light?: boolean }) {
+  return (
+    <span
+      className={`inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 motion-reduce:animate-none ${
+        light ? "border-white/40 border-t-white" : "border-[#14201B]/30 border-t-[#14201B]"
+      }`}
+    />
+  );
+}
 
 /** A confirmation beat that also carries the HubSpot filing line, since
  *  lib/core/ui.tsx's SuccessNote does not. Local rather than an edit to the
@@ -46,10 +57,14 @@ function FiledNote({
       </div>
       {detail && <div className="mt-1 text-[#5B6560]">{detail}</div>}
       {hubspotFiled !== undefined && (
-        <div className={`mt-1.5 flex items-start gap-1.5 text-[12px] ${hubspotFiled ? "text-[#8A928C]" : "text-[#8A6D2F]"}`}>
-          <Ico name={hubspotFiled ? "check" : "alert"} size={11} />
-          <span>{hubspotFiled ? `Filed to HubSpot${hubspotId ? ` (${hubspotId})` : ""}.` : hubspotError ?? "Not filed to HubSpot."}</span>
-        </div>
+        hubspotFiled === false && hubspotError === "CRM filing off" ? (
+          <div className="mt-1.5 text-[12px] text-[#8A928C]">CRM filing off</div>
+        ) : (
+          <div className={`mt-1.5 flex items-start gap-1.5 text-[12px] ${hubspotFiled ? "text-[#8A928C]" : "text-[#8A6D2F]"}`}>
+            <Ico name={hubspotFiled ? "check" : "alert"} size={11} />
+            <span>{hubspotFiled ? `Filed to HubSpot${hubspotId ? ` (${hubspotId})` : ""}.` : hubspotError ?? "Not filed to HubSpot."}</span>
+          </div>
+        )
       )}
       {meta}
     </div>
@@ -114,7 +129,7 @@ const KIND_OPTIONS = [
   { value: "meeting", label: "Meeting" },
   { value: "call", label: "Call" },
   { value: "email", label: "Email" },
-  { value: "field_note", label: "Field note" },
+  { value: "field_note", label: "Note" },
 ] as const;
 type KindOption = (typeof KIND_OPTIONS)[number]["value"];
 
@@ -136,7 +151,7 @@ export function TouchpointCapture() {
 
   useEffect(() => {
     if (!success) return;
-    const t = setTimeout(() => setSuccess(null), 2200);
+    const t = setTimeout(() => setSuccess(null), 1200);
     return () => clearTimeout(t);
   }, [success]);
 
@@ -195,7 +210,7 @@ export function TouchpointCapture() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[600px]">
+    <div className="w-full">
       <div className="rounded-xl border border-[#E2DFD5] bg-white p-4 sm:p-5">
         {success ? (
           <button type="button" onClick={() => setSuccess(null)} className="block w-full cursor-pointer text-left">
@@ -214,7 +229,6 @@ export function TouchpointCapture() {
                       {success.peopleUpdated > 0 && `${success.peopleUpdated} updated`}
                     </div>
                   )}
-                  <div className="mt-1.5 text-[11px] uppercase tracking-[0.1em] text-[#A9AFA9]">Tap for the next one</div>
                 </>
               }
             />
@@ -241,7 +255,7 @@ export function TouchpointCapture() {
           />
         ) : (
           <>
-            <div className="mb-3 flex gap-1.5">
+            <div className="mb-3 flex gap-1">
               {KIND_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -250,7 +264,7 @@ export function TouchpointCapture() {
                     setKind(opt.value);
                     setKindTouched(true);
                   }}
-                  className={`h-11 flex-1 rounded-md border px-2 text-[13px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
+                  className={`h-11 flex-1 rounded-md border px-1.5 text-[13px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
                     kindTouched && kind === opt.value
                       ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
                       : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
@@ -265,10 +279,8 @@ export function TouchpointCapture() {
               ref={textareaRef}
               value={text}
               onChange={(e) => {
-                const value = e.target.value;
-                setText(value);
+                setText(e.target.value);
                 autosize(e.target);
-                if (!kindTouched && value.trim()) setKindTouched(true);
               }}
               placeholder="What just happened?"
               rows={5}
@@ -299,11 +311,7 @@ export function TouchpointCapture() {
         )}
       </div>
 
-      {error && (
-        <div className="mt-3 rounded-md border border-[#E5D9BF] bg-[#FBF6E9] px-3 py-2.5 text-[13px] leading-relaxed text-[#8A6D2F]">
-          {error}
-        </div>
-      )}
+      {error && <div className="mt-3 text-[13px] leading-relaxed text-[#8A6D2F]">{error}</div>}
     </div>
   );
 }
@@ -332,11 +340,13 @@ function AccountMatchResolver({
   const [query, setQuery] = useState(nameGuess ?? "");
   const [candidates, setCandidates] = useState<{ id: string; name: string; city: string | null }[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const key = useIdempotencyKey(touchpointId);
 
   useEffect(() => {
     if (!filed) return;
-    const t = setTimeout(onResolved, 5000);
+    const t = setTimeout(onResolved, 1200);
     return () => clearTimeout(t);
   }, [filed, onResolved]);
 
@@ -368,12 +378,22 @@ function AccountMatchResolver({
   async function search() {
     if (!query.trim() || searching) return;
     setSearching(true);
+    setSearchError(null);
     try {
       const res = await apiFetch(`/api/visit/search-accounts?q=${encodeURIComponent(query)}`);
       const data = await res.json();
-      setCandidates(data.ok ? data.candidates : []);
+      if (!data.ok) {
+        setCandidates([]);
+        setSearchError(data.error || "That search did not reach the server.");
+        return;
+      }
+      setCandidates(data.candidates ?? []);
+    } catch {
+      setCandidates([]);
+      setSearchError("That search did not reach the server.");
     } finally {
       setSearching(false);
+      setSearched(true);
     }
   }
 
@@ -398,7 +418,6 @@ function AccountMatchResolver({
           hubspotFiled={filed.hubspotFiled}
           hubspotId={filed.hubspotNoteId}
           hubspotError={filed.hubspotError}
-          meta={<div className="mt-1.5 text-[11px] uppercase tracking-[0.1em] text-[#A9AFA9]">Tap for the next one</div>}
         />
       </button>
     );
@@ -415,9 +434,9 @@ function AccountMatchResolver({
               type="button"
               onClick={confirmMatch}
               disabled={matching}
-              className="h-8 shrink-0 rounded-full bg-[#14201B] px-3 text-[11.5px] font-semibold tracking-wide text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40"
+              className={`${primaryBtn} min-h-11 shrink-0 rounded-full px-3.5 py-1.5 text-[12px]`}
             >
-              {matching ? "..." : "Yes"}
+              {matching ? <Spinner /> : "Yes"}
             </button>
           </div>
         </div>
@@ -428,10 +447,14 @@ function AccountMatchResolver({
         <div className="flex items-center gap-2">
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSearched(false);
+              setSearchError(null);
+            }}
             onKeyDown={(e) => e.key === "Enter" && search()}
             placeholder="Business name"
-            className="h-11 min-w-0 flex-1 rounded-md border border-[#E2DFD5] bg-white px-3 text-[16px] text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
+            className={`${inputCls} min-w-0 flex-1`}
           />
           <button
             type="button"
@@ -440,9 +463,11 @@ function AccountMatchResolver({
             aria-label="Search"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#14201B] text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40"
           >
-            <Ico name="search" size={16} />
+            {searching ? <Spinner /> : <Ico name="search" size={16} />}
           </button>
         </div>
+
+        {searchError && <div className="mt-2 text-[12px] text-[#8A6D2F]">{searchError}</div>}
 
         {candidates.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -452,7 +477,7 @@ function AccountMatchResolver({
                 type="button"
                 onClick={() => pick(c)}
                 disabled={matching}
-                className="flex items-center gap-2 rounded-full border border-[#E2DFD5] bg-white py-1 pl-3 pr-1.5 text-[12.5px] text-[#14201B] transition-transform active:scale-[0.97] disabled:opacity-40"
+                className="flex min-h-11 items-center gap-2 rounded-full border border-[#E2DFD5] bg-white py-1 pl-3 pr-1.5 text-[12.5px] text-[#14201B] transition-transform active:scale-[0.97] disabled:opacity-40"
               >
                 {c.name}
                 {c.city && <span className="text-[#8A928C]">· {c.city}</span>}
@@ -461,12 +486,16 @@ function AccountMatchResolver({
           </div>
         )}
 
+        {searched && !searching && !searchError && candidates.length === 0 && (
+          <div className="mt-2 text-[12px] text-[#8A928C]">No accounts matched.</div>
+        )}
+
         {query.trim() && (
           <button
             type="button"
             onClick={createNew}
             disabled={creating}
-            className="mt-2 flex h-10 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3 text-[12.5px] font-medium text-[#5B6560] transition-transform active:scale-[0.97] disabled:opacity-40"
+            className={`${ghostBtn} mt-2 flex items-center gap-1.5`}
           >
             <Ico name="plus" size={13} />
             {creating ? "Creating…" : `New account: ${query.trim()}`}
@@ -500,7 +529,7 @@ function NextStepResolver({
 
   useEffect(() => {
     if (!filed) return;
-    const t = setTimeout(onResolved, 3500);
+    const t = setTimeout(onResolved, 1200);
     return () => clearTimeout(t);
   }, [filed, onResolved]);
 
@@ -536,7 +565,6 @@ function NextStepResolver({
           hubspotFiled={filed.hubspotFiled}
           hubspotId={filed.hubspotNoteId}
           hubspotError={filed.hubspotError}
-          meta={<div className="mt-1.5 text-[11px] uppercase tracking-[0.1em] text-[#A9AFA9]">Tap for the next one</div>}
         />
       </button>
     );
@@ -544,8 +572,7 @@ function NextStepResolver({
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3">
-      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[#8A6D2F]">
-        <Ico name="alert" size={11} />
+      <div className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
         Next step{accountName ? ` for ${accountName}` : ""}
       </div>
       <textarea
@@ -558,20 +585,16 @@ function NextStepResolver({
       />
       {error && <div className="text-[12px] text-[#8A6D2F]">{error}</div>}
       <div className="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => submit("No follow-up needed.")}
-          disabled={pending}
-          className="h-10 rounded-md border border-[#E2DFD5] px-2.5 text-[12px] text-[#5B6560] transition-transform active:scale-[0.97] disabled:opacity-40"
-        >
+        <button type="button" onClick={() => submit("No follow-up needed.")} disabled={pending} className={ghostBtn}>
           None needed
         </button>
         <button
           type="button"
           onClick={() => submit(text)}
           disabled={pending || !text.trim()}
-          className="h-10 rounded-md bg-[#14201B] px-3 text-[12.5px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-30"
+          className={`${primaryBtn} flex items-center gap-1.5`}
         >
+          {pending && <Spinner />}
           {pending ? "Saving" : "Save"}
         </button>
       </div>
@@ -620,10 +643,16 @@ export function ReviewQueues() {
   const drop = (id: string) => setResolvedIds((prev) => new Set(prev).add(id));
 
   if (failed) {
-    return <div className="rounded-md border border-[#E5D9BF] bg-[#FBF6E9] px-3 py-2.5 text-[13px] text-[#8A6D2F]">Could not load the review queue.</div>;
+    return <div className="text-[13px] text-[#8A6D2F]">Could not load the review queue.</div>;
   }
   if (pending === null || pendingNextSteps === null) {
-    return <div className="text-[13px] text-[#8A928C]">Loading</div>;
+    return (
+      <div className="flex flex-col gap-3">
+        <SkeletonBar className="h-4 w-32" />
+        <SkeletonBar className="h-24 w-full" />
+        <SkeletonBar className="h-24 w-full" />
+      </div>
+    );
   }
 
   const matchRows = pending.filter((tp) => !resolvedIds.has(tp.id));

@@ -66,7 +66,7 @@ export async function autoFileEngagement(activityId: number): Promise<HubspotFil
   try {
     const filed = await runEngagement(activityId, { write: enabled });
     if (!enabled) {
-      return { hubspotFiled: false, hubspotNoteId: null, hubspotError: "HubSpot writes are off in this deployment." };
+      return { hubspotFiled: false, hubspotNoteId: null, hubspotError: "CRM filing off" };
     }
     return {
       hubspotFiled: filed.wrote || Boolean(filed.alreadyFiledId),

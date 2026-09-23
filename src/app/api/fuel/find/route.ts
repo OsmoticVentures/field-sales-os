@@ -91,7 +91,7 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ ok: false, error: "That request didn't parse." }, { status: 400 });
+    return Response.json({ ok: false, error: "Couldn't read that request. Try again." }, { status: 400 });
   }
 
   const gallons = Math.min(TANK_GALLONS, Math.max(0.5, Number(body.gallons) || 0));
