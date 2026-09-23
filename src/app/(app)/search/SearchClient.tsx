@@ -24,6 +24,7 @@
  * back, and polls it. "Pending" is a real, recoverable state, not a failure.
  */
 
+import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
@@ -852,12 +853,11 @@ const BOOK_RESULT_LIMIT = 5;
  * "Search our book": find an account already in the book, by name, without
  * needing an exact spelling. Read-only.
  *
- * NO ACCOUNT DETAIL LINK YET. The source app opens a shared account-detail
- * modal (lib/modal.tsx) here; that modal and the account/[id] page are
- * shared core not yet ported into this repo (owned by no single feature per
- * research/feature-inventory.md). This shows the match plainly instead of
- * linking anywhere; wire it to the account page once that lands (see this
- * port's report).
+ * A match opens the Prospect screen focused on that account (the call card,
+ * the Angle panel, the contacts). The source app's account-detail modal
+ * (lib/modal.tsx) leans on its route context, outbound composer, touchpoint
+ * UI and Server Actions, none of which exist here, so Prospect's own focus
+ * view is the door in.
  */
 function BookSearch() {
   const [book, setBook] = useState<BookResult[]>([]);
@@ -908,12 +908,18 @@ function BookSearch() {
             <div className="px-3 py-2.5 text-[12.5px] text-[#8A928C]">Nothing in the book matches.</div>
           )}
           {results.map((r) => (
-            <div key={r.id} className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px]">
+            <Link
+              key={r.id}
+              href={{ pathname: "/prospect", query: { account: r.id } }}
+              onMouseDown={(e) => e.preventDefault()}
+              className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[#FAF9F5]"
+            >
               <span className="truncate font-medium text-[#14201B]">{r.name}</span>
-              {(r.city || r.area) && (
-                <span className="shrink-0 text-[11.5px] text-[#8A928C]">{r.city ?? r.area}</span>
-              )}
-            </div>
+              <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[#8A928C]">
+                {r.city ?? r.area}
+                <Ico name="external" size={12} />
+              </span>
+            </Link>
           ))}
         </div>
       )}
