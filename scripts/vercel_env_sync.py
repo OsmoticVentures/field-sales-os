@@ -23,13 +23,29 @@ FIXED = {"NB_PUBLIC_ORIGIN": "https://osmoticventures.com", "NB_HUBSPOT_WRITE_EN
 ENVS = ("production", "preview")
 
 
+def pull_old_app_production() -> Path | None:
+    """The old app's Vercel production env is the source of truth for the PIN and
+    the Expenses Google keys; local .env files carry dev values."""
+    out = Path(os.environ.get("TMPDIR", "/tmp")) / "field-sales-os-old-app.env"
+    r = subprocess.run(
+        ["vercel", "env", "pull", str(out), "--environment=production", "--yes"],
+        cwd=AGENCY / "portfolio", capture_output=True, text=True,
+    )
+    if r.returncode != 0 or not out.exists():
+        print("could not pull the old app's production env, using local files only")
+        return None
+    return out
+
+
 def main() -> int:
     scope = []
     if "--scope" in sys.argv:
         scope = ["--scope", sys.argv[sys.argv.index("--scope") + 1]]
     names = sorted(set(re.findall(r"^([A-Z_]+)", (HERE / ".env.example").read_text(), re.M)))
     values: dict[str, str] = {}
-    for src in SOURCES:
+    pulled = pull_old_app_production()
+    sources = ([pulled] if pulled else []) + SOURCES
+    for src in sources:
         if not src.exists():
             continue
         for line in src.read_text().splitlines():
@@ -51,6 +67,8 @@ def main() -> int:
     missing = [n for n in names if n not in values]
     if missing:
         print("not on file, left unset:", " ".join(missing))
+    if pulled:
+        pulled.unlink(missing_ok=True)
     return 0
 
 
