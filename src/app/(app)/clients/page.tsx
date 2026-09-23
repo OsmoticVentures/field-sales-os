@@ -62,13 +62,13 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
       <PageHead title="Clients" sub={area?.label} />
 
       <div className="mb-5 flex flex-wrap gap-1.5">
-        <Link href="/clients" className={chip(!area)}>
+        <Link prefetch={false} href="/clients" className={chip(!area)}>
           All accounts
         </Link>
         {areas.map((a) => {
           const on = area?.id === a.id;
           return (
-            <Link
+            <Link prefetch={false}
               key={a.id}
               href={`/clients?area=${a.id}`}
               className={chip(on)}
@@ -97,7 +97,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <ul className="mt-3 flex flex-col gap-1">
                     {items.slice(0, 6).map((d) => (
                       <li key={d.id}>
-                        <Link
+                        <Link prefetch={false}
                           href={`/account/${d.account_id}`}
                           className="flex items-baseline justify-between gap-2 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-[#F4F2EA]"
                         >
@@ -135,10 +135,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
               </span>
             </div>
             <div className="flex items-center gap-1">
-              <Link href={`/clients${areaQuery ? `?${areaQuery}` : ""}`} className={chip(!byEngagement)}>
+              <Link prefetch={false} href={`/clients${areaQuery ? `?${areaQuery}` : ""}`} className={chip(!byEngagement)}>
                 OS tier
               </Link>
-              <Link href={`/clients?${[areaQuery, "sort=engagement"].filter(Boolean).join("&")}`} className={chip(byEngagement)}>
+              <Link prefetch={false} href={`/clients?${[areaQuery, "sort=engagement"].filter(Boolean).join("&")}`} className={chip(byEngagement)}>
                 Most engaged
               </Link>
             </div>
@@ -147,7 +147,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           <ul className="divide-y divide-[#EDEBE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:hidden">
             {rows.map((r) => (
               <li key={r.account_id}>
-                <Link
+                <Link prefetch={false}
                   href={`/account/${r.account_id}`}
                   className="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors active:bg-[#FAF9F5]"
                 >
@@ -187,7 +187,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                         <TierChip tier={r.tier} />
                       </td>
                       <td className="px-4 py-2.5">
-                        <Link href={`/account/${r.account_id}`} className="font-medium underline-offset-2 hover:underline">
+                        <Link prefetch={false} href={`/account/${r.account_id}`} className="font-medium underline-offset-2 hover:underline">
                           {r.name}
                         </Link>
                       </td>
@@ -213,7 +213,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
               <ul className="divide-y divide-[#EDEBE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
                 {pipeline.stale.map((s) => (
                   <li key={s.deal_id}>
-                    <Link
+                    <Link prefetch={false}
                       href={`/account/${s.account_id}`}
                       className="flex min-h-11 items-center gap-3 px-4 py-2.5 text-[13.5px] transition-colors hover:bg-[#FAF9F5]"
                     >
