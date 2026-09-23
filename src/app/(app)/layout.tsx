@@ -4,14 +4,19 @@ import { SidebarNav, TabBar, type NavItem } from "./Nav";
 /**
  * The shared shell for every signed-in screen: the PIN gate check, then chrome.
  *
- * ONE NAV ITEM TODAY, BUILT TO GROW. Each future port (Search Map, Route
- * Planner, Visit Logger, Prospecting, Reports, Fuel Routing) adds its folder
- * under this same `(app)` route group and one line to NAV below; nothing
- * else in this file needs to change. See PORTING.md. The bottom tab bar
- * (Nav.tsx) hides itself while NAV has fewer than two items.
+ * ONE ARRAY FEEDS BOTH NAVS. Order is the deck's order. The desktop sidebar
+ * shows all seven; the phone tab bar shows the four marked `tab` (the
+ * screens a rep switches between at a stop) and folds the rest behind a
+ * More tab, see Nav.tsx. A new port is one line here.
  */
 const NAV: NavItem[] = [
-  { href: "/expenses", label: "Expenses", icon: "clock" },
+  { href: "/route", label: "Route", icon: "route", tab: true },
+  { href: "/visit", label: "Visit", icon: "edit", tab: true },
+  { href: "/prospect", label: "Prospect", icon: "phone", tab: true },
+  { href: "/search", label: "Search", icon: "search" },
+  { href: "/expenses", label: "Expenses", icon: "clock", tab: true },
+  { href: "/reports", label: "Reports", icon: "chart" },
+  { href: "/fuel", label: "Fuel", icon: "fuel" },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

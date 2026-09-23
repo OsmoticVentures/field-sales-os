@@ -66,6 +66,83 @@ export const ICONS: Record<string, ReactNode> = {
       <path d="M8 4.6V8l2.3 1.4" />
     </>
   ),
+  plus: <path d="M8 2.8v10.4M2.8 8h10.4" />,
+  "chevron-up": <path d="m4 10 4-4 4 4" />,
+  "chevron-down": <path d="m4 6 4 4 4-4" />,
+  pin: (
+    <>
+      <path d="M8 14s4.6-4.3 4.6-7.6A4.6 4.6 0 1 0 3.4 6.4C3.4 9.7 8 14 8 14Z" />
+      <circle cx="8" cy="6.4" r="1.6" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="6.8" cy="6.8" r="4.2" />
+      <path d="m13 13-3.4-3.4" />
+    </>
+  ),
+  phone: <path d="M4 2.6h2.2l1 2.6-1.4 1.2a8 8 0 0 0 3.8 3.8l1.2-1.4 2.6 1V12a1.4 1.4 0 0 1-1.4 1.4C7.7 13.4 2.6 8.3 2.6 4A1.4 1.4 0 0 1 4 2.6Z" />,
+  "phone-arrow": (
+    <>
+      <path d="M5.6 2.6H3.4c-.7 0-1.3.6-1.2 1.3.3 5.2 4.7 9.6 9.9 9.9.7.1 1.3-.5 1.3-1.2v-2.2l-2.8-.9-1.2 1.4a9.4 9.4 0 0 1-4.1-4.1l1.4-1.2z" />
+      <path d="M9.8 2.6h3.6v3.6" />
+      <path d="M13.4 2.6 9.6 6.4" />
+    </>
+  ),
+  route: (
+    <>
+      <circle cx="3.6" cy="4" r="1.4" />
+      <circle cx="12.4" cy="12" r="1.4" />
+      <path d="M3.6 5.4v2.2A2.4 2.4 0 0 0 6 10h4a2.4 2.4 0 0 1 2.4 2.4" />
+    </>
+  ),
+  wand: (
+    <>
+      <path d="m3 13 7-7" />
+      <path d="M11 2.6v1.8M13.6 5.2h-1.8M8.6 2.6l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3Z" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="8" cy="8" r="5.6" />
+      <path d="M2.4 8h11.2M8 2.4a8.6 8.6 0 0 1 0 11.2M8 2.4a8.6 8.6 0 0 0 0 11.2" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="2" y="3.6" width="12" height="8.8" rx="1.2" />
+      <path d="m2.6 4.4 5.4 4 5.4-4" />
+    </>
+  ),
+  book: (
+    <>
+      <path d="M3 2.8h6.4a1.6 1.6 0 0 1 1.6 1.6V13H4.6A1.6 1.6 0 0 1 3 11.4V2.8Z" />
+      <path d="M3 11.6h8" />
+    </>
+  ),
+  edit: <path d="M9.6 3.2 12.8 6.4 5.6 13.6 2.4 14l.4-3.2Z" />,
+  hubspot: (
+    <>
+      <circle cx="8" cy="8" r="2.2" />
+      <path d="M8 2.6v3.2M11.4 5.4 9 7M11.4 10.6 9 9M4.6 10.6 7 9M4.6 5.4 7 7" />
+    </>
+  ),
+  send: <path d="M2 8 13.6 2.4 8.4 13.6l-1.6-4.4L2 8Zm4.8 1.2L11.2 4.8" />,
+  chart: <path d="M2.6 13.4h10.8M4.4 11V7.4M8 11V4M11.6 11V8.6" />,
+  fuel: (
+    <>
+      <path d="M3 13.4V3.8c0-.7.5-1.2 1.2-1.2h3.6c.7 0 1.2.5 1.2 1.2v9.6" />
+      <path d="M2 13.4h8M4.4 4.8h3.2v2.8H4.4z" />
+      <path d="M9 7.2h1.6c.6 0 1 .4 1 1v2.6a1.1 1.1 0 0 0 2.2 0V6.4L12 4.6" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="3.4" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12.6" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </>
+  ),
 };
 
 export function Ico({ name, size = 16 }: { name: string; size?: number }) {
@@ -126,4 +203,9 @@ export function PageHead({ title, sub }: { title: string; sub?: string }) {
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <div className={`rounded-lg border border-[#E2DFD5] bg-white p-5 ${className}`}>{children}</div>;
+}
+
+/** One skeleton bar for a loading.tsx (source: portfolio's lib/ui.tsx). */
+export function SkeletonBar({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-md bg-[#EDEBE3] motion-reduce:animate-none ${className}`} />;
 }
