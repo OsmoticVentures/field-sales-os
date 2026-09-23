@@ -32,7 +32,7 @@ const DEVICE_TTL_SECONDS = 60 * 60 * 24 * 400; // 400 days, the browser ceiling
 
 /** How many devices may ever be remembered. Overridable with NB_DEVICE_LIMIT
  *  without a deploy. */
-export const DEVICE_LIMIT = Math.max(1, Number(process.env.NB_DEVICE_LIMIT) || 6);
+export const DEVICE_LIMIT = Math.max(1, Number(process.env.NB_DEVICE_LIMIT) || 20);
 
 const enc = new TextEncoder();
 
