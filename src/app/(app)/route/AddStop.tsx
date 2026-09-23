@@ -7,19 +7,134 @@
  * call. Adapted from the NutriBiotic OS's AddStopForm/ClientSearchField/
  * AddCallForm (RoutePanel.tsx, ClientSearchField.tsx).
  *
- * Deviation from the source app: the source's "Add a call" field also
- * searches the shared HubSpot portal for a name (CallSearchField.tsx, via
- * lib/hubspot-people-search.ts). That needs lib/hubspot.ts, which is not
- * ported into this repo yet (it lands with Visit Logger, m8c) and is shared
- * infrastructure this port must not fork. A call here is typed by hand,
- * same fallback behaviour the source field already had.
+ * The "Add a call" field searches the shared HubSpot portal as you type
+ * (CallSearchField below, over api/route/call-search): a contact or a
+ * company, with a phone when the portal has one. Picking a result fills
+ * both fields; nothing locks, so a wrong autofill is one keystroke to fix,
+ * and a name HubSpot has never heard of still types straight through.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico } from "@/lib/core/ui";
 import { rankMatches } from "@/lib/features/route/search-match";
 import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
 import type { CallEntry, CustomStop, CustomStopKind, RouteAccount } from "@/lib/features/route/types";
+
+type CallCandidate = {
+  id: string;
+  kind: "contact" | "company";
+  label: string;
+  city: string | null;
+  phone: string | null;
+  phoneVia: string | null;
+};
+
+/** "+17145551234" -> "(714) 555-1234"; anything else shows as stored. */
+function prettyPhone(raw: string): string {
+  const d = raw.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : raw;
+}
+
+function CallSearchField({
+  label,
+  onChangeLabel,
+  onPick,
+  className,
+}: {
+  label: string;
+  onChangeLabel: (v: string) => void;
+  onPick: (r: CallCandidate) => void;
+  className: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<CallCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seqRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  function runSearch(q: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.trim().length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      const seq = ++seqRef.current;
+      try {
+        const res = await apiFetch(`/api/route/call-search?q=${encodeURIComponent(q)}`);
+        const json = (await res.json()) as { ok: boolean; results?: CallCandidate[] };
+        if (seq !== seqRef.current) return;
+        setResults(json.ok ? (json.results ?? []) : []);
+      } catch {
+        if (seq === seqRef.current) setResults([]);
+      } finally {
+        if (seq === seqRef.current) setSearching(false);
+      }
+    }, 250);
+  }
+
+  const q = label.trim();
+  const showMenu = open && q.length >= 2;
+
+  return (
+    <div className="relative">
+      <input
+        value={label}
+        onChange={(e) => {
+          onChangeLabel(e.target.value);
+          setOpen(true);
+          runSearch(e.target.value);
+        }}
+        onFocus={() => q.length >= 2 && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        placeholder="Who, e.g. Alex Conrad, Vasari Plaster"
+        autoFocus
+        className={className}
+      />
+      {showMenu && (
+        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg">
+          {searching && <div className="px-3 py-2 text-[12.5px] text-[#8A928C]">Searching HubSpot</div>}
+          {!searching && results.length === 0 && (
+            <div className="px-3 py-2 text-[12.5px] text-[#8A928C]">No HubSpot match. Type the name and phone by hand.</div>
+          )}
+          {results.map((r) => (
+            <button
+              key={`${r.kind}:${r.id}`}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onPick(r);
+                setOpen(false);
+                setResults([]);
+              }}
+              className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#FAF9F5]"
+            >
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5">
+                  <span className="truncate text-[13.5px] font-medium text-[#14201B]">{r.label}</span>
+                  <span className="shrink-0 rounded bg-[#F0EEE4] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#8A928C]">
+                    {r.kind}
+                  </span>
+                </span>
+                {r.phoneVia && <span className="block truncate text-[11.5px] text-[#A9AFA9]">via {r.phoneVia}</span>}
+              </span>
+              <span className="shrink-0 text-[12.5px] tabular-nums text-[#5B6560]">{r.phone ? prettyPhone(r.phone) : "no phone on file"}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type AddKind = CustomStopKind | "client" | "call";
 
@@ -211,7 +326,15 @@ export function AddStop({
 
       {kind === "call" && (
         <form onSubmit={submitCall} className="mt-2.5 flex flex-col gap-2">
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Who, e.g. Alex Conrad" autoFocus className={inputCls} />
+          <CallSearchField
+            label={label}
+            onChangeLabel={setLabel}
+            onPick={(r) => {
+              setLabel(r.label);
+              if (r.phone) setPhone(r.phone);
+            }}
+            className={inputCls}
+          />
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className={`${inputCls} tabular-nums`} />
           <textarea
             value={note}

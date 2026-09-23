@@ -180,3 +180,13 @@ export function rankMatches<T>(
   const ordered = hits.map((h) => h.item);
   return limit === undefined ? ordered : ordered.slice(0, limit);
 }
+
+/** The most selective words of a query, longest first, for a backend that
+ *  takes one token at a time (HubSpot's CONTAINS_TOKEN). The full query
+ *  still decides the order through matchScore once results are back. */
+export function selectiveTokens(query: string, max = 2): string[] {
+  return searchTokens(query)
+    .filter((t) => !OPTIONAL.has(t) && t.length >= 3)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, max);
+}
