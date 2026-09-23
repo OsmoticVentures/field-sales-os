@@ -20,8 +20,9 @@
  */
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
-import { Card, Ico, SuccessNote } from "../../../lib/core/ui";
+import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 
@@ -90,16 +91,12 @@ type SearchHit = { accountId: string; accountName: string; city: string | null; 
 // Shared style tokens (16px text / 44px targets, per PORTING.md)
 // ---------------------------------------------------------------------------
 
-const inputCls =
-  "w-full min-h-[44px] rounded-md border border-[#E2DFD5] bg-white px-3 text-[16px] text-[#14201B] outline-none placeholder:text-[#8A928C] focus:border-[#14201B]";
-const primaryBtn =
-  "inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md bg-[#14201B] px-4 text-[14px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100";
-const ghostBtn =
-  "inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md border border-[#E2DFD5] px-3 text-[13.5px] font-medium text-[#5B6560] transition-transform active:scale-[0.97] disabled:opacity-40";
+// primaryBtn, ghostBtn, inputCls come from lib/core/ui (PORTING.md); this
+// feature only extends them for the two shapes core doesn't cover.
 const callBtn =
-  "inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-md bg-[#8A2E2E] px-4 text-[14px] font-medium text-white transition-transform active:scale-[0.97]";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#8A2E2E] px-4 text-[14px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 const iconBtn =
-  "flex h-11 w-11 shrink-0 items-center justify-center rounded-md border text-[#5B6560] transition-transform active:scale-[0.97]";
+  "flex h-11 w-11 shrink-0 items-center justify-center rounded-md border text-[#5B6560] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 
 function addDaysIso(iso: string, n: number): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -129,6 +126,18 @@ function nextDays(todayIso: string, count: number): string[] {
 function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return Math.random().toString(36).slice(2, 10);
+}
+
+/** Plain refresh glyph for "Enrich further" (core ui's "wand" icon is a
+ *  sparkle mark, banned agency-wide; feature-local since lib/core is out of
+ *  scope for this pass). Matches Ico's own stroke weight and viewBox. */
+function RefreshIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+      <path d="M12.8 8.4A4.8 4.8 0 1 1 11.3 4.7" />
+      <path d="M12.8 3.4v3.4h-3.4" />
+    </svg>
+  );
 }
 
 function OpenBadge({ businessHours }: { businessHours: BusinessHours | null | undefined }) {
@@ -339,10 +348,10 @@ function AddToDayForm({ date, onAdded }: { date: string; onAdded: (item: Schedul
   return (
     <div className="rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3">
       <div className="mb-2 flex gap-1.5">
-        <button onClick={() => setMode("account")} className={`rounded-md px-2.5 py-2 text-[13px] font-medium ${mode === "account" ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>
+        <button onClick={() => setMode("account")} className={`min-h-11 rounded-md px-2.5 py-2 text-[13px] font-medium ${mode === "account" ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>
           Existing account
         </button>
-        <button onClick={() => setMode("prospect")} className={`rounded-md px-2.5 py-2 text-[13px] font-medium ${mode === "prospect" ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>
+        <button onClick={() => setMode("prospect")} className={`min-h-11 rounded-md px-2.5 py-2 text-[13px] font-medium ${mode === "prospect" ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>
           New prospect
         </button>
       </div>
@@ -391,7 +400,7 @@ const PRIORITY_CHIP: Record<"low" | "mid" | "high", string> = {
 };
 
 function ScheduleRow({
-  item, active, onSelect, onDone, onReschedule, todayIso, statusError,
+  item, active, onSelect, onDone, onReschedule, todayIso, statusError, showSuccess,
 }: {
   item: ScheduleItem;
   active: boolean;
@@ -400,10 +409,19 @@ function ScheduleRow({
   onReschedule: (date: string) => void;
   todayIso: string;
   statusError?: string;
+  showSuccess?: boolean;
 }) {
   const done = item.status === "done";
   const skipped = item.status === "skipped";
   const [moving, setMoving] = useState(false);
+
+  if (showSuccess) {
+    return (
+      <li className={`rounded-md border p-2.5 ${active ? "border-[#14201B] bg-[#FAF9F5]" : "border-[#E2DFD5]"}`}>
+        <SuccessNote title="Done" />
+      </li>
+    );
+  }
 
   return (
     <li className={`flex flex-col gap-1.5 rounded-md border p-2.5 ${active ? "border-[#14201B] bg-[#FAF9F5]" : "border-[#E2DFD5]"} ${done ? "opacity-60" : ""} ${skipped ? "opacity-40" : ""}`}>
@@ -464,7 +482,7 @@ function ScheduleRow({
         <div className="flex w-full flex-col gap-1.5 border-t border-[#EFEDE5] pt-2">
           <div className="grid grid-cols-4 gap-1">
             {nextDays(todayIso, 4).map((iso, i) => (
-              <button key={iso} type="button" onClick={() => { setMoving(false); onReschedule(iso); }} className="min-h-[40px] rounded-md border border-[#E2DFD5] bg-white px-1.5 text-[12px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5]">
+              <button key={iso} type="button" onClick={() => { setMoving(false); onReschedule(iso); }} className="min-h-11 rounded-md border border-[#E2DFD5] bg-white px-1.5 text-[12px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5]">
                 {i === 0 ? "Tomorrow" : quickDayLabel(iso)}
               </button>
             ))}
@@ -494,36 +512,54 @@ const SDR_POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
 
 function PotentialGradeInline({ accountId, value: initial }: { accountId: string; value: string | null }) {
   const [value, setValue] = useState<string | null>(initial);
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11.5px] tracking-[0.06em] text-[#8A928C] uppercase">Potential</span>
-      <div className="flex gap-1">
-        {SDR_POTENTIAL_LETTERS.map((t) => {
-          const active = value === t;
-          return (
-            <button
-              key={t}
-              type="button"
-              disabled={pending}
-              onClick={() => {
-                const next = active ? null : t;
-                setValue(next);
-                startTransition(async () => {
-                  await apiFetch("/api/prospect/account-fact", {
-                    method: "POST",
-                    headers: { "content-type": "application/json", "Idempotency-Key": newId() },
-                    body: JSON.stringify({ account_id: accountId, field: "potential_juan", value: next }),
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11.5px] tracking-[0.06em] text-[#8A928C] uppercase">Potential</span>
+        <div className="flex gap-1">
+          {SDR_POTENTIAL_LETTERS.map((t) => {
+            const active = value === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  const prev = value;
+                  const next = active ? null : t;
+                  setValue(next);
+                  setError(null);
+                  startTransition(async () => {
+                    try {
+                      const res = await apiFetch("/api/prospect/account-fact", {
+                        method: "POST",
+                        headers: { "content-type": "application/json", "Idempotency-Key": newId() },
+                        body: JSON.stringify({ account_id: accountId, field: "potential_juan", value: next }),
+                      });
+                      const j = await res.json();
+                      if (!j.ok) throw new Error();
+                    } catch {
+                      setValue(prev);
+                      setError("Couldn't save. Try again.");
+                    }
                   });
-                });
-              }}
-              className={`h-9 w-9 rounded text-[12px] font-semibold transition-colors ${active ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"}`}
-            >
-              {t}
-            </button>
-          );
-        })}
+                }}
+                className={`h-11 w-11 rounded text-[12px] font-semibold transition-colors ${active ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"}`}
+              >
+                {t}
+              </button>
+            );
+          })}
+        </div>
       </div>
+      {error && (
+        <span className="inline-flex items-center gap-1.5 text-[12px] text-[#8A6D2F]">
+          <Ico name="alert" size={12} />
+          {error}
+        </span>
+      )}
     </div>
   );
 }
@@ -532,46 +568,62 @@ function PhoneEditable({ accountId, phone }: { accountId: string; phone: string 
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(phone);
   const [value, setValue] = useState(phone ?? "");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1.5">
-        <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder="+13105551234" className={`${inputCls} w-[170px]`} />
-        <button
-          type="button"
-          disabled={pending || !value.trim()}
-          onClick={() => {
-            const next = value.trim();
-            startTransition(async () => {
-              await apiFetch("/api/prospect/account-fact", {
-                method: "POST",
-                headers: { "content-type": "application/json", "Idempotency-Key": newId() },
-                body: JSON.stringify({ account_id: accountId, field: "phone", value: next }),
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-1.5">
+          <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder="+13105551234" className={`${inputCls} w-[170px]`} />
+          <button
+            type="button"
+            disabled={pending || !value.trim()}
+            onClick={() => {
+              const next = value.trim();
+              startTransition(async () => {
+                try {
+                  const res = await apiFetch("/api/prospect/account-fact", {
+                    method: "POST",
+                    headers: { "content-type": "application/json", "Idempotency-Key": newId() },
+                    body: JSON.stringify({ account_id: accountId, field: "phone", value: next }),
+                  });
+                  const j = await res.json();
+                  if (!j.ok) throw new Error();
+                  setSaved(next);
+                  setEditing(false);
+                  setError(null);
+                } catch {
+                  setError("Couldn't save. Try again.");
+                }
               });
-              setSaved(next);
-              setEditing(false);
-            });
-          }}
-          className={primaryBtn}
-        >
-          {pending ? "Saving" : "Save"}
-        </button>
-        <button type="button" onClick={() => setEditing(false)} className={ghostBtn}>
-          Cancel
-        </button>
+            }}
+            className={primaryBtn}
+          >
+            {pending ? "Saving" : "Save"}
+          </button>
+          <button type="button" onClick={() => { setEditing(false); setError(null); }} className={ghostBtn}>
+            Cancel
+          </button>
+        </div>
+        {error && (
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-[#8A6D2F]">
+            <Ico name="alert" size={12} />
+            {error}
+          </span>
+        )}
       </div>
     );
   }
   return (
-    <button type="button" onClick={() => { setValue(saved ?? ""); setEditing(true); }} title="Correct this number" className="flex min-h-[44px] items-center gap-1.5 text-[14.5px] font-medium text-[#3D4A44] hover:text-[#14201B]">
-      {saved ?? <span className="font-normal text-[#8A928C]">No phone on file</span>}
+    <button type="button" onClick={() => { setValue(saved ?? ""); setEditing(true); }} title="Correct this number" className="flex min-h-11 items-center gap-1.5 text-[14.5px] font-medium text-[#3D4A44] hover:text-[#14201B]">
+      {saved}
       <Ico name="edit" size={13} />
     </button>
   );
 }
 
-function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void }) {
+function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean }) {
   const [panel, setPanel] = useState<AccountPanelData | null>(null);
   const [loading, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -652,7 +704,6 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
                 </span>
               )}
             </div>
-            {!item.account_id && <div className="mt-0.5 text-[13px] text-[#8A928C]">New prospect, not yet an account</div>}
             {panel && panel.channel !== "unknown" && <div className="mt-0.5 text-[13.5px] text-[#5B6560]">{panel.channel.replace(/_/g, " ")}</div>}
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -664,12 +715,36 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
             )}
             {item.account_id && (
               <button type="button" onClick={handleEnrich} disabled={enriching} className={ghostBtn}>
-                <Ico name="wand" size={13} />
+                <RefreshIcon size={13} />
                 {enriching ? "Enriching" : "Enrich further"}
               </button>
             )}
           </div>
         </div>
+
+        {panel && panel.contacts.length > 0 && (
+          <div className="mt-3 flex flex-col gap-2 border-t border-[#E2DFD5] pt-3">
+            <span className="text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Contacts</span>
+            {panel.contacts.map((c) => (
+              <div key={c.id} className="flex flex-wrap items-baseline justify-between gap-2 text-[13.5px]">
+                <span className="flex flex-wrap items-center gap-1.5 font-medium text-[#3D4A44]">
+                  {c.name}
+                  {c.title ? `, ${c.title}` : ""}
+                  {c.isDecisionMaker && <span className="rounded bg-[#ECEAE1] px-1.5 py-0.5 text-[10.5px] font-medium tracking-wide text-[#3D4A44] uppercase">Decision maker</span>}
+                </span>
+                {c.phone ? (
+                  <a href={`tel:${c.phone.replace(/[^0-9+]/g, "")}`} className="shrink-0 text-[13.5px] font-medium text-[#3D6B4A] hover:underline">
+                    {c.phone}
+                  </a>
+                ) : c.email ? (
+                  <a href={`mailto:${c.email}`} className="shrink-0 text-[13.5px] text-[#5B6560] hover:underline">
+                    {c.email}
+                  </a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
 
         {panel && item.account_id && (
           <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-[#E2DFD5] pt-3">
@@ -681,31 +756,23 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
         {loading && <div className="mt-3 text-[13.5px] text-[#8A928C]">Loading account</div>}
 
         {loadError && !loading && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-2.5 text-[13.5px] text-[#5B6560]">
-            <Ico name="alert" size={13} />
-            <span>Couldn&rsquo;t load the rest of this account. You can still call and mark it done.</span>
-          </div>
+          <div className="mt-3 text-[13.5px] text-[#5B6560]">Couldn&rsquo;t load this account. You can still call and mark it done.</div>
         )}
 
         {panel && (
           <>
             {/* The Angle: current state, future state, impact. Real for an
-                account already in the book; a brand-new business shows the
-                honest gap instead of a guess (no fabricated opening line). */}
-            <div className="mt-3 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3 text-[14px] leading-relaxed text-[#3D4A44]">
-              {panel.currentState || panel.futureState || panel.impact ? (
+                account already in the book; a brand-new business renders
+                absent instead of a guess (no fabricated opening line). */}
+            {(panel.currentState || panel.futureState || panel.impact) && (
+              <div className="mt-3 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3 text-[14px] leading-relaxed text-[#3D4A44]">
                 <div className="flex flex-col gap-1">
                   {panel.currentState && <div>{panel.currentState}</div>}
                   {panel.futureState && <div>{panel.futureState}</div>}
                   {panel.impact && <div>{panel.impact}</div>}
                 </div>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-[#8A928C]">
-                  <Ico name="alert" size={13} />
-                  No angle on file yet, nobody has run discovery on this account.
-                </span>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border border-[#E2DFD5] p-3 text-[14px]">
               <Fact label="Last purchase" value={exactDaysAgo(panel.lastOrderAt)} />
@@ -773,16 +840,11 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
             )}
 
             <div className="mt-3 flex flex-wrap items-center gap-4">
-              {panel.website ? (
+              {panel.website && (
                 <a href={panel.website.startsWith("http") ? panel.website : `https://${panel.website}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#3D6B4A] hover:underline">
                   <Ico name="globe" size={13} />
                   Open website
                 </a>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A928C]">
-                  <Ico name="alert" size={13} />
-                  No website on file
-                </span>
               )}
               <a
                 href={googleMapsUrl({ name: panel.name, address: fullAddress({ street: panel.street, city: panel.city, state: panel.state, postal: panel.postal }), lat: panel.lat, lng: panel.lng })}
@@ -813,30 +875,20 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
               </div>
             )}
 
-            {panel.contacts.length > 0 && (
-              <div className="mt-3 flex flex-col gap-2 border-t border-[#E2DFD5] pt-3">
-                <span className="text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Contacts</span>
-                {panel.contacts.map((c) => (
-                  <div key={c.id} className="flex flex-wrap items-baseline justify-between gap-2 text-[13.5px]">
-                    <span className="flex flex-wrap items-center gap-1.5 font-medium text-[#3D4A44]">
-                      {c.name}
-                      {c.title ? `, ${c.title}` : ""}
-                      {c.isDecisionMaker && <span className="rounded bg-[#ECEAE1] px-1.5 py-0.5 text-[10.5px] font-medium tracking-wide text-[#3D4A44] uppercase">Decision maker</span>}
-                    </span>
-                    <span className="shrink-0 text-[#8A928C]">{c.phone ?? c.email ?? ""}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </>
         )}
       </Card>
 
-      {item.status === "pending" && (
-        <button onClick={onDone} className={primaryBtn}>
-          <Ico name="check" size={14} />
-          Mark done
-        </button>
+      {showSuccess ? (
+        <SuccessNote title="Done" />
+      ) : (
+        item.status === "pending" &&
+        !item.id.startsWith("unscheduled:") && (
+          <button onClick={onDone} className={primaryBtn}>
+            <Ico name="check" size={14} />
+            Mark done
+          </button>
+        )
       )}
     </div>
   );
@@ -846,7 +898,7 @@ function AccountPanel({ item, areas, onDone }: { item: ScheduleItem; areas: Area
 // Ranked opportunities (right rail on desktop, below the panel on phone)
 // ---------------------------------------------------------------------------
 
-function RankedList({ ranked, areaColor }: { ranked: RankedAccount[]; areaColor: Record<string, string> }) {
+function RankedList({ ranked, areaColor, onView }: { ranked: RankedAccount[]; areaColor: Record<string, string>; onView: (r: RankedAccount) => void }) {
   if (ranked.length === 0) return null;
   return (
     <Card>
@@ -858,9 +910,9 @@ function RankedList({ ranked, areaColor }: { ranked: RankedAccount[]; areaColor:
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
                 {r.area && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: areaColor[r.area] ?? "#8A928C" }} />}
-                <a href={`?account=${r.id}`} className="truncate text-[13.5px] font-medium text-[#14201B] hover:underline">
+                <button type="button" onClick={() => onView(r)} className="truncate text-left text-[13.5px] font-medium text-[#14201B] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 hover:underline">
                   {r.name}
-                </a>
+                </button>
               </div>
               <div className="truncate text-[12px] text-[#8A928C]" title={r.reason}>
                 {r.reason}
@@ -889,6 +941,7 @@ export function ProspectClient({
   focusAccountPhone?: string | null;
   topRanked?: RankedAccount[];
 }) {
+  const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<ScheduleItem | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -940,17 +993,23 @@ export function ProspectClient({
   }
 
   const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
+  const [doneNotice, setDoneNotice] = useState<Record<string, boolean>>({});
 
-  async function markDone(id: string) {
-    const prevItem = items.find((it) => it.id === id);
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, status: "done" } : it)));
+  function clearStatusError(id: string) {
     setStatusErrors((prev) => {
       if (!(id in prev)) return prev;
       const next = { ...prev };
       delete next[id];
       return next;
     });
-    if (active?.id === id) setActive(null);
+  }
+
+  async function markDone(id: string) {
+    if (id.startsWith("unscheduled:") || doneNotice[id]) return;
+    const prevItem = items.find((it) => it.id === id);
+    if (!prevItem) return;
+    clearStatusError(id);
+    setDoneNotice((prev) => ({ ...prev, [id]: true }));
     try {
       const res = await apiFetch("/api/prospect/status", {
         method: "POST",
@@ -959,20 +1018,50 @@ export function ProspectClient({
       });
       const j = await res.json();
       if (!j.ok) throw new Error();
+      // Success beat shows inline for a moment, then the row leaves the list.
+      setTimeout(() => {
+        setItems((prev) => prev.filter((it) => it.id !== id));
+        setDoneNotice((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setActive((cur) => (cur?.id === id ? null : cur));
+      }, 1000);
     } catch {
-      setItems((prev) => prev.map((it) => (it.id === id && prevItem ? { ...it, status: prevItem.status } : it)));
+      setDoneNotice((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       setStatusErrors((prev) => ({ ...prev, [id]: "Couldn't save that. Try again." }));
     }
   }
 
   function reschedule(id: string, date: string) {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, scheduled_date: date, rescheduled_at: new Date().toISOString() } : it)));
-    setActive((cur) => (cur?.id === id ? { ...cur, scheduled_date: date, rescheduled_at: new Date().toISOString() } : cur));
-    void apiFetch("/api/prospect/reschedule", {
-      method: "POST",
-      headers: { "content-type": "application/json", "Idempotency-Key": newId() },
-      body: JSON.stringify({ id, scheduled_date: date }),
-    });
+    const prevItem = items.find((it) => it.id === id);
+    if (!prevItem) return;
+    const prevDate = prevItem.scheduled_date;
+    const prevRescheduledAt = prevItem.rescheduled_at;
+    const nowIso = new Date().toISOString();
+    clearStatusError(id);
+    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, scheduled_date: date, rescheduled_at: nowIso } : it)));
+    setActive((cur) => (cur?.id === id ? { ...cur, scheduled_date: date, rescheduled_at: nowIso } : cur));
+    (async () => {
+      try {
+        const res = await apiFetch("/api/prospect/reschedule", {
+          method: "POST",
+          headers: { "content-type": "application/json", "Idempotency-Key": newId() },
+          body: JSON.stringify({ id, scheduled_date: date }),
+        });
+        const j = await res.json();
+        if (!j.ok) throw new Error();
+      } catch {
+        setItems((prev) => prev.map((it) => (it.id === id ? { ...it, scheduled_date: prevDate, rescheduled_at: prevRescheduledAt } : it)));
+        setActive((cur) => (cur?.id === id ? { ...cur, scheduled_date: prevDate, rescheduled_at: prevRescheduledAt } : cur));
+        setStatusErrors((prev) => ({ ...prev, [id]: "Couldn't move that. Try again." }));
+      }
+    })();
   }
 
   function viewHit(hit: SearchHit) {
@@ -1001,42 +1090,72 @@ export function ProspectClient({
     });
   }
 
+  function viewRanked(r: RankedAccount) {
+    const existing = items.find((it) => it.account_id === r.id && it.status === "pending");
+    setActive(
+      existing ?? {
+        id: `unscheduled:${r.id}`,
+        account_id: r.id,
+        prospect_name: null,
+        prospect_phone: null,
+        kind: "call",
+        scheduled_date: todayIso,
+        status: "pending",
+        priority: null,
+        rescheduled_at: null,
+        displayName: r.name,
+        displayPhone: null,
+        area: r.area,
+        businessHours: null,
+        priorityScore: r.score,
+        priorityReason: r.reason,
+        priorityBand: r.band as ScheduleItem["priorityBand"],
+      },
+    );
+    // Client-side navigation, not a full page reload: keeps the account
+    // shareable in the URL without the <a href> reload the review flagged.
+    router.replace(`?account=${r.id}`, { scroll: false });
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <GlobalSearch todayIso={todayIso} onView={viewHit} onAdded={addItem} />
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <div className="flex w-full flex-col gap-4 lg:w-[320px] lg:shrink-0">
+        {topRanked && topRanked.length > 0 && (
+          <div className="order-1 flex w-full flex-col gap-4 lg:order-3 lg:w-[240px] lg:shrink-0">
+            <RankedList ranked={topRanked} areaColor={areaColor} onView={viewRanked} />
+          </div>
+        )}
+
+        <div className="order-2 flex w-full flex-col gap-4 lg:order-1 lg:w-[320px] lg:shrink-0">
           {dayIsos.map((iso) => {
             const dayItems = items
-              .filter((it) => it.scheduled_date === iso)
+              .filter((it) => it.scheduled_date === iso && it.status === "pending")
               .sort((a, b) => {
-                if (a.status !== b.status) return a.status === "pending" ? -1 : 1;
                 const rank: Record<SdrPriority, number> = { high: 3, mid: 2, low: 1 };
                 const pd = (b.priority ? rank[b.priority] : 0) - (a.priority ? rank[a.priority] : 0);
                 if (pd !== 0) return pd;
                 return (b.priorityScore ?? -1) - (a.priorityScore ?? -1);
               });
-            const pendingItems = dayItems.filter((it) => it.status === "pending");
-            const doneItems = dayItems.filter((it) => it.status !== "pending");
             return (
               <div key={iso} className="rounded-lg border border-[#E2DFD5] bg-white p-3">
                 <div className="mb-2 text-[12.5px] font-semibold tracking-[0.06em] text-[#5B6560] uppercase">{dayLabel(iso, todayIso)}</div>
                 <ul className="flex flex-col gap-1.5">
-                  {pendingItems.map((it) => (
-                    <ScheduleRow key={it.id} item={it} active={active?.id === it.id} onSelect={() => setActive(it)} onDone={() => markDone(it.id)} onReschedule={(date) => reschedule(it.id, date)} todayIso={todayIso} statusError={statusErrors[it.id]} />
+                  {dayItems.map((it) => (
+                    <ScheduleRow
+                      key={it.id}
+                      item={it}
+                      active={active?.id === it.id}
+                      onSelect={() => setActive(it)}
+                      onDone={() => markDone(it.id)}
+                      onReschedule={(date) => reschedule(it.id, date)}
+                      todayIso={todayIso}
+                      statusError={statusErrors[it.id]}
+                      showSuccess={doneNotice[it.id]}
+                    />
                   ))}
                 </ul>
-                {doneItems.length > 0 && (
-                  <div className="mt-2 border-t border-[#EFEDE5] pt-2">
-                    <div className="mb-1 text-[11.5px] tracking-[0.06em] text-[#8A928C] uppercase">Done, {doneItems.length}</div>
-                    <ul className="flex flex-col gap-1.5">
-                      {doneItems.map((it) => (
-                        <ScheduleRow key={it.id} item={it} active={active?.id === it.id} onSelect={() => setActive(it)} onDone={() => markDone(it.id)} onReschedule={(date) => reschedule(it.id, date)} todayIso={todayIso} />
-                      ))}
-                    </ul>
-                  </div>
-                )}
                 <div className="mt-2">
                   <AddToDayForm date={iso} onAdded={addItem} />
                 </div>
@@ -1045,19 +1164,13 @@ export function ProspectClient({
           })}
         </div>
 
-        <div ref={panelRef} className="min-w-0 flex-1 scroll-mt-3">
+        <div ref={panelRef} className="order-3 min-w-0 flex-1 scroll-mt-3 lg:order-2">
           {active ? (
-            <AccountPanel item={active} areas={areas} onDone={() => markDone(active.id)} />
+            <AccountPanel item={active} areas={areas} onDone={() => markDone(active.id)} showSuccess={doneNotice[active.id]} />
           ) : (
-            <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[#D8D4C8] text-[14px] text-[#8A928C]">Pick a call or visit from the list</div>
+            <div className="h-40 rounded-lg border border-dashed border-[#D8D4C8]" />
           )}
         </div>
-
-        {topRanked && topRanked.length > 0 && (
-          <div className="flex w-full flex-col gap-4 lg:w-[240px] lg:shrink-0">
-            <RankedList ranked={topRanked} areaColor={areaColor} />
-          </div>
-        )}
       </div>
     </div>
   );
