@@ -6,11 +6,8 @@
  * trimmed from portfolio/src/app/nutribiotic/lib/touchpoint-ui.tsx,
  * review-ui.tsx, new-account-ui.tsx, and next-step-ui.tsx.
  *
- * CUT FROM THE SOURCE (see the port's handback): photo attach (needs
- * lib/gdrive.ts, a shared module this feature is not allowed to touch),
- * the Potential/Readiness grading pills (lib/priority.ts, not ported), and
- * the Google-Places new-business search (replaced with a search of Juan's
- * own book, see search-accounts/route.ts). Every write goes through
+ * The Google-Places new-business search is replaced with a search of
+ * Juan's own book (see search-accounts/route.ts). Every write goes through
  * apiFetch so it carries the /nb basePath, and every write that creates a
  * row carries its own Idempotency-Key, generated once per attempt and
  * reused on any retry of that same attempt, per PORTING.md.
@@ -133,6 +130,35 @@ const KIND_OPTIONS = [
 ] as const;
 type KindOption = (typeof KIND_OPTIONS)[number]["value"];
 
+const VISIT_GRADES = ["A", "B", "C", "D", "E"] as const;
+type VisitGrade = (typeof VISIT_GRADES)[number];
+const GRADE_TITLE: Record<VisitGrade, string> = {
+  A: "A, very big",
+  B: "B, big",
+  C: "C, medium",
+  D: "D, small",
+  E: "E, very small",
+};
+
+type Readiness = "urgent" | "hot" | "normal" | "cold";
+const READINESS_OPTIONS: { value: Readiness; icon: string; title: string; activeClass: string }[] = [
+  { value: "urgent", icon: "urgent", title: "Urgent, ready now, +20 to priority", activeClass: "bg-[#9C4A44] text-[#F7F6F1]" },
+  { value: "hot", icon: "hot", title: "Hot, close, +10 to priority", activeClass: "bg-[#A8703D] text-[#F7F6F1]" },
+  { value: "normal", icon: "dot", title: "Normal, no change to priority", activeClass: "bg-[#14201B] text-[#F7F6F1]" },
+  { value: "cold", icon: "snowflake", title: "Cold, not close, -10 to priority", activeClass: "bg-[#5C7E8C] text-[#F7F6F1]" },
+];
+
+/** Grade and readiness land only once the note has named its account, so a
+ *  failed file never leaves a read on the wrong record. Fire and forget. */
+function applyAccountRead(accountId: string | null, grade: VisitGrade | null, readiness: Readiness | null) {
+  if (!accountId || (!grade && !readiness)) return;
+  void apiFetch("/api/visit/account-read", {
+    method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ account_id: accountId, grade: grade ?? undefined, readiness: readiness ?? undefined }),
+  }).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // the capture box
 // ---------------------------------------------------------------------------
@@ -146,8 +172,33 @@ export function TouchpointCapture() {
   const [success, setSuccess] = useState<FiledResult | null>(null);
   const [needsAccount, setNeedsAccount] = useState<NeedsAccountResult | null>(null);
   const [needsNextStep, setNeedsNextStep] = useState<NeedsNextStepResult | null>(null);
+  const [grade, setGrade] = useState<VisitGrade | null>(null);
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [newCompany, setNewCompany] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [photoUiState, setPhotoUiState] = useState<"idle" | "uploading" | "error">("idle");
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const key = useIdempotencyKey(null);
+  // Held for the resolver path: the account is not known until it resolves.
+  const heldRead = useRef<{ grade: VisitGrade | null; readiness: Readiness | null }>({ grade: null, readiness: null });
+
+  async function attachPhoto(touchpointId: string, file: File) {
+    setPhotoUiState("uploading");
+    try {
+      const form = new FormData();
+      form.set("touchpoint_id", touchpointId);
+      form.set("photo", file);
+      form.set("idempotency_key", `${touchpointId}:${file.name}:${file.size}`);
+      const res = await apiFetch("/api/visit/attach", { method: "POST", body: form });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "Attach failed.");
+      setPhotoUiState("idle");
+    } catch {
+      setPhotoUiState("error");
+      setTimeout(() => setPhotoUiState("idle"), 2500);
+    }
+  }
 
   useEffect(() => {
     if (!success) return;
@@ -164,6 +215,10 @@ export function TouchpointCapture() {
     setText("");
     setKind("meeting");
     setKindTouched(false);
+    setGrade(null);
+    setReadiness(null);
+    setNewCompany(false);
+    setPendingPhoto(null);
     requestAnimationFrame(() => {
       if (textareaRef.current) {
         autosize(textareaRef.current);
@@ -181,7 +236,7 @@ export function TouchpointCapture() {
         const res = await apiFetch("/api/visit/touchpoint", {
           method: "POST",
           headers: { "content-type": "application/json", "idempotency-key": key },
-          body: JSON.stringify({ text: value, kindOverride: kindTouched ? kind : undefined }),
+          body: JSON.stringify({ text: value, kindOverride: kindTouched ? kind : undefined, forceNewAccount: newCompany }),
         });
         const data = await res.json();
         if (!data.ok) {
@@ -189,20 +244,18 @@ export function TouchpointCapture() {
           return;
         }
         const result = data.result as TouchpointApiResult;
+        if (pendingPhoto) void attachPhoto(result.touchpoint_id, pendingPhoto);
         if (result.needsAccount) {
+          heldRead.current = { grade, readiness };
           setNeedsAccount(result);
-          setText("");
-          setKind("meeting");
-          setKindTouched(false);
         } else if (result.needsNextStep) {
+          applyAccountRead(result.accountId, grade, readiness);
           setNeedsNextStep(result);
-          setText("");
-          setKind("meeting");
-          setKindTouched(false);
         } else {
+          applyAccountRead(result.accountId, grade, readiness);
           setSuccess(result);
-          reset();
         }
+        reset();
       } catch {
         setError("That note did not reach the server. Try again.");
       }
@@ -239,6 +292,10 @@ export function TouchpointCapture() {
             nameGuess={needsAccount.businessNameGuess}
             matchAccountId={needsAccount.matchAccountId}
             matchAccountName={needsAccount.matchAccountName}
+            onMatched={(accountId) => {
+              applyAccountRead(accountId, heldRead.current.grade, heldRead.current.readiness);
+              heldRead.current = { grade: null, readiness: null };
+            }}
             onResolved={() => {
               setNeedsAccount(null);
               reset();
@@ -291,7 +348,99 @@ export function TouchpointCapture() {
               className="min-h-[132px] w-full resize-none border-none bg-transparent p-0 text-[16px] leading-relaxed text-[#14201B] placeholder:text-[#A9AFA9] focus:outline-none"
             />
 
-            <div className="mt-3 flex items-center justify-end border-t border-[#EDEBE3] pt-3">
+            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-[#EDEBE3] pt-3">
+              <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Potential</span>
+              <div className="flex gap-1">
+                {VISIT_GRADES.map((t) => {
+                  const active = grade === t;
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      aria-pressed={active}
+                      title={GRADE_TITLE[t]}
+                      onClick={() => setGrade(active ? null : t)}
+                      className={`h-11 w-11 rounded-md text-[13px] font-semibold transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 sm:w-9 ${
+                        active ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44]"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                aria-pressed={newCompany}
+                onClick={() => setNewCompany((v) => !v)}
+                title="Skip matching against your accounts"
+                className={`ml-auto flex h-11 items-center gap-1.5 rounded-md border px-3 text-[12.5px] font-medium transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 ${
+                  newCompany
+                    ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
+                    : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
+                }`}
+              >
+                <Ico name={newCompany ? "check" : "plus"} size={13} />
+                New company
+              </button>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
+              <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Lead readiness</span>
+              <div className="flex gap-1">
+                {READINESS_OPTIONS.map((opt) => {
+                  const active = readiness === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      aria-pressed={active}
+                      aria-label={opt.title}
+                      title={opt.title}
+                      onClick={() => setReadiness(active ? null : opt.value)}
+                      className={`flex h-11 w-11 items-center justify-center rounded-md transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 sm:w-9 ${
+                        active ? opt.activeClass : "bg-[#ECEAE1] text-[#3D4A44]"
+                      }`}
+                    >
+                      <Ico name={opt.icon} size={15} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) setPendingPhoto(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  aria-label={pendingPhoto ? "Photo attached, tap to replace" : "Add a photo"}
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-[transform,background-color,color] active:scale-[0.97] ${
+                    pendingPhoto
+                      ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
+                      : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
+                  }`}
+                >
+                  <Ico name="camera" size={17} />
+                </button>
+                <span className="min-h-[1em] text-[12px] leading-relaxed text-[#8A6D2F]">
+                  {photoUiState === "uploading" && "Attaching photo"}
+                  {photoUiState === "error" && "Photo failed to attach."}
+                  {photoUiState === "idle" && pendingPhoto && "1 photo"}
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={submit}
@@ -325,12 +474,14 @@ function AccountMatchResolver({
   nameGuess,
   matchAccountId,
   matchAccountName,
+  onMatched,
   onResolved,
 }: {
   touchpointId: string;
   nameGuess: string | null;
   matchAccountId: string | null;
   matchAccountName: string | null;
+  onMatched?: (accountId: string) => void;
   onResolved: () => void;
 }) {
   const [matching, setMatching] = useState(false);
@@ -363,6 +514,8 @@ function AccountMatchResolver({
         setError(data.error || "Could not file that.");
         return;
       }
+      const matchedId = (data.result?.accountId as string | undefined) ?? (body.accountId as string | undefined);
+      if (matchedId) onMatched?.(matchedId);
       setFiled({ ok: true, touchpoint_id: touchpointId, needsAccount: false, needsNextStep: false, ...data.result });
     } catch {
       setError("That did not reach the server. Try again.");

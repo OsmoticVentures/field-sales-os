@@ -136,6 +136,24 @@ export const ICONS: Record<string, ReactNode> = {
       <path d="M9 7.2h1.6c.6 0 1 .4 1 1v2.6a1.1 1.1 0 0 0 2.2 0V6.4L12 4.6" />
     </>
   ),
+  urgent: <path d="M8 2.8v6.4M8 12.2h.01" strokeLinecap="round" />,
+  hot: (
+    <>
+      <path d="M4.6 2.6c1.4 1.7-1.4 3.4 0 5.1c1.4 1.7-1.4 3.4 0 5.1" />
+      <path d="M8 2.6c1.4 1.7-1.4 3.4 0 5.1c1.4 1.7-1.4 3.4 0 5.1" />
+      <path d="M11.4 2.6c1.4 1.7-1.4 3.4 0 5.1c1.4 1.7-1.4 3.4 0 5.1" />
+    </>
+  ),
+  dot: <circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none" />,
+  snowflake: (
+    <>
+      <path d="M1.3 8h13.4M8 1.3v13.4" />
+      <path d="M13.3 10.7 10.7 8 13.3 5.3" />
+      <path d="M2.7 5.3 5.3 8 2.7 10.7" />
+      <path d="M10.7 2.7 8 6.7 5.3 2.7" />
+      <path d="M5.3 13.3 8 9.3 10.7 13.3" />
+    </>
+  ),
   more: (
     <>
       <circle cx="3.4" cy="8" r="1.1" fill="currentColor" stroke="none" />
