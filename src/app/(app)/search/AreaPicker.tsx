@@ -299,7 +299,7 @@ export function AreaPicker({
             onClick={() => onChange(pins.slice(0, -1))}
             disabled={disabled || pins.length === 0}
             className={toolBtn}
-            title="Remove the last pin"
+            title="Undo pin"
           >
             <Ico name="close" size={12} />
             Undo pin
@@ -324,11 +324,6 @@ export function AreaPicker({
           </div>
         )}
 
-        {loaded && pins.length === 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-[#E2DFD5] bg-white/95 px-3 py-2 text-[12.5px] text-[#5B6560]">
-            Tap the map to drop pins around the area to work. Three pins close it.
-          </div>
-        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[#E2DFD5] px-3 py-2 text-[12px] text-[#8A928C]">
@@ -339,12 +334,11 @@ export function AreaPicker({
           {results.length > 0 && (
             <>
               {" "}
-              · <span className="font-medium text-[#A0762C]">{results.length}</span> found, tap a
-              dot for Google Maps
+              · <span className="font-medium text-[#A0762C]">{results.length}</span> found
             </>
           )}
         </span>
-        {pins.length > 0 && pins.length < 3 && <span>{3 - pins.length} more to close the area.</span>}
+        {pins.length > 0 && pins.length < 3 && <span>{3 - pins.length} more pin{3 - pins.length === 1 ? "" : "s"}</span>}
       </div>
     </div>
   );

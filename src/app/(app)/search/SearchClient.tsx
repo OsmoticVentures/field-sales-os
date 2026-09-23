@@ -172,6 +172,21 @@ function humanizeDropReason(key: string): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Builds the landed-run success line from only the fields the worker sent.
+ *  A field it left off stays absent, never a fabricated 0 or an empty day. */
+function landedTitle(landMeta: StageReply): string {
+  const land = landMeta.stages?.land;
+  const parts: string[] = [];
+  if (land?.inserted_accounts != null) {
+    parts.push(`${land.inserted_accounts} prospect${land.inserted_accounts === 1 ? "" : "s"} added`);
+  }
+  if (land?.inserted_sdr != null) {
+    const day = land.first_sdr_day ? ` from ${land.first_sdr_day}` : "";
+    parts.push(`${land.inserted_sdr} call${land.inserted_sdr === 1 ? "" : "s"} queued${day}`);
+  }
+  return parts.length > 0 ? `${parts.join(", ")}.` : "Added.";
+}
+
 export function SearchClient() {
   const [pins, setPins] = useState<Pin[]>([]);
   const [query, setQuery] = useState("medical spa");
@@ -182,7 +197,7 @@ export function SearchClient() {
   const [requirePhone, setRequirePhone] = useState(true);
   const [requireWebsite, setRequireWebsite] = useState(true);
   const [narrowType, setNarrowType] = useState(true);
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const [excludeCategories, setExcludeCategories] = useState<string[]>([]);
   const [excludeInput, setExcludeInput] = useState("");
@@ -213,6 +228,34 @@ export function SearchClient() {
   const [failure, setFailure] = useState<string | null>(null);
 
   const canSearch = pins.length >= 3 && query.trim().length > 0 && busy === null;
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (minReviews !== "30") n++;
+    if (minRating !== "4.0") n++;
+    if (minTriage !== "45") n++;
+    if (!requirePhone) n++;
+    if (!requireWebsite) n++;
+    if (!narrowType) n++;
+    if (excludeCategories.length > 0) n++;
+    if (chainExclude) n++;
+    if (minPhotos.trim()) n++;
+    if (maxPerSqMile.trim()) n++;
+    if (openDay !== "") n++;
+    return n;
+  }, [
+    minReviews,
+    minRating,
+    minTriage,
+    requirePhone,
+    requireWebsite,
+    narrowType,
+    excludeCategories,
+    chainExclude,
+    minPhotos,
+    maxPerSqMile,
+    openDay,
+  ]);
 
   /**
    * Queue one stage and wait for the Mac to answer it. POST is one insert
@@ -463,10 +506,10 @@ export function SearchClient() {
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 pb-24 lg:pb-0">
       <BookSearch />
 
-      <div className={`${panel} p-3`}>
+      <div className={`${panel} hidden p-3 lg:block`}>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
@@ -500,7 +543,7 @@ export function SearchClient() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="h-[460px] lg:h-[520px]">
+        <div className="h-[420px] lg:h-[520px]">
           <AreaPicker pins={pins} onChange={setPins} disabled={busy !== null} results={resultPins} />
         </div>
 
@@ -511,7 +554,9 @@ export function SearchClient() {
             aria-expanded={filtersOpen}
             className="flex min-h-11 items-center justify-between gap-2 border-b border-[#E2DFD5] px-3 py-2.5 text-left"
           >
-            <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Filters</span>
+            <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
+              Filters{activeFilterCount > 0 ? ` · ${activeFilterCount}` : ""}
+            </span>
             <Ico name={filtersOpen ? "chevron-up" : "chevron-down"} size={13} />
           </button>
 
@@ -604,10 +649,10 @@ export function SearchClient() {
                       key={c}
                       type="button"
                       onClick={() => removeExclude(c)}
-                      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2DFD5] bg-[#F2F0E8] px-1.5 py-0.5 text-[11px] text-[#3D4A44] hover:bg-[#EFEDE5]"
+                      className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#E2DFD5] bg-[#F2F0E8] px-2.5 py-1.5 text-[11px] text-[#3D4A44] hover:bg-[#EFEDE5]"
                     >
                       {c}
-                      <Ico name="close" size={9} />
+                      <Ico name="close" size={10} />
                     </button>
                   ))}
                 </div>
@@ -644,7 +689,6 @@ export function SearchClient() {
                 disabled={suggestBusy || !query.trim()}
                 className="inline-flex min-h-11 items-center gap-1.5 self-start text-[13px] font-medium text-[#3D6B4A] disabled:cursor-not-allowed disabled:text-[#A9AFA9]"
               >
-                <Ico name="wand" size={12} />
                 {suggestBusy ? "Thinking..." : "Suggest categories to exclude"}
               </button>
               {suggestError && <span className="text-[12.5px] text-[#8A928C]">{suggestError}</span>}
@@ -680,10 +724,10 @@ export function SearchClient() {
                           key={c}
                           type="button"
                           onClick={() => removeChain(c)}
-                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#E2DFD5] bg-[#F2F0E8] px-1.5 py-0.5 text-[11px] text-[#3D4A44] hover:bg-[#EFEDE5]"
+                          className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-[#E2DFD5] bg-[#F2F0E8] px-2.5 py-1.5 text-[11px] text-[#3D4A44] hover:bg-[#EFEDE5]"
                         >
                           {c}
-                          <Ico name="close" size={9} />
+                          <Ico name="close" size={10} />
                         </button>
                       ))}
                     </div>
@@ -760,16 +804,7 @@ export function SearchClient() {
 
       {meta && <RunBar meta={meta} enrich={enrichMeta} rows={sorted.length} />}
 
-      {landMeta?.written && (
-        <SuccessNote
-          title={`${landMeta.stages?.land?.inserted_accounts ?? 0} prospect${
-            (landMeta.stages?.land?.inserted_accounts ?? 0) === 1 ? "" : "s"
-          } added, ${landMeta.stages?.land?.inserted_sdr ?? 0} call${
-            (landMeta.stages?.land?.inserted_sdr ?? 0) === 1 ? "" : "s"
-          } queued from ${landMeta.stages?.land?.first_sdr_day ?? ""}.`}
-          detail="They are in the OS as prospects and on the call queue. None is in HubSpot yet: a prospect earns a portal record once a real call or visit is logged against it."
-        />
-      )}
+      {landMeta?.written && <SuccessNote title={landedTitle(landMeta)} detail="Not in HubSpot yet." />}
 
       {(landMeta?.stages?.land?.skipped ?? []).length > 0 && (
         <div className={`${panel} p-3 text-[12.5px] text-[#A0762C]`}>
@@ -801,39 +836,116 @@ export function SearchClient() {
       )}
 
       {selectedUnlanded.length > 0 && (
-        <div className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 rounded-lg border border-[#14201B] bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(20,32,27,0.12)]">
-          <span className="text-[13px] font-medium tabular-nums text-[#14201B]">
-            {selectedUnlanded.length} selected
-          </span>
-          <span className="text-[12px] text-[#8A928C]">
-            {selectedEnriched} of them already looked into
-          </span>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={runEnrich}
-              disabled={busy !== null}
-              className={secondaryBtn}
-              title="Read these businesses' own websites for an about line, a named decision maker and category fit"
-            >
-              <Ico name="globe" size={13} />
-              {busy === "enrich"
-                ? "Reading their sites..."
-                : `Look further into ${selectedUnlanded.length}`}
-            </button>
-            <button
-              type="button"
-              onClick={runLand}
-              disabled={busy !== null}
-              className={primaryBtn}
-              title="Reads any un-enriched site first, then adds these as prospects and queues a call for each"
-            >
-              <Ico name="phone-arrow" size={13} />
-              {busy === "land" ? "Adding..." : `Add ${selectedUnlanded.length} to SDR`}
-            </button>
-          </div>
-        </div>
+        <SelectionBar
+          count={selectedUnlanded.length}
+          enrichedCount={selectedEnriched}
+          busy={busy}
+          onEnrich={runEnrich}
+          onLand={runLand}
+        />
       )}
+
+      <MobileSearchBar query={query} onQueryChange={setQuery} onSearch={() => runSearch()} canSearch={canSearch} busy={busy} />
+    </div>
+  );
+}
+
+/** The mobile-only search action, pinned to the bottom of the viewport so it
+ *  stays reachable regardless of scroll. The full query + Find all bar above
+ *  stays desktop-only. */
+function MobileSearchBar({
+  query,
+  onQueryChange,
+  onSearch,
+  canSearch,
+  busy,
+}: {
+  query: string;
+  onQueryChange: (v: string) => void;
+  onSearch: () => void;
+  canSearch: boolean;
+  busy: Busy;
+}) {
+  return (
+    <div
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-[#E2DFD5] bg-white/95 px-3 pt-2 backdrop-blur lg:hidden"
+      style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
+    >
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
+            <Ico name="search" size={15} />
+          </span>
+          <input
+            value={query}
+            onChange={(e) => onQueryChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSearch) onSearch();
+            }}
+            placeholder="What kind of business?"
+            aria-label="What kind of business to search for"
+            className="min-h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] py-2.5 pl-9 pr-3 text-base text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
+          />
+        </div>
+        <button type="button" onClick={onSearch} disabled={!canSearch} className={`${primaryBtn} shrink-0`}>
+          {busy === "search" ? "Searching..." : "Search"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The selection action bar. Rises into place with a spring-like ease rather
+ *  than popping in, and clears the mobile search bar and its safe area. */
+function SelectionBar({
+  count,
+  enrichedCount,
+  busy,
+  onEnrich,
+  onLand,
+}: {
+  count: number;
+  enrichedCount: number;
+  busy: Busy;
+  onEnrich: () => void;
+  onLand: () => void;
+}) {
+  const [risen, setRisen] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setRisen(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
+  return (
+    <div
+      className={`sticky bottom-[calc(6rem+env(safe-area-inset-bottom))] z-20 flex flex-wrap items-center gap-2 rounded-lg border border-[#14201B] bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(20,32,27,0.12)] transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-opacity motion-reduce:duration-150 lg:bottom-4 ${
+        risen ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0 motion-reduce:translate-y-0"
+      }`}
+    >
+      <span className="text-[13px] font-medium tabular-nums text-[#14201B]">{count} selected</span>
+      <span className="text-[12px] text-[#8A928C]">{enrichedCount} already looked into</span>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onEnrich}
+          disabled={busy !== null}
+          className={secondaryBtn}
+          title="Read these businesses' own websites for an about line, a named decision maker and category fit"
+        >
+          <Ico name="globe" size={13} />
+          {busy === "enrich" ? "Reading their sites..." : `Look further into ${count}`}
+        </button>
+        <button
+          type="button"
+          onClick={onLand}
+          disabled={busy !== null}
+          className={primaryBtn}
+          title="Reads any un-enriched site first, then adds these as prospects and queues a call for each"
+        >
+          <Ico name="phone-arrow" size={13} />
+          {busy === "land" ? "Adding..." : `Queue ${count} for calls`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -896,7 +1008,7 @@ function BookSearch() {
           }}
           onFocus={() => setShow(true)}
           onBlur={() => setTimeout(() => setShow(false), 150)}
-          placeholder="Search our book: a client, a company, a person"
+          placeholder="Search the book by name"
           aria-label="Search accounts already in the book"
           className="min-h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] py-2.5 pl-9 pr-3 text-base text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
         />
@@ -993,15 +1105,19 @@ function RunBar({
   return (
     <div className={panel}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-3.5 py-2.5">
-        <Stat label="Returned by Google" value={search.distinct_places ?? 0} />
-        <Stat label="Passed the filters" value={triage.survivors ?? 0} />
+        <Stat label="Returned by Google" value={search.distinct_places} />
+        <Stat label="Passed the filters" value={triage.survivors} />
         <Stat label="On this list" value={rows} />
-        {e && <Stat label="Sites read" value={e.attempted ?? 0} />}
+        {e && <Stat label="Sites read" value={e.attempted} />}
         <div className="ml-auto flex items-center gap-3 text-[12px] text-[#8A928C]">
-          <span className="tabular-nums">
-            {search.live_calls ?? 0} live Places call{(search.live_calls ?? 0) === 1 ? "" : "s"}
-          </span>
-          <span className="tabular-nums">{triage.book_size ?? 0} already in the book</span>
+          {search.live_calls != null && (
+            <span className="tabular-nums">
+              {search.live_calls} live Places call{search.live_calls === 1 ? "" : "s"}
+            </span>
+          )}
+          {triage.book_size != null && (
+            <span className="tabular-nums">{triage.book_size} already in the book</span>
+          )}
           {dropped.length > 0 && (
             <button
               type="button"
@@ -1018,22 +1134,24 @@ function RunBar({
 
       {ceiling && (
         <div className="border-t border-[#EFEDE5] px-3.5 py-2 text-[12.5px] text-[#8A928C]">
-          Google was still at its own limit in part of this area even after splitting it into smaller
-          boxes, so a few businesses there were not returned. A tighter drawn area covers it exactly.
+          Google hit its own limit in part of this area.
         </div>
       )}
 
       {(triage.capped_off ?? 0) > 0 && (
         <div className="border-t border-[#EFEDE5] px-3.5 py-2 text-[12.5px] text-[#8A928C]">
-          {triage.capped_off} more passed the filters than one list shows. The highest scores are kept.
+          {triage.capped_off} more passed the filters than shown.
         </div>
       )}
 
       {e && (
         <div className="border-t border-[#EFEDE5] px-3.5 py-2 text-[12.5px] text-[#5B6560]">
-          Read {e.attempted ?? 0} site{(e.attempted ?? 0) === 1 ? "" : "s"}: {e.with_about ?? 0} state
-          something about themselves, {e.with_person ?? 0} name a person, {e.with_fit ?? 0} mention our
-          categories, {e.failed ?? 0} would not load.
+          {e.attempted != null && (
+            <>
+              Read {e.attempted} site{e.attempted === 1 ? "" : "s"}
+              {e.failed != null && e.failed > 0 ? `, ${e.failed} would not load` : ""}.
+            </>
+          )}
         </div>
       )}
 
@@ -1051,7 +1169,8 @@ function RunBar({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, value }: { label: string; value: number | null | undefined }) {
+  if (value == null) return null;
   return (
     <div>
       <div className="text-[10.5px] uppercase tracking-[0.12em] text-[#8A928C]">{label}</div>
@@ -1086,15 +1205,32 @@ function ResultsTable({
   if (rows.length === 0) {
     return (
       <div className={`${panel} p-5 text-[13.5px] leading-relaxed text-[#5B6560]`}>
-        Nothing in that area passed these filters. That is a finding, not an error: lower the review or
-        rating floor, turn off a requirement, or draw the area somewhere else.
+        Nothing in that area passed these filters.
       </div>
     );
   }
 
   return (
     <div className={`${panel} overflow-hidden`}>
-      <div className="overflow-x-auto">
+      <div className="sm:hidden">
+        {selectableCount > 0 && (
+          <button
+            type="button"
+            onClick={onToggleAll}
+            className="flex min-h-11 w-full items-center justify-between border-b border-[#E2DFD5] bg-[#FAF9F5] px-3 text-[12px] font-medium uppercase tracking-[0.1em] text-[#8A928C]"
+          >
+            <span>{selected.size >= selectableCount ? "Deselect all" : "Select all"}</span>
+            <span className="tabular-nums">{selected.size} of {selectableCount}</span>
+          </button>
+        )}
+        <div className="divide-y divide-[#EDEBE3]">
+          {rows.map((r) => (
+            <MobileRow key={r.key} row={r} selected={selected.has(r.key)} onToggle={() => onToggle(r.key)} />
+          ))}
+        </div>
+      </div>
+
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[1080px] text-[13px]">
           <thead>
             <tr className="border-b border-[#E2DFD5] bg-[#FAF9F5] text-[11px] uppercase tracking-[0.1em] text-[#8A928C]">
@@ -1113,7 +1249,7 @@ function ResultsTable({
               <SortTh label="Rating" k="rating" sort={sort} onSort={onSort} align="right" />
               <SortTh label="Reviews" k="reviews" sort={sort} onSort={onSort} align="right" />
               <th className={th}>Website</th>
-              <SortTh label="Triage" k="triage" sort={sort} onSort={onSort} align="right" />
+              <SortTh label="Score" k="triage" sort={sort} onSort={onSort} align="right" />
               {anyEnriched && <th className={th}>Decision maker</th>}
               {anyEnriched && <th className={th}>Fit</th>}
               {anyEnriched && <th className={th}>About</th>}
@@ -1151,7 +1287,7 @@ function ResultsTable({
                         {r.city}
                         {r.id && (
                           <span className="rounded-full bg-[#E7EDE4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#3D6B4A]">
-                            In SDR
+                            Queued
                           </span>
                         )}
                       </div>
@@ -1275,6 +1411,74 @@ function ResultsTable({
         </table>
       </div>
     </div>
+  );
+}
+
+/** One result on a phone: the whole row is the 44px selection toggle, no
+ *  16px checkbox to aim for. A landed row has nothing to toggle. */
+function MobileRow({
+  row: r,
+  selected,
+  onToggle,
+}: {
+  row: Candidate;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const meta = (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-[#8A928C]">
+      {r.city && <span>{r.city}</span>}
+      {r.places_rating != null && (
+        <span>
+          {r.places_rating.toFixed(1)} / 5{r.places_rating_count != null ? ` (${r.places_rating_count})` : ""}
+        </span>
+      )}
+      {r.id && (
+        <span className="rounded-full bg-[#E7EDE4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#3D6B4A]">
+          Queued
+        </span>
+      )}
+    </div>
+  );
+
+  const body = (
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate font-medium text-[#14201B]">{r.name}</span>
+        <span className="shrink-0 text-[13px] font-medium tabular-nums text-[#14201B]">
+          {r.triage_score.toFixed(0)}
+        </span>
+      </div>
+      {meta}
+      {r.address && <div className="mt-1 text-[12.5px] text-[#5B6560]">{r.address}</div>}
+      {r.about && <div className="mt-1 line-clamp-2 text-[12.5px] text-[#5B6560]">{r.about}</div>}
+    </div>
+  );
+
+  if (r.id) {
+    return (
+      <div className={`flex min-h-11 items-start gap-3 px-3 py-3 ${selected ? "bg-[#F4F2EA]" : ""}`}>
+        <span className="mt-0.5 shrink-0 text-[#3D6B4A]" title="Already added as a prospect">
+          <Ico name="check" size={16} />
+        </span>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <label
+      className={`flex min-h-11 w-full cursor-pointer items-start gap-3 px-3 py-3 ${selected ? "bg-[#F4F2EA]" : ""}`}
+    >
+      <input
+        type="checkbox"
+        checked={selected}
+        onChange={onToggle}
+        aria-label={`Select ${r.name ?? "this business"}`}
+        className="mt-0.5 h-5 w-5 shrink-0 accent-[#14201B]"
+      />
+      {body}
+    </label>
   );
 }
 
