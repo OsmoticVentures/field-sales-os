@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { hasAccess } from "../../lib/core/devices";
-import { Ico } from "../../lib/core/ui";
+import { SidebarNav, TabBar, type NavItem } from "./Nav";
 
 /**
  * The shared shell for every signed-in screen: the PIN gate check, then chrome.
@@ -8,9 +7,10 @@ import { Ico } from "../../lib/core/ui";
  * ONE NAV ITEM TODAY, BUILT TO GROW. Each future port (Search Map, Route
  * Planner, Visit Logger, Prospecting, Reports, Fuel Routing) adds its folder
  * under this same `(app)` route group and one line to NAV below; nothing
- * else in this file needs to change. See PORTING.md.
+ * else in this file needs to change. See PORTING.md. The bottom tab bar
+ * (Nav.tsx) hides itself while NAV has fewer than two items.
  */
-const NAV: { href: string; label: string; icon: string }[] = [
+const NAV: NavItem[] = [
   { href: "/expenses", label: "Expenses", icon: "clock" },
 ];
 
@@ -22,6 +22,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     return <div className="min-h-screen bg-[#F7F6F1] text-[#14201B]">{children}</div>;
   }
 
+  const hasTabBar = NAV.length > 1;
+
   return (
     <div className="min-h-screen bg-[#F7F6F1] text-[#14201B]">
       <div className="mx-auto flex min-h-screen max-w-[1100px] gap-0">
@@ -29,38 +31,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="mb-8">
             <div className="text-[17px] leading-none font-semibold tracking-tight">Field Sales OS</div>
           </div>
-          <nav className="flex flex-col gap-0.5">
-            {NAV.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[14px] text-[#3D4A44] transition-colors hover:bg-[#ECEAE1] hover:text-[#14201B]"
-              >
-                <Ico name={n.icon} />
-                {n.label}
-              </Link>
-            ))}
-          </nav>
+          <SidebarNav items={NAV} />
         </aside>
 
-        {/* pb clears the mobile tab bar below md, matching the aside breakpoint above. */}
-        <main className="min-w-0 flex-1 px-5 py-7 pb-24 [padding-bottom:calc(6rem+env(safe-area-inset-bottom))] md:px-9 md:pb-7">
+        {/* pb clears the mobile tab bar below md, once it exists; matches
+            the aside breakpoint above. */}
+        <main
+          className={`min-w-0 flex-1 px-5 py-7 md:px-9 md:pb-7 ${
+            hasTabBar
+              ? "pb-24 [padding-bottom:calc(6rem+env(safe-area-inset-bottom))]"
+              : "pb-7 [padding-bottom:calc(1.75rem+env(safe-area-inset-bottom))] md:[padding-bottom:1.75rem]"
+          }`}
+        >
           {children}
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 flex border-t border-[#E2DFD5] bg-[#FAF9F5]/95 backdrop-blur md:hidden [padding-bottom:env(safe-area-inset-bottom)]">
-        {NAV.map((n) => (
-          <Link
-            key={n.href}
-            href={n.href}
-            className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] text-[#3D4A44]"
-          >
-            <Ico name={n.icon} size={18} />
-            {n.label}
-          </Link>
-        ))}
-      </nav>
+      <TabBar items={NAV} />
     </div>
   );
 }

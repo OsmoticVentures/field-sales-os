@@ -20,7 +20,7 @@
 
 import { apiFetch } from "@/lib/core/api";
 import { useEffect, useRef, useState } from "react";
-import { Card, Ico, SuccessNote } from "../../../lib/core/ui";
+import { Card, Ico, SuccessNote, displayFace, eyebrowCls, ghostBtn, inputCls, labelCls, primaryBtn } from "../../../lib/core/ui";
 
 type Summary = { period: string; label: string; sheetLink: string } | null;
 
@@ -59,14 +59,6 @@ function newId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-const inputCls =
-  "w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-2.5 py-2 text-[13px] text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none";
-const labelCls = "mb-1 block text-[11px] uppercase tracking-[0.1em] text-[#8A928C]";
-const primaryBtn =
-  "rounded-md bg-[#14201B] px-3.5 py-2.5 text-[13px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100";
-const ghostBtn =
-  "rounded-md border border-[#E2DFD5] px-3 py-2 text-[12.5px] text-[#5B6560] transition-transform active:scale-[0.97] disabled:opacity-40";
-
 export function ExpensesClient() {
   const [summary, setSummary] = useState<Summary>(null);
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -74,8 +66,8 @@ export function ExpensesClient() {
   useEffect(() => {
     apiFetch("/api/expenses/summary")
       .then((r) => r.json())
-      .then((j) => (j.ok ? setSummary({ period: j.period, label: j.label, sheetLink: j.sheetLink }) : setSummaryError(j.error)))
-      .catch(() => setSummaryError("Could not reach the expenses API."));
+      .then((j) => (j.ok ? setSummary({ period: j.period, label: j.label, sheetLink: j.sheetLink }) : setSummaryError("unavailable")))
+      .catch(() => setSummaryError("unavailable"));
   }, []);
 
   return (
@@ -91,11 +83,10 @@ function ReviewCard({ summary, error }: { summary: Summary; error: string | null
   return (
     <Card className="flex items-center justify-between gap-4">
       <div>
-        <div className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Current pay period</div>
-        <div className="mt-1 text-[17px] font-semibold tracking-tight">
-          {summary?.label ?? (error ? "Unavailable" : "Loading...")}
+        <div className={eyebrowCls}>Current pay period</div>
+        <div className={`${displayFace} mt-1 text-[17px] font-semibold tracking-tight`}>
+          {summary?.label ?? (error ? "Not available right now" : "Loading...")}
         </div>
-        {error && <div className="mt-1 text-[12px] text-[#8A2E2E]">{error}</div>}
       </div>
       {summary && (
         <a href={summary.sheetLink} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} flex shrink-0 items-center gap-1.5`}>
@@ -299,7 +290,7 @@ function PhotosCard() {
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
+        <div className={`flex items-center gap-2 ${eyebrowCls}`}>
           <Ico name="camera" size={13} />
           Mileage and receipts
         </div>
@@ -491,13 +482,6 @@ function PhotoCardView({
           </div>
         )}
 
-        {card.type === "statement" && (
-          <p className="mt-2 text-[11.5px] leading-snug text-[#8A928C]">Use the CLI for a statement.</p>
-        )}
-
-        {card.type === "unsure" && (
-          <p className="mt-2 text-[11.5px] leading-snug text-[#8A928C]">Pick a type above.</p>
-        )}
       </div>
     </div>
   );
@@ -519,7 +503,7 @@ function TripPairCard({
 
   return (
     <div className="mb-3 rounded-md border border-[#B9C4BC] bg-white p-3">
-      <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
+      <div className={`mb-2 flex items-center gap-2 ${eyebrowCls}`}>
         <Ico name="gauge" size={13} />
         Trip, start to end
       </div>
@@ -529,7 +513,7 @@ function TripPairCard({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={c.previewUrl} alt="" className="h-12 w-12 shrink-0 rounded object-cover" />
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] uppercase tracking-[0.08em] text-[#8A928C]">{label}</div>
+              <div className="text-[11px] text-[#8A928C]">{label}</div>
               <input value={c.odo} disabled={filed} onChange={(e) => onEdit(c.id, { odo: e.target.value })} className={`${inputCls} mt-0.5`} placeholder="Odometer" />
             </div>
             {!filed && (
@@ -675,7 +659,7 @@ function HoursCard() {
 
   return (
     <Card>
-      <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
+      <div className={`mb-3 flex items-center gap-2 ${eyebrowCls}`}>
         <Ico name="clock" size={13} />
         Hours
       </div>

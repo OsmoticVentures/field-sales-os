@@ -3,6 +3,7 @@
 import { apiFetch } from "@/lib/core/api";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { primaryBtn } from "../../lib/core/ui";
 
 /**
  * Where to land after the PIN: the screen that was asked for, not a fixed
@@ -93,7 +94,7 @@ export function GateForm() {
               router.replace(safeNext(window.location.search));
               router.refresh();
             }}
-            className="mt-5 w-full rounded-md bg-[#14201B] px-3 py-2.5 text-[14px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.98]"
+            className={`mt-5 w-full ${primaryBtn}`}
           >
             Continue
           </button>
@@ -132,7 +133,7 @@ export function GateForm() {
         <button
           type="submit"
           disabled={busy || pin.length < 4}
-          className="mt-3 w-full rounded-md bg-[#14201B] px-3 py-2.5 text-[14px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.98] disabled:opacity-40"
+          className={`mt-3 w-full ${primaryBtn}`}
         >
           {busy ? "Checking" : "Unlock"}
         </button>

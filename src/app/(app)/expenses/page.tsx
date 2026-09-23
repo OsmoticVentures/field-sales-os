@@ -20,7 +20,7 @@ export const metadata = {
 export default function ExpensesPage() {
   return (
     <>
-      <PageHead title="Expenses" sub="This pay period" />
+      <PageHead title="Expenses" />
       <ExpensesClient />
     </>
   );
