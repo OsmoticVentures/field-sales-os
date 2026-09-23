@@ -54,6 +54,19 @@ def main() -> int:
                 v = m.group(2).strip().strip('"').strip("'")
                 if v:
                     values[m.group(1)] = v
+    # The Expenses Drive/Sheets credentials come from the consented OAuth token
+    # file, the same source lib/shared/gdrive.ts documents, never from a .env copy.
+    token_file = AGENCY / "bridges" / "gdrive" / "tokens" / "nutribiotic_drive.json"
+    if token_file.exists():
+        import json
+        tok = json.loads(token_file.read_text())
+        for env_name, key in (
+            ("NB_EXPENSES_GOOGLE_CLIENT_ID", "client_id"),
+            ("NB_EXPENSES_GOOGLE_CLIENT_SECRET", "client_secret"),
+            ("NB_EXPENSES_GOOGLE_REFRESH_TOKEN", "refresh_token"),
+        ):
+            if tok.get(key):
+                values[env_name] = tok[key]
     values.update(FIXED)
     for key, value in values.items():
         for env in ENVS:
