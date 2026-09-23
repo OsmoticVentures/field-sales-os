@@ -39,7 +39,7 @@ def pull_old_app_production() -> Path | None:
 
 def main() -> int:
     scope = []
-    if "--scope" in sys.argv:
+    if "--scope" in sys.argv and len(sys.argv) > sys.argv.index("--scope") + 1:
         scope = ["--scope", sys.argv[sys.argv.index("--scope") + 1]]
     names = sorted(set(re.findall(r"^([A-Z_]+)", (HERE / ".env.example").read_text(), re.M)))
     values: dict[str, str] = {}
