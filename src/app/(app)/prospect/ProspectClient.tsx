@@ -425,8 +425,8 @@ function ScheduleRow({
 
   return (
     <li className={`flex flex-col gap-1.5 rounded-md border p-2.5 ${active ? "border-[#14201B] bg-[#FAF9F5]" : "border-[#E2DFD5]"} ${done ? "opacity-60" : ""} ${skipped ? "opacity-40" : ""}`}>
-      <div className="flex items-start justify-between gap-2">
-        <button onClick={onSelect} className="min-w-0 flex-1 text-left">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <button onClick={onSelect} className="min-w-[150px] flex-1 text-left">
           <div className="flex items-baseline gap-1.5">
             {item.priorityScore !== null && (
               <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${item.priorityBand === "now" ? "bg-[#F3E3C6] text-[#8A6D2F]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>
@@ -441,7 +441,7 @@ function ScheduleRow({
             {item.status !== "pending" && <span>, {item.status}</span>}
           </div>
         </button>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {item.displayPhone && (
             <a href={`tel:${item.displayPhone.replace(/[^0-9+]/g, "")}`} className={`${iconBtn} border-[#8A2E2E] bg-[#8A2E2E] text-white`} title={`Call ${item.displayPhone}`}>
               <Ico name="phone" size={15} />
@@ -1122,7 +1122,7 @@ export function ProspectClient({
       <GlobalSearch todayIso={todayIso} onView={viewHit} onAdded={addItem} />
 
       <div className="@container">
-      <div className="flex flex-col gap-6 @min-[720px]:grid @min-[720px]:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @min-[720px]:grid-rows-[auto_1fr] @min-[720px]:items-start @min-[720px]:[grid-template-areas:'days_panel''rank_panel'] @min-[1180px]:grid-cols-[300px_minmax(0,1fr)_260px] @min-[1180px]:grid-rows-[auto] @min-[1180px]:[grid-template-areas:'days_panel_rank']">
+      <div className="flex flex-col gap-6 @min-[720px]:grid @min-[720px]:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @min-[720px]:grid-rows-[auto_1fr] @min-[720px]:items-start @min-[720px]:[grid-template-areas:'days_panel''rank_panel'] @min-[1000px]:grid-cols-[300px_minmax(0,1fr)_260px] @min-[1000px]:grid-rows-[auto] @min-[1000px]:[grid-template-areas:'days_panel_rank']">
         {topRanked && topRanked.length > 0 && (
           <div className="order-1 flex w-full min-w-0 flex-col gap-4 @min-[720px]:[grid-area:rank]">
             <RankedList ranked={topRanked} areaColor={areaColor} onView={viewRanked} />

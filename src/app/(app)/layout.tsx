@@ -32,7 +32,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen bg-[#F7F6F1] text-[#14201B]">
-      <div className="mx-auto flex min-h-screen max-w-[1100px] gap-0">
+      <div className="mx-auto flex min-h-screen max-w-[1700px] gap-0">
         <aside className="hidden w-[200px] shrink-0 border-r border-[#E2DFD5] px-5 py-7 md:block">
           <div className="mb-8">
             <div className="text-[17px] leading-none font-semibold tracking-tight">Field Sales OS</div>
