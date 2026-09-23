@@ -15,7 +15,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
-import { Ico } from "@/lib/core/ui";
+import { Ico, inputCls } from "@/lib/core/ui";
 import { rankMatches } from "@/lib/features/route/search-match";
 import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
 import type { CallEntry, CustomStop, CustomStopKind, RouteAccount } from "@/lib/features/route/types";
@@ -144,9 +144,6 @@ const KIND_HINT: Record<CustomStopKind, string> = {
   stop: "Any address or place name",
 };
 
-const inputCls =
-  "min-h-11 w-full min-w-0 rounded-md border border-[#E2DFD5] bg-[#FCFBF7] px-3 py-2 text-base text-[#14201B] outline-none placeholder:text-[#A9AFA9] focus:border-[#8A928C]";
-
 export function AddStop({
   accounts,
   inRoute,
@@ -255,7 +252,7 @@ export function AddStop({
               setKind(p.value);
               reset();
             }}
-            className={`min-h-9 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
+            className={`min-h-11 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
               kind === p.value ? "bg-[#14201B] text-[#F7F6F1]" : "border border-[#E2DFD5] text-[#5B6560] hover:bg-[#FAF9F5]"
             }`}
           >
@@ -359,7 +356,7 @@ export function AddStop({
       )}
 
       {kind === "client" && (
-        <button type="button" onClick={() => setOpen(false)} className="mt-2.5 min-h-9 text-[13px] font-medium text-[#8A928C]">
+        <button type="button" onClick={() => setOpen(false)} className="mt-2.5 inline-flex min-h-11 items-center text-[13px] font-medium text-[#8A928C]">
           Cancel
         </button>
       )}

@@ -73,7 +73,7 @@ export async function listOwnerAccounts(): Promise<RouteAccount[]> {
   const [rows, grades] = await Promise.all([
     raw<AccountRow>(
       "nb_accounts",
-      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lead_stage,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours" +
+      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours" +
         `&hubspot_owner_id=eq.${JUAN_OWNER_ID}&lat=not.is.null&closed_at=is.null&order=name.asc`,
     ),
     raw<{ account_id: string; potential_grade: Tier }>(

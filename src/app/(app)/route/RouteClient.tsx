@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
-import { Ico } from "@/lib/core/ui";
+import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { RouteMap } from "./RouteMap";
 import { dayLabel, defaultActiveDay, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
@@ -68,9 +68,14 @@ function minutesOfDay(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return (Number.isFinite(h) ? h : 9) * 60 + (Number.isFinite(m) ? m : 30);
 }
+/** 12-hour wall clock for display, e.g. "2:05 PM". Scheduling itself works
+ *  in minutes-of-day throughout; this only formats for a human. */
 function clock(mins: number): string {
   const t = ((Math.round(mins) % 1440) + 1440) % 1440;
-  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+  const h24 = Math.floor(t / 60);
+  const period = h24 >= 12 ? "PM" : "AM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}:${String(t % 60).padStart(2, "0")} ${period}`;
 }
 function duration(mins: number): string {
   const m = Math.round(mins);
@@ -174,10 +179,9 @@ const dayBtn = (active: boolean) =>
   `min-h-11 shrink-0 rounded-md px-3.5 py-2 text-[13px] font-medium transition-transform active:scale-[0.97] ${
     active ? "bg-[#14201B] text-[#F7F6F1]" : "border border-[#E2DFD5] bg-white text-[#5B6560]"
   }`;
-const fieldCls =
-  "min-h-11 rounded-md border border-[#E2DFD5] bg-[#FCFBF7] px-2.5 py-2 text-base tabular-nums text-[#14201B] outline-none focus:border-[#8A928C]";
-const ghostBtn =
-  "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3 py-2 text-[13px] font-medium text-[#3D4A44] transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40";
+/** ghostBtn plus the icon+label layout most row actions need; composed, not
+ *  a fork, so the base still comes from lib/core/ui. */
+const iconBtn = `${ghostBtn} inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-medium text-[#3D4A44]`;
 
 export function RouteClient() {
   const [data, setData] = useState<StatePayload | null>(null);
@@ -189,7 +193,7 @@ export function RouteClient() {
       .then((r) => r.json())
       .then((j: StatePayload) => {
         if (!j.ok) {
-          setLoadError(j.error ?? "Couldn't load the route.");
+          setLoadError("Couldn't load the route.");
           return;
         }
         setData(j);
@@ -208,7 +212,10 @@ export function RouteClient() {
     );
   }
 
-  return <RouteDay data={data} setData={setData} activeDay={activeDay} setActiveDay={setActiveDay} />;
+  // data is guaranteed non-null past the guard above; RouteDay's functional
+  // setData updates never see the null branch React's own Dispatch type allows.
+  const setDataForDay = setData as unknown as (next: StatePayload | ((prev: StatePayload) => StatePayload)) => void;
+  return <RouteDay data={data} setData={setDataForDay} activeDay={activeDay} setActiveDay={setActiveDay} />;
 }
 
 function RouteDay({
@@ -218,7 +225,7 @@ function RouteDay({
   setActiveDay,
 }: {
   data: StatePayload;
-  setData: (d: StatePayload) => void;
+  setData: (next: StatePayload | ((prev: StatePayload) => StatePayload)) => void;
   activeDay: string;
   setActiveDay: (d: string) => void;
 }) {
@@ -256,6 +263,8 @@ function RouteDay({
   const [legs, setLegs] = useState<DriveLeg[] | null>(null);
   const [coords, setCoords] = useState<[number, number][] | null>(null);
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">("loading");
+  const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const pathKey = useMemo(
     () =>
@@ -315,14 +324,20 @@ function RouteDay({
       .map((s, i) => ({ s, i }))
       .filter(
         ({ s, i }) =>
-          schedule.closedToday.has(s.id) || (returnByMin !== null && schedule.rows[i].arrive > returnByMin),
+          schedule.closedToday.has(s.id) ||
+          schedule.missedAnchors.has(s.id) ||
+          (returnByMin !== null && schedule.rows[i].arrive > returnByMin),
       )
-      .map(({ s, i }) => ({
-        id: s.id,
-        name: s.type === "account" ? s.account.name : s.custom.label,
-        reason: schedule.closedToday.has(s.id) ? "closed the rest of the day" : `arrives after ${prefs.returnBy}`,
-      }));
-  }, [schedule, stops, returnByMin, prefs.returnBy]);
+      .map(({ s, i }) => {
+        const anchor = stopTimes[s.id];
+        const reason = schedule.closedToday.has(s.id)
+          ? "closed the rest of the day"
+          : schedule.missedAnchors.has(s.id) && anchor
+            ? `arrives after its ${clock(minutesOfDay(anchor))} time`
+            : `arrives after ${clock(returnByMin ?? 0)}`;
+        return { id: s.id, name: s.type === "account" ? s.account.name : s.custom.label, reason };
+      });
+  }, [schedule, stops, returnByMin, stopTimes]);
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
     try {
@@ -403,10 +418,38 @@ function RouteDay({
     patchDraft(activeDay, order.map((id) => byId.get(id)!).filter(Boolean));
   }
   function toggleDone(id: string) {
-    const set = new Set(doneIds);
-    if (set.has(id)) set.delete(id);
-    else set.add(id);
-    patchDone(activeDay, [...set]);
+    if (doneIds.has(id)) {
+      patchDone(activeDay, [...doneIds].filter((x) => x !== id));
+      return;
+    }
+    setConfirmingDone((prev) => new Set(prev).add(id));
+    const day = activeDay;
+    setTimeout(() => {
+      setConfirmingDone((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setData((prev) => {
+        const nextDone = Array.from(new Set([...(prev.done[day] ?? []), id]));
+        postJson("/api/route/done", { day, done: nextDone }).catch(() => {});
+        return { ...prev, done: { ...prev.done, [day]: nextDone } };
+      });
+    }, 1000);
+  }
+
+  /** Moves a stop from the active day to another day in one state update:
+   *  two sequential setData calls each based on the same stale snapshot
+   *  would have the second overwrite the first's removal. */
+  function moveStopToDay(id: string, targetDay: string) {
+    const entry = draft.find((e) => (typeof e === "string" ? e === id : e.id === id));
+    if (!entry) return;
+    const fromEntries = draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id));
+    const targetEntries = [...(data.draft[targetDay] ?? []), entry];
+    setData((prev) => ({ ...prev, draft: { ...prev.draft, [activeDay]: fromEntries, [targetDay]: targetEntries } }));
+    postJson("/api/route/draft", { day: activeDay, entries: fromEntries }).catch(() => {});
+    postJson("/api/route/draft", { day: targetDay, entries: targetEntries }).catch(() => {});
+    setOpenMenuId(null);
   }
 
   async function optimize() {
@@ -433,7 +476,7 @@ function RouteDay({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-1.5 overflow-x-auto pb-1">
+      <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-1">
         {days.map((d) => {
           const { weekday, short } = dayLabel(d);
           return (
@@ -443,6 +486,16 @@ function RouteDay({
           );
         })}
       </div>
+
+      {wontFit.length > 0 && (
+        <ul className="flex flex-col gap-1 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3.5 py-3 text-[13px] leading-relaxed text-[#3D4A44]">
+          {wontFit.map((w) => (
+            <li key={w.id}>
+              <span className="font-medium">{w.name}</span> won't fit, {w.reason}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <DayBar
         prefs={prefs}
@@ -491,20 +544,12 @@ function RouteDay({
         </ul>
       )}
 
-      {wontFit.length > 0 && (
-        <div className="rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3.5 py-3 text-[13px] leading-relaxed text-[#3D4A44]">
-          <span className="font-medium">{wontFit.length === 1 ? "Won't fit today: " : "Won't fit today: "}</span>
-          {wontFit.map((w) => `${w.name} (${w.reason})`).join(", ")}
-        </div>
-      )}
-
       {stops.length > 0 && (
         <div className="flex items-center gap-2">
-          <button type="button" onClick={optimize} disabled={busy || stops.length < 3} className={ghostBtn}>
+          <button type="button" onClick={optimize} disabled={busy || stops.length < 3} className={iconBtn}>
             <Ico name="gauge" size={14} />
             {busy ? "Working it out" : "Optimize route"}
           </button>
-          {stops.length < 3 && <span className="text-[12px] text-[#8A928C]">Needs 3+ stops</span>}
         </div>
       )}
 
@@ -554,7 +599,7 @@ function RouteDay({
                           </span>
                         )}
                         {schedule && (
-                          <span className="text-[12px] tabular-nums text-[#8A928C]">{clock(schedule.rows[i].arrive)}</span>
+                          <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.rows[i].arrive)}</span>
                         )}
                         {closed && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">closed the rest of the day</span>
@@ -591,9 +636,9 @@ function RouteDay({
                               className="inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-[#14201B]/40"
                               style={{ backgroundColor: BAND_STYLE[driveBand(leg.minutes)].color }}
                             />
+                            <span className="text-[16px] font-bold tabular-nums text-[#14201B]">{duration(leg.minutes)}</span>
                             <span>
-                              <span className="tabular-nums">{duration(leg.minutes)}</span> drive ·{" "}
-                              <span className="tabular-nums">{leg.miles.toFixed(1)} mi</span>
+                              drive · <span className="tabular-nums">{leg.miles.toFixed(1)} mi</span>
                             </span>
                           </div>
                         ) : (
@@ -604,50 +649,99 @@ function RouteDay({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <button type="button" onClick={() => toggleDone(s.id)} className={ghostBtn} aria-pressed={isDone}>
-                      <Ico name="check" size={13} />
-                      {isDone ? "Done" : "Mark done"}
-                    </button>
-                    <button type="button" onClick={() => moveStop(s.id, -1)} disabled={i === 0} className={ghostBtn} aria-label={`Move ${title} earlier`}>
-                      <Ico name="chevron-up" size={13} />
-                    </button>
-                    <button type="button" onClick={() => moveStop(s.id, 1)} disabled={i === stops.length - 1} className={ghostBtn} aria-label={`Move ${title} later`}>
-                      <Ico name="chevron-down" size={13} />
-                    </button>
-                    {days.length > 1 && (
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          const target = e.target.value;
-                          if (!target) return;
-                          const nextEntries = draft.filter((entry) => (typeof entry === "string" ? entry !== s.id : entry.id !== s.id));
-                          patchDraft(activeDay, nextEntries);
-                          const targetEntries = data.draft[target] ?? [];
-                          const entry = draft.find((entry) => (typeof entry === "string" ? entry === s.id : entry.id === s.id));
-                          if (entry) patchDraft(target, [...targetEntries, entry]);
-                        }}
-                        className="min-h-11 rounded-md border border-[#E2DFD5] bg-white px-2 text-[13px] text-[#3D4A44]"
-                      >
-                        <option value="">Move to day</option>
-                        {days
-                          .filter((d) => d !== activeDay)
-                          .map((d) => {
-                            const { weekday, short } = dayLabel(d);
-                            return (
-                              <option key={d} value={d}>
-                                {weekday} {short}
-                              </option>
-                            );
-                          })}
-                      </select>
+                    {confirmingDone.has(s.id) ? (
+                      <div className="min-w-[170px] flex-1">
+                        <SuccessNote title="Marked done" />
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => toggleDone(s.id)} className={iconBtn} aria-pressed={isDone}>
+                        <Ico name="check" size={13} />
+                        {isDone ? "Done" : "Mark done"}
+                      </button>
                     )}
-                    <a href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })} className="min-h-11 rounded-md bg-[#2C6A46] px-3 py-2 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]">
+                    <a
+                      href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
+                      className="min-h-11 rounded-md bg-[#2C6A46] px-4 py-2 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+                    >
                       GO
                     </a>
-                    <button type="button" onClick={() => removeStop(s.id)} aria-label={`Remove ${title}`} className="min-h-11 min-w-11 rounded-md border border-[#E2DFD5] text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]">
-                      <Ico name="close" size={14} />
+                    <button
+                      type="button"
+                      onClick={() => setOpenMenuId(openMenuId === s.id ? null : s.id)}
+                      aria-label={`More actions for ${title}`}
+                      aria-expanded={openMenuId === s.id}
+                      className={iconBtn}
+                    >
+                      <Ico name="more" size={14} />
                     </button>
                   </div>
+                  {openMenuId === s.id && (
+                    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-2">
+                      <button type="button" onClick={() => moveStop(s.id, -1)} disabled={i === 0} className={iconBtn} aria-label={`Move ${title} earlier`}>
+                        <Ico name="chevron-up" size={13} />
+                        Earlier
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveStop(s.id, 1)}
+                        disabled={i === stops.length - 1}
+                        className={iconBtn}
+                        aria-label={`Move ${title} later`}
+                      >
+                        <Ico name="chevron-down" size={13} />
+                        Later
+                      </button>
+                      {c && (c.kind === "lunch" || c.kind === "hotel") && (
+                        <label className="flex min-h-11 items-center gap-1.5 text-[12.5px] text-[#5B6560]">
+                          Pin time
+                          <input
+                            type="time"
+                            value={stopTimes[s.id] ?? ""}
+                            onChange={(e) => {
+                              const next = { ...stopTimes };
+                              if (e.target.value) next[s.id] = e.target.value;
+                              else delete next[s.id];
+                              patchTimes(activeDay, next);
+                            }}
+                            className={`${inputCls} w-[7.5rem]`}
+                          />
+                        </label>
+                      )}
+                      {days.length > 1 && (
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const target = e.target.value;
+                            if (target) moveStopToDay(s.id, target);
+                          }}
+                          className="min-h-11 rounded-md border border-[#E2DFD5] bg-white px-2 text-[13px] text-[#3D4A44]"
+                        >
+                          <option value="">Move to day</option>
+                          {days
+                            .filter((d) => d !== activeDay)
+                            .map((d) => {
+                              const { weekday, short } = dayLabel(d);
+                              return (
+                                <option key={d} value={d}>
+                                  {weekday} {short}
+                                </option>
+                              );
+                            })}
+                        </select>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          removeStop(s.id);
+                          setOpenMenuId(null);
+                        }}
+                        aria-label={`Remove ${title}`}
+                        className="min-h-11 min-w-11 rounded-md border border-[#E2DFD5] text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]"
+                      >
+                        <Ico name="close" size={14} />
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -733,7 +827,7 @@ function EndpointField({
         onClick={() => setOpen(true)}
         className="border-b border-dashed border-[#A9AFA9] font-medium text-[#3D4A44]"
       >
-        {current?.label ?? "start/end"}
+        {current?.label ?? label}
       </button>
     );
   }
@@ -761,7 +855,7 @@ function EndpointField({
                 setOpen(false);
                 setQuery("");
               }}
-              className="flex w-full flex-col items-start px-3 py-1.5 text-left text-[13px] hover:bg-[#FAF9F5]"
+              className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-1.5 text-left text-[13px] hover:bg-[#FAF9F5]"
             >
               <span className="font-medium">{home.label}</span>
               <span className="truncate text-[11.5px] text-[#8A928C]">{home.address}</span>
@@ -777,7 +871,7 @@ function EndpointField({
                 setOpen(false);
                 setQuery("");
               }}
-              className="flex w-full flex-col items-start px-3 py-1.5 text-left text-[13px] hover:bg-[#FAF9F5]"
+              className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-1.5 text-left text-[13px] hover:bg-[#FAF9F5]"
             >
               <span className="truncate font-medium">{r.label}</span>
               <span className="truncate text-[11.5px] text-[#8A928C]">{r.address}</span>
@@ -824,7 +918,7 @@ function DayBar({
         <span className="flex items-center gap-1.5">
           Leave <EndpointField label="Start" value={start} fallback={home} home={home} onChange={onChangeStart} />
           at
-          <input type="time" value={prefs.depart} onChange={(e) => onChange({ ...prefs, depart: e.target.value })} className={fieldCls} />
+          <input type="time" value={prefs.depart} onChange={(e) => onChange({ ...prefs, depart: e.target.value })} className={inputCls} />
         </span>
         <label className="flex items-center gap-1.5">
           <input
@@ -833,7 +927,7 @@ function DayBar({
             max={240}
             value={prefs.dwellMinutes}
             onChange={(e) => onChange({ ...prefs, dwellMinutes: Number(e.target.value) })}
-            className={`${fieldCls} w-[4.5rem]`}
+            className={`${inputCls} w-[4.5rem]`}
           />
           min per stop
         </label>
@@ -844,7 +938,7 @@ function DayBar({
             max={240}
             value={prefs.lunchMinutes}
             onChange={(e) => onChange({ ...prefs, lunchMinutes: Number(e.target.value) })}
-            className={`${fieldCls} w-[4.5rem]`}
+            className={`${inputCls} w-[4.5rem]`}
           />
           min lunch
         </label>
@@ -855,7 +949,7 @@ function DayBar({
             type="time"
             value={prefs.returnBy ?? ""}
             onChange={(e) => onChange({ ...prefs, returnBy: e.target.value || null })}
-            className={fieldCls}
+            className={inputCls}
           />
         </span>
       </div>
@@ -863,7 +957,7 @@ function DayBar({
       {hasStops && (
         <div className="mt-2.5 border-t border-[#EEECE3] pt-2.5 text-[13px]">
           {state === "loading" && <span className="text-[#8A928C]">Working out drive times</span>}
-          {state === "unavailable" && <span className="text-[#8A928C]">Drive times unavailable right now. Straight-line hops shown instead.</span>}
+          {state === "unavailable" && <span className="text-[#8A928C]">Drive times unavailable</span>}
           {state === "ok" && finish !== null && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className={over ? "font-semibold text-[#B5372A]" : "font-semibold text-[#2C6A46]"}>

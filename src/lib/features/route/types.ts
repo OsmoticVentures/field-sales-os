@@ -56,7 +56,6 @@ export type RouteAccount = {
   website: string | null;
   hubspot_company_id: string | null;
   tier: Tier | null;
-  lead_stage: string | null;
   lifecycle: string;
   last_order_at: string | null;
   trailing_12m_revenue: number | null;
