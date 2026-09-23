@@ -94,7 +94,7 @@ type SearchHit = { accountId: string; accountName: string; city: string | null; 
 // primaryBtn, ghostBtn, inputCls come from lib/core/ui (PORTING.md); this
 // feature only extends them for the two shapes core doesn't cover.
 const callBtn =
-  "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#8A2E2E] px-4 text-[14px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
+  "inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-[#8A2E2E] px-4 text-[14px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 const iconBtn =
   "flex h-11 w-11 shrink-0 items-center justify-center rounded-md border text-[#5B6560] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 
@@ -433,7 +433,7 @@ function ScheduleRow({
                 {item.priorityScore}
               </span>
             )}
-            <div className="truncate text-[14.5px] font-medium text-[#14201B]">{item.displayName}</div>
+            <div className="line-clamp-2 min-w-0 text-[14.5px] leading-snug font-medium break-words text-[#14201B]">{item.displayName}</div>
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] tracking-[0.06em] text-[#8A928C] uppercase">
             <span>{item.kind}</span>
@@ -516,9 +516,9 @@ function PotentialGradeInline({ accountId, value: initial }: { accountId: string
   const [pending, startTransition] = useTransition();
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <span className="text-[11.5px] tracking-[0.06em] text-[#8A928C] uppercase">Potential</span>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {SDR_POTENTIAL_LETTERS.map((t) => {
             const active = value === t;
             return (
@@ -692,10 +692,10 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="text-[18px] font-semibold text-[#14201B]">{item.displayName}</div>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div className="min-w-[14rem] flex-1">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+              <div className="text-[20px] leading-tight font-semibold tracking-[-0.01em] break-words text-[#14201B]">{item.displayName}</div>
               {panel?.businessHours && <OpenBadge businessHours={panel.businessHours} />}
               {area && (
                 <span className="inline-flex items-center gap-1.5 text-[13px] text-[#5B6560]">
@@ -706,7 +706,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
             </div>
             {panel && panel.channel !== "unknown" && <div className="mt-0.5 text-[13.5px] text-[#5B6560]">{panel.channel.replace(/_/g, " ")}</div>}
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
             {phone && (
               <a href={`tel:${phone.replace(/[^0-9+]/g, "")}`} className={callBtn}>
                 <Ico name="phone" size={14} />
@@ -714,7 +714,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
               </a>
             )}
             {item.account_id && (
-              <button type="button" onClick={handleEnrich} disabled={enriching} className={ghostBtn}>
+              <button type="button" onClick={handleEnrich} disabled={enriching} className={`${ghostBtn} whitespace-nowrap`}>
                 <RefreshIcon size={13} />
                 {enriching ? "Enriching" : "Enrich further"}
               </button>
@@ -1121,14 +1121,15 @@ export function ProspectClient({
     <div className="flex flex-col gap-4">
       <GlobalSearch todayIso={todayIso} onView={viewHit} onAdded={addItem} />
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="@container">
+      <div className="flex flex-col gap-6 @min-[720px]:grid @min-[720px]:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @min-[720px]:grid-rows-[auto_1fr] @min-[720px]:items-start @min-[720px]:[grid-template-areas:'days_panel''rank_panel'] @min-[1180px]:grid-cols-[300px_minmax(0,1fr)_260px] @min-[1180px]:grid-rows-[auto] @min-[1180px]:[grid-template-areas:'days_panel_rank']">
         {topRanked && topRanked.length > 0 && (
-          <div className="order-1 flex w-full flex-col gap-4 lg:order-3 lg:w-[240px] lg:shrink-0">
+          <div className="order-1 flex w-full min-w-0 flex-col gap-4 @min-[720px]:[grid-area:rank]">
             <RankedList ranked={topRanked} areaColor={areaColor} onView={viewRanked} />
           </div>
         )}
 
-        <div className="order-2 flex w-full flex-col gap-4 lg:order-1 lg:w-[320px] lg:shrink-0">
+        <div className="order-2 flex w-full min-w-0 flex-col gap-4 @min-[720px]:[grid-area:days]">
           {dayIsos.map((iso) => {
             const dayItems = items
               .filter((it) => it.scheduled_date === iso && it.status === "pending")
@@ -1164,13 +1165,14 @@ export function ProspectClient({
           })}
         </div>
 
-        <div ref={panelRef} className="order-3 min-w-0 flex-1 scroll-mt-3 lg:order-2">
+        <div ref={panelRef} className="order-3 min-w-0 scroll-mt-3 @min-[720px]:[grid-area:panel]">
           {active ? (
             <AccountPanel item={active} areas={areas} onDone={() => markDone(active.id)} showSuccess={doneNotice[active.id]} />
           ) : (
             <div className="h-40 rounded-lg border border-dashed border-[#D8D4C8]" />
           )}
         </div>
+      </div>
       </div>
     </div>
   );
