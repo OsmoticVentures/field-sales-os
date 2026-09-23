@@ -369,20 +369,6 @@ export function TouchpointCapture() {
                   );
                 })}
               </div>
-              <button
-                type="button"
-                aria-pressed={newCompany}
-                onClick={() => setNewCompany((v) => !v)}
-                title="Skip matching against your accounts"
-                className={`ml-auto flex h-11 items-center gap-1.5 rounded-md border px-3 text-[12.5px] font-medium transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 ${
-                  newCompany
-                    ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
-                    : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
-                }`}
-              >
-                <Ico name={newCompany ? "check" : "plus"} size={13} />
-                New company
-              </button>
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
@@ -434,6 +420,20 @@ export function TouchpointCapture() {
                   }`}
                 >
                   <Ico name="camera" size={17} />
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={newCompany}
+                  onClick={() => setNewCompany((v) => !v)}
+                  title="Skip matching against your accounts"
+                  className={`flex h-11 items-center gap-1.5 shrink-0 rounded-full border px-4 text-[12.5px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
+                    newCompany
+                      ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
+                      : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
+                  }`}
+                >
+                  <Ico name={newCompany ? "check" : "plus"} size={13} />
+                  New company
                 </button>
                 <span className="min-h-[1em] text-[12px] leading-relaxed text-[#8A6D2F]">
                   {photoUiState === "uploading" && "Attaching photo"}
