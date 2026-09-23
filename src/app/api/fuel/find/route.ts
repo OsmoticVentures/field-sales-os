@@ -12,7 +12,7 @@
  */
 import { headers } from "next/headers";
 import { hasAccess } from "../../../../lib/core/devices";
-import { resolveDestination, type Dest } from "../../../../lib/features/fuel/destination";
+import { resolveDestination, type Dest } from "../../../../lib/shared/places";
 import { RATE_CHEAPEST, RATE_QUICKEST, RESERVE_MILES, TANK_GALLONS } from "../../../../lib/features/fuel/constants";
 import { fuelNearby } from "../../../../lib/features/fuel/stations";
 import { detourMinutes, milesFromOrigin, route, sampleAlong, type LatLng } from "../../../../lib/features/fuel/osrm";

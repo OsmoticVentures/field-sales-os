@@ -3,7 +3,7 @@
  * override. Read-only, no row written, no Idempotency-Key needed (same
  * class as Expenses' classify route).
  */
-import { resolveStopAddress, searchRouteAddresses } from "../../../../lib/features/route/stop-lookup";
+import { resolveStopAddress, searchRouteAddresses } from "../../../../lib/shared/places";
 import { hasAccess } from "../../../../lib/core/devices";
 
 export const runtime = "nodejs";

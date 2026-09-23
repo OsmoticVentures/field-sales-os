@@ -22,12 +22,12 @@
  * npm wrapper; it is not yet a dependency of this repo, and a feature port
  * does not add one on its own (see PORTING.md's concurrency rules and this
  * port's report). This loads the same Google Maps JavaScript API directly
- * via lib/features/search/google-maps-loader.ts, which needs no package.
+ * via lib/shared/google-maps-loader.ts, which needs no package.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchIco } from "../../../lib/features/search/icons";
-import { loadGoogleMaps } from "../../../lib/features/search/google-maps-loader";
+import { loadGoogleMaps } from "../../../lib/shared/google-maps-loader";
 
 export type Pin = { lat: number; lng: number };
 

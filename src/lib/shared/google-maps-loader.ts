@@ -1,16 +1,11 @@
 "use client";
 
 /**
- * A tiny script-tag loader for the Google Maps JavaScript API, used only by
- * AreaPicker.tsx. The source app (portfolio/src/app/nutribiotic/search/
- * AreaPicker.tsx) uses the @react-google-maps/api npm wrapper; that package
- * is not yet a dependency of this repo, and per PORTING.md's concurrency
- * rules a feature port does not add one on its own. This loader gets the
- * same map (vanilla google.maps.Map/Marker/Polygon/Polyline) with zero new
- * npm dependencies, which is the lighter option available today. If
- * @react-google-maps/api is added to the repo later for another feature
- * (Route Planner's map also uses it), this file can be retired in favor of
- * it, see the report for this port.
+ * A tiny script-tag loader for the Google Maps JavaScript API, shared by
+ * Search's AreaPicker and Route's RouteMap. The source app used the
+ * @react-google-maps/api npm wrapper; this loads the same SDK (vanilla
+ * google.maps.Map/Marker/Polygon/Polyline) with zero new npm dependencies.
+ * One script tag per page, one promise, whichever feature asks first.
  */
 
 /** Untyped on purpose: this repo carries no @types/google.maps package (see

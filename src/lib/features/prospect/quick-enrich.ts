@@ -29,7 +29,7 @@ import {
   type PurchaseLine,
   type PurchaseOrder,
 } from "./dal";
-import { searchPlaces, type PlaceCandidate } from "./places";
+import { searchPlaces, type PlaceCandidate } from "../../shared/places";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
