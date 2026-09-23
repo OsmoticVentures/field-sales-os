@@ -35,3 +35,4 @@ next-env.d.ts
 
 # ios native shell (added at m12, excluded from the Vercel build)
 /ios/
+.ui-review/
