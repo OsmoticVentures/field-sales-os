@@ -18,6 +18,7 @@
  * deliberate tap.
  */
 
+import { apiFetch } from "@/lib/core/api";
 import { useEffect, useRef, useState } from "react";
 import { Card, Ico, SuccessNote } from "../../../lib/core/ui";
 
@@ -71,7 +72,7 @@ export function ExpensesClient() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/expenses/summary")
+    apiFetch("/api/expenses/summary")
       .then((r) => r.json())
       .then((j) => (j.ok ? setSummary({ period: j.period, label: j.label, sheetLink: j.sheetLink }) : setSummaryError(j.error)))
       .catch(() => setSummaryError("Could not reach the expenses API."));
@@ -144,7 +145,7 @@ function PhotosCard() {
     try {
       const form = new FormData();
       form.append("photo", card.file);
-      const res = await fetch("/api/expenses/classify", { method: "POST", body: form });
+      const res = await apiFetch("/api/expenses/classify", { method: "POST", body: form });
       const j = await res.json();
       if (!j.ok) {
         update(card.id, { status: "error", message: j.error });
@@ -206,7 +207,7 @@ function PhotosCard() {
     form.append("amount", card.amount);
     form.append("companyCard", String(card.companyCard));
     try {
-      const res = await fetch("/api/expenses/receipt", {
+      const res = await apiFetch("/api/expenses/receipt", {
         method: "POST",
         headers: { "Idempotency-Key": card.id },
         body: form,
@@ -237,7 +238,7 @@ function PhotosCard() {
     form.append("end_odo", end.odo);
     form.append("purpose", purpose);
     try {
-      const res = await fetch("/api/expenses/trip", {
+      const res = await apiFetch("/api/expenses/trip", {
         method: "POST",
         headers: { "Idempotency-Key": `${start.id}:${end.id}` },
         body: form,
@@ -638,7 +639,7 @@ function HoursCard() {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await fetch("/api/expenses/hours", {
+      const res = await apiFetch("/api/expenses/hours", {
         method: "POST",
         headers: { "content-type": "application/json", "Idempotency-Key": pendingKey },
         body: JSON.stringify({ date, clock_in: clockIn, clock_out: clockOut, break_min: Number(breakMin || 0), notes }),

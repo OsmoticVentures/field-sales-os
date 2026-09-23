@@ -214,3 +214,17 @@ This repo (`github.com/OsmoticVentures/field-sales-os`) is a separate GitHub
 remote from the agency monorepo. Commit and push here first, then update the
 submodule pointer in the agency repo (`git add osmotic-ventures/field-sales-os`
 at the agency root) and push that too.
+
+## basePath and fetch: use `apiFetch`, never a bare `fetch("/api/...")`
+
+The app runs under `basePath: "/nb"`. Next prefixes page routes and `<Link>`
+for you; it does not prefix a plain `fetch("/api/...")`, which therefore 404s.
+Every client-side call goes through `src/lib/core/api.ts`:
+
+```ts
+import { apiFetch } from "@/lib/core/api";
+const res = await apiFetch("/api/visit/log", { method: "POST", headers, body });
+```
+
+Same for any `<img src>`, `<a href>` you build by hand, or a Scriptable/widget
+URL: build it with `apiPath()` from the same module.

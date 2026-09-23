@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch } from "@/lib/core/api";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -49,7 +50,7 @@ export function GateForm() {
     setBusy(true);
     setErr("");
     try {
-      const res = await fetch("/api/auth", {
+      const res = await apiFetch("/api/auth", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pin, remember, surface: surfaceHint() }),
