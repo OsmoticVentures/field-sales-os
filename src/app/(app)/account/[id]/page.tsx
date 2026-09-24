@@ -8,8 +8,7 @@ import { getClientAccount, listClientActivities, listClientContacts } from "../.
 import { realChannel } from "../../../../lib/features/clients/ui";
 import { listPurchases } from "../../../../lib/features/prospect/dal";
 import { getRouteStateByDay, isConfigured as routeConfigured } from "../../../../lib/features/route/dal";
-import { defaultActiveDay, planningHorizonDates } from "../../../../lib/features/route/field-week";
-import type { RouteDraftEntry } from "../../../../lib/features/route/types";
+import { planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { AccountView } from "./AccountView";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +24,13 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
   ]);
   if (!account) notFound();
 
+  // The full planning horizon and every day's draft, not just today's: a
+  // day-picker (AccountView's AddToRoute) needs to know which day, if any,
+  // this account is already scheduled on, and offer every day to add it to,
+  // not just whichever one happens to be "active" (2026-09-23, matching the
+  // day-picker the source app's account profile got in commit aa9730c).
   const days = planningHorizonDates();
-  const routeDay = routeState ? defaultActiveDay(routeState.draft, days) : null;
-  const routeEntries: RouteDraftEntry[] = routeState && routeDay ? (routeState.draft[routeDay] ?? []) : [];
+  const routeDraftByDay = routeState?.draft ?? {};
 
   const sub = [realChannel(account.channel), [account.street, account.city, account.postal].filter(Boolean).join(", ")]
     .filter(Boolean)
@@ -42,8 +45,8 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
         activities={activities}
         orders={purchases.orders}
         lines={purchases.lines}
-        routeDay={routeDay}
-        routeEntries={routeEntries}
+        routeDays={days}
+        routeDraftByDay={routeDraftByDay}
       />
     </>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { apiFetch } from "../../../../lib/core/api";
 import { Card, Ico, eyebrowCls } from "../../../../lib/core/ui";
 import type { ClientAccount, ClientActivity, ClientContact } from "../../../../lib/features/clients/dal";
@@ -18,6 +18,7 @@ import {
 } from "../../../../lib/features/clients/ui";
 import type { PurchaseLine, PurchaseOrder } from "../../../../lib/features/prospect/dal";
 import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/prospect/format";
+import { dayLabel, laTodayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 
 const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E", "F", "G"] as const;
@@ -94,19 +95,43 @@ function PotentialGrade({ accountId, hq, juan }: { accountId: string; hq: string
   );
 }
 
-function AddToRoute({ accountId, day, entries }: { accountId: string; day: string | null; entries: RouteDraftEntry[] }) {
-  const already = entries.some((e) => (typeof e === "string" ? e : e.id) === accountId);
-  const [onRoute, setOnRoute] = useState(already);
+/** Which day (on the horizon) this account is already scheduled on, if any:
+ *  scans every day, not just one, same reasoning as the source app's
+ *  stopDayById (route-context.tsx). */
+function scheduledRouteDay(accountId: string, days: string[], draftByDay: Record<string, RouteDraftEntry[]>): string | null {
+  for (const day of days) {
+    if ((draftByDay[day] ?? []).some((e) => (typeof e === "string" ? e : e.id) === accountId)) return day;
+  }
+  return null;
+}
+
+/**
+ * Add to route, asking which day first (2026-09-23, porting the source
+ * app's account-profile fix from commit aa9730c: a plain "Add to route"
+ * button here would drop the stop onto whichever day this server render
+ * happened to call "active", not necessarily the day Juan means for this
+ * account). A tap opens a day picker over the same planning horizon Route
+ * Planner itself uses; nothing is written until a day is picked. Once
+ * scheduled, on any day, it goes inert and names the day, same one-tap rule
+ * as the button it replaces.
+ */
+function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: string[]; draftByDay: Record<string, RouteDraftEntry[]> }) {
+  const initialDay = useMemo(() => scheduledRouteDay(accountId, days, draftByDay), [accountId, days, draftByDay]);
+  const [scheduledDay, setScheduledDay] = useState<string | null>(initialDay);
+  const [picking, setPicking] = useState(false);
+  const [date, setDate] = useState(days[0] ?? "");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  if (!day) return null;
+  if (days.length === 0) return null;
 
   async function add() {
     setBusy(true);
     setFailed(false);
     try {
-      await postJson("/api/route/draft", { day, entries: [...entries, accountId] });
-      setOnRoute(true);
+      const entries = draftByDay[date] ?? [];
+      await postJson("/api/route/draft", { day: date, entries: [...entries, accountId] });
+      setScheduledDay(date);
+      setPicking(false);
     } catch {
       setFailed(true);
     } finally {
@@ -114,24 +139,162 @@ function AddToRoute({ accountId, day, entries }: { accountId: string; day: strin
     }
   }
 
-  if (onRoute) {
+  if (scheduledDay) {
+    const { weekday, short } = dayLabel(scheduledDay);
     return (
       <Link href="/route" className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#EEECE3] px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] ${press}`}>
         <Ico name="check" size={14} />
-        On the route
+        On the route &middot; {weekday} {short}
       </Link>
     );
   }
+
+  if (!picking) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDate(days[0]);
+          setFailed(false);
+          setPicking(true);
+        }}
+        className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#2C6A46] px-3.5 py-2 text-[14px] font-semibold text-white ${press}`}
+      >
+        <Ico name="route" size={14} />
+        Add to route
+      </button>
+    );
+  }
+
   return (
-    <button
-      type="button"
-      onClick={add}
-      disabled={busy}
-      className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#2C6A46] px-3.5 py-2 text-[14px] font-semibold text-white disabled:opacity-60 ${press}`}
-    >
-      <Ico name="route" size={14} />
-      {failed ? "Try again" : "Add to route"}
-    </button>
+    <div className="inline-flex flex-col gap-1">
+      <div className="inline-flex items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white py-1 pr-1 pl-2.5">
+        <select
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          aria-label="Route day"
+          className="min-h-11 bg-transparent text-[13.5px] font-medium text-[#3D4A44] outline-none"
+        >
+          {days.map((d) => {
+            const { weekday, short } = dayLabel(d);
+            return (
+              <option key={d} value={d}>
+                {weekday} {short}
+              </option>
+            );
+          })}
+        </select>
+        <button
+          type="button"
+          onClick={add}
+          disabled={busy}
+          className={`min-h-11 rounded-md bg-[#2C6A46] px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60 ${press}`}
+        >
+          {busy ? "Adding" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPicking(false)}
+          aria-label="Cancel"
+          className={`min-h-11 rounded-md px-2 text-[#8A928C] hover:bg-[#ECEAE1] hover:text-[#14201B] ${press}`}
+        >
+          <Ico name="close" size={12} />
+        </button>
+      </div>
+      {failed && <span className="text-[12px] text-[#8A2E2E]">Not saved. Try again.</span>}
+    </div>
+  );
+}
+
+/**
+ * Add to SDR, same day-picker shape as AddToRoute just above (2026-09-23,
+ * porting the source app's account-profile addition from commit aa9730c),
+ * over Prospect's own scheduling shape: a plain date field, same as the
+ * day-picker Prospect's own GlobalSearch/AddToDayForm already use to queue
+ * a call for a day (ProspectClient.tsx), not a dropdown limited to a fixed
+ * horizon. Writes straight to nb_sdr_schedule as a call, same route
+ * (/api/prospect/schedule) that screen posts to. "On SDR" afterward is
+ * session-local, since nothing here re-reads nb_sdr_schedule to know the
+ * account was already queued from elsewhere, same limitation the source
+ * app's own AddToSdrPicker documents.
+ */
+function AddToSdr({ accountId }: { accountId: string }) {
+  const [picking, setPicking] = useState(false);
+  const [date, setDate] = useState(() => laTodayIso());
+  const [queuedFor, setQueuedFor] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  async function add() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await postJson("/api/prospect/schedule", { account_id: accountId, kind: "call", scheduled_date: date });
+      setQueuedFor(date);
+      setPicking(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (queuedFor) {
+    const { weekday, short } = dayLabel(queuedFor);
+    return (
+      <span className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#EEECE3] px-3.5 py-2 text-[14px] font-medium text-[#3D4A44]`}>
+        <Ico name="check" size={14} />
+        On SDR &middot; {weekday} {short}
+      </span>
+    );
+  }
+
+  if (!picking) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDate(laTodayIso());
+          setFailed(false);
+          setPicking(true);
+        }}
+        className={actionBtn}
+      >
+        <Ico name="phone" size={14} />
+        Add to SDR
+      </button>
+    );
+  }
+
+  return (
+    <div className="inline-flex flex-col gap-1">
+      <div className="inline-flex items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white py-1 pr-1 pl-2.5">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          aria-label="SDR day"
+          className="min-h-11 bg-transparent text-[13.5px] text-[#3D4A44] outline-none"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={busy || !date}
+          className={`min-h-11 rounded-md bg-[#14201B] px-3 py-1.5 text-[13px] font-semibold text-[#F7F6F1] disabled:opacity-60 ${press}`}
+        >
+          {busy ? "Adding" : "Add"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPicking(false)}
+          aria-label="Cancel"
+          className={`min-h-11 rounded-md px-2 text-[#8A928C] hover:bg-[#ECEAE1] hover:text-[#14201B] ${press}`}
+        >
+          <Ico name="close" size={12} />
+        </button>
+      </div>
+      {failed && <span className="text-[12px] text-[#8A2E2E]">Not saved. Try again.</span>}
+    </div>
   );
 }
 
@@ -185,16 +348,16 @@ export function AccountView({
   activities,
   orders,
   lines,
-  routeDay,
-  routeEntries,
+  routeDays,
+  routeDraftByDay,
 }: {
   account: ClientAccount;
   contacts: ClientContact[];
   activities: ClientActivity[];
   orders: PurchaseOrder[];
   lines: PurchaseLine[];
-  routeDay: string | null;
-  routeEntries: RouteDraftEntry[];
+  routeDays: string[];
+  routeDraftByDay: Record<string, RouteDraftEntry[]>;
 }) {
   const hasSummary = a.current_state || a.future_state || a.impact;
   const channels = [
@@ -253,7 +416,8 @@ export function AccountView({
             No phone on file
           </span>
         )}
-        <AddToRoute accountId={a.id} day={routeDay} entries={routeEntries} />
+        <AddToRoute accountId={a.id} days={routeDays} draftByDay={routeDraftByDay} />
+        <AddToSdr accountId={a.id} />
         <Link href="/visit" className={actionBtn}>
           <Ico name="plus" size={14} />
           Log a visit
