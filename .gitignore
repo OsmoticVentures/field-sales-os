@@ -33,6 +33,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# ios native shell (added at m12, excluded from the Vercel build)
-/ios/
+# ios native shell (added at m12): tracked in git, excluded from the Vercel build via .vercelignore
+/ios/App/Pods/
+/ios/App/build/
+/ios/App/DerivedData/
+/ios/**/xcuserdata/
+/ios/**/*.xcuserstate
 .ui-review/
