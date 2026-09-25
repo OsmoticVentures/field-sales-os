@@ -12,10 +12,15 @@
  * company, with a phone when the portal has one. Picking a result fills
  * both fields; nothing locks, so a wrong autofill is one keystroke to fix,
  * and a name HubSpot has never heard of still types straight through.
+ *
+ * SDR (2026-09-25, from the source map's "+" sheet): the same account search,
+ * then a priority, queues a call on nb_sdr_schedule for the active day
+ * through /api/prospect/schedule, the route Prospect already posts to.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
-import { Ico, inputCls } from "@/lib/core/ui";
+import { Ico, SuccessNote, inputCls } from "@/lib/core/ui";
+import { dayLabel } from "@/lib/features/route/field-week";
 import { rankMatches } from "@/lib/features/route/search-match";
 import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
 import type { CallEntry, CustomStop, CustomStopKind, RouteAccount } from "@/lib/features/route/types";
@@ -136,7 +141,7 @@ function CallSearchField({
   );
 }
 
-type AddKind = CustomStopKind | "client" | "call";
+type AddKind = CustomStopKind | "client" | "call" | "sdr";
 
 const KIND_HINT: Record<CustomStopKind, string> = {
   lunch: "In-N-Out Tustin",
@@ -144,15 +149,23 @@ const KIND_HINT: Record<CustomStopKind, string> = {
   stop: "Any address or place name",
 };
 
+const SDR_PRIORITIES: { value: "low" | "mid" | "high"; label: string; tone: string }[] = [
+  { value: "low", label: "Low", tone: "bg-[#ECEAE1] text-[#5B6560]" },
+  { value: "mid", label: "Mid", tone: "bg-[#E7EDE4] text-[#3D6B4A]" },
+  { value: "high", label: "High", tone: "bg-[#F3E3C6] text-[#8A6D2F]" },
+];
+
 export function AddStop({
   accounts,
   inRoute,
+  activeDay,
   onAddAccount,
   onAddCustomStop,
   onAddCall,
 }: {
   accounts: RouteAccount[];
   inRoute: Set<string>;
+  activeDay: string;
   onAddAccount: (a: RouteAccount) => void;
   onAddCustomStop: (stop: Omit<CustomStop, "id">) => void;
   onAddCall: (call: Omit<CallEntry, "id">) => void;
@@ -165,10 +178,12 @@ export function AddStop({
   const [label, setLabel] = useState("");
   const [phone, setPhone] = useState("");
   const [note, setNote] = useState("");
+  const [sdrAccount, setSdrAccount] = useState<RouteAccount | null>(null);
+  const [sdrQueued, setSdrQueued] = useState<string | null>(null);
 
   const searchable = useMemo(() => accounts.filter((a) => a.lifecycle !== "waypoint"), [accounts]);
   const results = useMemo(() => {
-    if (kind !== "client" || query.trim().length < 2) return [];
+    if ((kind !== "client" && kind !== "sdr") || query.trim().length < 2) return [];
     return rankMatches(query, searchable, (a) => ({ name: a.name, also: [a.city, a.state] }), 8);
   }, [kind, query, searchable]);
 
@@ -178,11 +193,40 @@ export function AddStop({
     setLabel("");
     setPhone("");
     setNote("");
+    setSdrAccount(null);
+    setSdrQueued(null);
+  }
+
+  async function queueSdr(priority: "low" | "mid" | "high") {
+    if (!sdrAccount || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/prospect/schedule", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ account_id: sdrAccount.id, kind: "call", scheduled_date: activeDay, priority }),
+      });
+      const j: { ok: boolean; error?: string } = await res.json();
+      if (!j.ok) {
+        setError(j.error ?? "Not scheduled. Try again.");
+        return;
+      }
+      setSdrQueued(sdrAccount.name);
+      setTimeout(() => {
+        reset();
+        setOpen(false);
+      }, 1000);
+    } catch {
+      setError("Not scheduled. Try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submitStop(e: React.FormEvent) {
     e.preventDefault();
-    if (busy || kind === "client" || kind === "call") return;
+    if (busy || kind === "client" || kind === "call" || kind === "sdr") return;
     setBusy(true);
     setError(null);
     let json: { ok: boolean; place?: { label: string; address: string; lat: number; lng: number }; error?: string };
@@ -228,7 +272,7 @@ export function AddStop({
         className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3.5 py-2 text-[13px] font-medium text-[#3D4A44] transition-transform active:scale-[0.97] hover:bg-[#FAF9F5]"
       >
         <Ico name="pin" size={14} />
-        Add a stop or call
+        Add a stop, call, or SDR
       </button>
     );
   }
@@ -239,6 +283,7 @@ export function AddStop({
     { value: "hotel", label: CUSTOM_STOP_LABEL.hotel },
     { value: "stop", label: CUSTOM_STOP_LABEL.stop },
     { value: "call", label: "Call" },
+    { value: "sdr", label: "SDR" },
   ];
 
   return (
@@ -302,7 +347,69 @@ export function AddStop({
         </div>
       )}
 
-      {kind !== "client" && kind !== "call" && (
+      {kind === "sdr" && (
+        <div className="mt-2.5">
+          {sdrQueued ? (
+            <SuccessNote title={`${sdrQueued} on SDR, ${dayLabel(activeDay).weekday} ${dayLabel(activeDay).short}`} />
+          ) : sdrAccount ? (
+            <div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-[14px] font-medium text-[#14201B]">{sdrAccount.name}</span>
+                <button type="button" onClick={() => setSdrAccount(null)} className="min-h-11 shrink-0 px-2 text-[13px] font-medium text-[#8A928C]">
+                  Change
+                </button>
+              </div>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                {SDR_PRIORITIES.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => queueSdr(p.value)}
+                    className={`min-h-11 flex-1 rounded-md px-2 text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-40 ${p.tone}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              {error && <span className="mt-1.5 block text-[13px] text-[#8A2E2E]">{error}</span>}
+            </div>
+          ) : (
+            <>
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your accounts" autoFocus className={inputCls} />
+              {query.trim().length >= 2 && (
+                <ul className="mt-1.5 max-h-64 overflow-auto rounded-md border border-[#E2DFD5]">
+                  {results.length === 0 && <li className="px-3 py-2 text-[13px] text-[#8A928C]">No account by that name.</li>}
+                  {results.map((a) => {
+                    const where = [a.city, a.state].filter(Boolean).join(", ");
+                    return (
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          onClick={() => setSdrAccount(a)}
+                          className="flex min-h-11 w-full items-center px-3 py-2 text-left text-[14px] hover:bg-[#FAF9F5]"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium text-[#14201B]">{a.name}</span>
+                            {where && <span className="block truncate text-[12px] text-[#8A928C]">{where}</span>}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </>
+          )}
+          {!sdrQueued && (
+            <button type="button" onClick={() => setOpen(false)} className="mt-2.5 inline-flex min-h-11 items-center text-[13px] font-medium text-[#8A928C]">
+              Cancel
+            </button>
+          )}
+        </div>
+      )}
+
+      {kind !== "client" && kind !== "call" && kind !== "sdr" && (
         <form onSubmit={submitStop} className="mt-2.5 flex flex-col gap-2">
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={KIND_HINT[kind]} autoFocus className={inputCls} />
           <div className="flex items-center gap-2">

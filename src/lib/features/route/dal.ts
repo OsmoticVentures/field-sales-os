@@ -318,4 +318,44 @@ export async function setRouteMileageDay(day: string, patch: Partial<RouteMileag
   return updated;
 }
 
+// ---------------------------------------------------------------------------
+// Return-visit directives (Suggested returns)
+// ---------------------------------------------------------------------------
+
+export type ReturnDirective = { id: string; account_id: string; directive: string; created_at: string };
+
+/**
+ * Pending "come back" directives, nutribiotic-route-planner's own inbox,
+ * same filter the source's listPendingReturnDirectives and
+ * follow_through.py use: target + status server-side, the "[follow-up:"
+ * prefix here, since PostgREST has no clean way to match a literal `[`.
+ * Oldest first; rows with no account are dropped.
+ */
+export async function listPendingReturnDirectives(): Promise<ReturnDirective[]> {
+  const rows = await raw<{ id: string; account_id: string | null; directive: string; created_at: string }>(
+    "nb_directives",
+    new URLSearchParams({
+      select: "id,account_id,directive,created_at",
+      status: "eq.pending",
+      target: "eq.nutribiotic-route-planner",
+      order: "created_at.asc",
+      limit: "500",
+    }).toString(),
+  );
+  return rows.filter((r): r is ReturnDirective => Boolean(r.account_id) && r.directive.startsWith("[follow-up:"));
+}
+
+/** Marks one directive handled from Suggested returns, stamped `routed` the
+ *  same way the source and follow_through.py stamp one, so the planner never
+ *  offers the same account twice. */
+export async function resolveDirective(id: string, resolution: string): Promise<void> {
+  if (!isConfigured()) throw new Error("No data source configured.");
+  const res = await sb("nb_directives", `id=eq.${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({ status: "routed", resolution, decided_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`Supabase nb_directives PATCH -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+}
+
 export type { CustomStop };

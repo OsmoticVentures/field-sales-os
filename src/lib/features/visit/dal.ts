@@ -465,6 +465,27 @@ export async function insertFieldNote(input: {
   return row;
 }
 
+/**
+ * A "come back" stated in a logged note, queued pending for
+ * nutribiotic-route-planner in nb_directives, same row shape the source's
+ * insertDirectives writes. Route's Suggested returns reads these back
+ * (lib/features/route/dal.ts's listPendingReturnDirectives).
+ */
+export async function insertReturnDirectives(
+  rows: { field_note_id: string | null; directive: string; account_id: string | null }[],
+): Promise<number> {
+  for (const r of rows) {
+    await mutate("nb_directives", "POST", {
+      id: randId("dir"),
+      status: "pending",
+      target: "nutribiotic-route-planner",
+      scope: "nutribiotic",
+      ...r,
+    });
+  }
+  return rows.length;
+}
+
 // ---------------------------------------------------------------------------
 // HubSpot call log (best-effort, mirrors the source's logHubspotCall)
 // ---------------------------------------------------------------------------

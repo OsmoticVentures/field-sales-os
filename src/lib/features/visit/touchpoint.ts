@@ -13,12 +13,13 @@
  * never clobber a true one.
  *
  * SCOPE CUT FROM THE SOURCE (see the port's handback for the full list):
- * agency directives (nb_directives), outreach asks (nb_outbound_drafts,
- * ask-compose.ts), the return-visit -> route-planner directive queue, and
- * the close-signal check (nb_close_signals) are extracted by the tool
+ * agency directives, outreach asks (nb_outbound_drafts, ask-compose.ts),
+ * and the close-signal check (nb_close_signals) are extracted by the tool
  * schema exactly as the source asks (their fields still exist on
- * ParsedTouchpoint) but are not written anywhere by this port: none of
- * those tables or their owning agents exist in this repo yet. Account
+ * ParsedTouchpoint) but are not written anywhere by this port. The one
+ * exception is the return-visit queue (2026-09-25): a stated "come back"
+ * lands in nb_directives for nutribiotic-route-planner exactly as the
+ * source writes it, since Route's Suggested returns is built from it. Account
  * facts (hours/phone/email) DO still land in the OS's nb_accounts, which
  * matches the deck's "corrected account facts" description; only the
  * further push of hours/phone to the HubSpot company record is cut, since
@@ -35,6 +36,7 @@ import {
   insertActivity,
   insertContact,
   insertFieldNote,
+  insertReturnDirectives,
   insertTouchpoint,
   listAccountsForMatching,
   listContacts,
@@ -138,7 +140,14 @@ async function reconcileContact(accountId: string, existing: Contact[], p: Parse
   }
 }
 
-type ParsedCalendarAction = { kind: "meeting" | "reminder" | "visit"; title: string; when_iso: string | null; duration_minutes: number | null; notes: string | null };
+type ParsedCalendarAction = {
+  kind: "meeting" | "reminder" | "visit";
+  title: string;
+  when_iso: string | null;
+  duration_minutes: number | null;
+  notes: string | null;
+  quote?: string | null;
+};
 type ParsedDirective = { directive: string; target: string | null; scope: "nutribiotic" | "agency" };
 type ParsedOutreachAsk = { ask: string };
 type ParsedAccountFacts = { business_hours: Record<string, string[][]> | null; phone: string | null; email: string | null };
@@ -247,6 +256,10 @@ const EXTRACT_TOOL = {
             },
             duration_minutes: { type: ["integer", "null"] },
             notes: { type: ["string", "null"] },
+            quote: {
+              type: ["string", "null"],
+              description: "The exact short clause or sentence, copied verbatim from the note, that states the return ask (e.g. \"come back next Friday\"). Not a paraphrase or a summary, the rep's own words only. Null if the note never states one as a distinct phrase.",
+            },
           },
           required: ["kind", "title"],
         },
@@ -388,6 +401,28 @@ export type RecordTouchpointResult =
     }
   | { ok: false; error: string };
 
+/**
+ * Each calendar action the note stated, as a pending route-planner row in
+ * the source's exact `[follow-up:<kind>] <account>: <title> · ...` format,
+ * which Route's Suggested returns parses back apart. Only what the note
+ * stated: no time is "No time stated", never a guessed one.
+ */
+function returnVisitDirectiveRows(
+  actions: ParsedCalendarAction[] | undefined,
+  fieldNoteId: string | null,
+  accountId: string | null,
+  accountName: string | null,
+): { field_note_id: string | null; directive: string; account_id: string | null }[] {
+  return (actions ?? []).map((ca) => {
+    const parts: string[] = [accountName ? `${accountName}: ${ca.title}` : ca.title];
+    parts.push(ca.when_iso ? `Stated time: ${ca.when_iso}` : "No time stated");
+    if (ca.duration_minutes) parts.push(`Stated duration: ${ca.duration_minutes} min`);
+    if (ca.notes) parts.push(ca.notes);
+    if (ca.quote) parts.push(`Quote: "${ca.quote}"`);
+    return { field_note_id: fieldNoteId, directive: `[follow-up:${ca.kind}] ${parts.join(" · ")}`, account_id: accountId };
+  });
+}
+
 export async function recordTouchpoint(
   rawText: string,
   accountIdHint?: string | null,
@@ -449,12 +484,15 @@ async function continueTouchpoint(
       account_match_confidence: accountIdHint ? "high" : parsed.account_confidence,
       parsed,
     });
-    await insertFieldNote({
+    const fieldNote = await insertFieldNote({
       account_id: noteAccountId ?? null,
       touchpoint_id: tp.id,
       detail: parsed.activity.detail,
       raw_text: text,
     });
+    await insertReturnDirectives(
+      returnVisitDirectiveRows(parsed.calendar_actions, fieldNote?.id ?? null, noteAccountId ?? null, noteAccount?.name ?? null),
+    );
 
     return {
       ok: true,
@@ -587,6 +625,8 @@ async function finishTouchpoint(input: {
         parsed,
       });
 
+  await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName));
+
   const hubspot = isNeverFiledKind(parsed.activity.kind)
     ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
     : await autoFileEngagement(activity.id);
@@ -652,6 +692,10 @@ export async function resolveTouchpointToAccount(touchpointId: string, accountId
     if (outcome === "added") peopleAdded += 1;
     else if (outcome === "updated") peopleUpdated += 1;
   }
+
+  // Parked as needs_account when spoken, so its "come back" waited for an
+  // account to attach to; now it has one, it goes to the route planner.
+  await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName));
 
   const hubspot = await autoFileEngagement(activity.id);
 

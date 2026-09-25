@@ -34,6 +34,7 @@ import type {
   RouteStopView,
 } from "@/lib/features/route/types";
 import { AddStop } from "./AddStop";
+import { ReturnSuggestions } from "./ReturnSuggestions";
 import { DayMoveMenu, RowIco } from "./RowControls";
 import { HUBSPOT_COMPANY_URL } from "@/lib/features/prospect/format";
 
@@ -454,15 +455,6 @@ function RouteDay({
       draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id)),
     );
   }
-  function moveStop(id: string, dir: -1 | 1) {
-    const ids = stops.map((s) => s.id);
-    const from = ids.indexOf(id);
-    const to = from + dir;
-    if (from < 0 || to < 0 || to >= ids.length) return;
-    const order = [...ids];
-    [order[from], order[to]] = [order[to], order[from]];
-    reorder(order);
-  }
   function reorder(order: string[]) {
     const byId = new Map(draft.map((e) => [typeof e === "string" ? e : e.id, e]));
     patchDraft(activeDay, order.map((id) => byId.get(id)!).filter(Boolean));
@@ -501,11 +493,6 @@ function RouteDay({
     postJson("/api/route/draft", { day: activeDay, entries: fromEntries })
       .then(() => postJson("/api/route/draft", { day: targetDay, entries: targetEntries }))
       .catch(() => {});
-  }
-  function moveToTop(id: string) {
-    const ids = stops.map((s) => s.id);
-    if (ids.indexOf(id) <= 0) return;
-    reorder([id, ...ids.filter((x) => x !== id)]);
   }
   function showInMap(id: string) {
     setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
@@ -818,33 +805,6 @@ function RouteDay({
                         <Ico name="check" size={13} />
                         {isDone ? "Done" : "Mark done"}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => moveToTop(s.id)}
-                        disabled={i === 0}
-                        aria-label={`Move ${title} to the top of the route`}
-                        className={sqBtn}
-                      >
-                        <RowIco name="chevrons-up" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveStop(s.id, -1)}
-                        disabled={i === 0}
-                        aria-label={`Move ${title} earlier`}
-                        className={sqBtn}
-                      >
-                        <Ico name="chevron-up" size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => moveStop(s.id, 1)}
-                        disabled={i === stops.length - 1}
-                        aria-label={`Move ${title} later`}
-                        className={sqBtn}
-                      >
-                        <Ico name="chevron-down" size={14} />
-                      </button>
                       {days.length > 1 && (
                         <DayMoveMenu
                           days={days}
@@ -908,9 +868,17 @@ function RouteDay({
         </div>
       )}
 
+      <ReturnSuggestions
+        activeDay={activeDay}
+        accountsById={accountsById}
+        inRoute={inRoute}
+        onAddToDay={(a) => addEntry(a.id, a.lat, a.lng)}
+      />
+
       <AddStop
         accounts={data.accounts}
         inRoute={inRoute}
+        activeDay={activeDay}
         onAddAccount={(a) => addEntry(a.id, a.lat, a.lng)}
         onAddCustomStop={(stop) => {
           const id = `custom:${newKey()}`;
