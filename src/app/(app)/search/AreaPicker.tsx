@@ -26,6 +26,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Geolocation } from "@capacitor/geolocation";
 import { Ico } from "../../../lib/core/ui";
 import { loadGoogleMaps } from "../../../lib/shared/google-maps-loader";
 
@@ -150,17 +151,15 @@ export function AreaPicker({
           onChangeRef.current([...pinsRef.current, { lat: e.latLng.lat(), lng: e.latLng.lng() }]);
         });
 
-        if (!centred.current && typeof navigator !== "undefined" && navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
+        if (!centred.current) {
+          Geolocation.getCurrentPosition({ timeout: 8000, maximumAge: 600_000 })
+            .then((pos) => {
               if (centred.current) return;
               centred.current = true;
               map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
               map.setZoom(14);
-            },
-            () => {},
-            { timeout: 8000, maximumAge: 600_000 },
-          );
+            })
+            .catch(() => {});
         }
         setLoaded(true);
       })

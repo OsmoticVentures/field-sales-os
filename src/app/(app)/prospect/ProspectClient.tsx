@@ -23,6 +23,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
+import { FindContacts } from "../../../lib/features/enrich/ui";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 
@@ -120,6 +121,35 @@ function quickDayLabel(iso: string): string {
 function nextDays(todayIso: string, count: number): string[] {
   const out: string[] = [];
   for (let n = 1; out.length < count; n++) out.push(addDaysIso(todayIso, n));
+  return out;
+}
+
+/** Monday of the work week that `iso` falls in, same YYYY-MM-DD shape. */
+function mondayOfIso(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const dow = date.getUTCDay(); // 0 Sun .. 6 Sat
+  const sinceMonday = (dow + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - sinceMonday);
+  return date.toISOString().slice(0, 10);
+}
+
+/** "Oct 15-19", the Monday-Friday span of the work week `n` weeks after
+ *  today's own work week, so "push back" always lands on a real calendar
+ *  range instead of a relative "1 week" label. */
+function pushBackWeeks(todayIso: string, count: number): { iso: string; label: string }[] {
+  const thisMonday = mondayOfIso(todayIso);
+  const out: { iso: string; label: string }[] = [];
+  for (let n = 1; n <= count; n++) {
+    const mon = addDaysIso(thisMonday, n * 7);
+    const fri = addDaysIso(mon, 4);
+    const monD = new Date(`${mon}T00:00:00`);
+    const friD = new Date(`${fri}T00:00:00`);
+    const monMonth = monD.toLocaleDateString("en-US", { month: "short" });
+    const friMonth = friD.toLocaleDateString("en-US", { month: "short" });
+    const label = monMonth === friMonth ? `${monMonth} ${monD.getDate()}-${friD.getDate()}` : `${monMonth} ${monD.getDate()}-${friMonth} ${friD.getDate()}`;
+    out.push({ iso: mon, label });
+  }
   return out;
 }
 
@@ -487,6 +517,13 @@ function ScheduleRow({
               </button>
             ))}
           </div>
+          <div className="grid grid-cols-3 gap-1">
+            {pushBackWeeks(todayIso, 3).map((w) => (
+              <button key={w.iso} type="button" onClick={() => { setMoving(false); onReschedule(w.iso); }} className="min-h-11 rounded-md border border-[#E2DFD5] bg-white px-1.5 text-[12px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5]">
+                {w.label}
+              </button>
+            ))}
+          </div>
           <input
             type="date"
             defaultValue={item.scheduled_date}
@@ -654,6 +691,21 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.account_id]);
 
+  /** Find Contacts writes straight to the OS; this is how its panel gets
+   *  back into the call card without a full page reload. Best effort: the
+   *  Find Contacts panel already shows what it did even if this refetch
+   *  itself fails. */
+  async function refreshPanel() {
+    if (!item.account_id) return;
+    try {
+      const res = await apiFetch(`/api/prospect/account/${item.account_id}`);
+      const j = await res.json();
+      if (j.ok) setPanel(j.account);
+    } catch {
+      // best effort
+    }
+  }
+
   async function handleEnrich() {
     if (!item.account_id || enriching) return;
     setEnriching(true);
@@ -743,6 +795,12 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
                 ) : null}
               </div>
             ))}
+          </div>
+        )}
+
+        {item.account_id && (
+          <div className="mt-3 border-t border-[#E2DFD5] pt-3">
+            <FindContacts accountId={item.account_id} onUpdated={refreshPanel} />
           </div>
         )}
 

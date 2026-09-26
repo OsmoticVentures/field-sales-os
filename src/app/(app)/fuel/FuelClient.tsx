@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { Geolocation } from "@capacitor/geolocation";
 import { apiFetch } from "@/lib/core/api";
 import { Card, Ico } from "../../../lib/core/ui";
 import { FAVORITES, GALLON_STEP, TANK_GALLONS } from "../../../lib/features/fuel/constants";
@@ -84,19 +85,13 @@ export function FuelClient() {
   }, []);
 
   const locate = useCallback(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocState("denied");
-      return;
-    }
     setLocState("asking");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 30_000 })
+      .then((pos) => {
         setLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         setLocState("ok");
-      },
-      () => setLocState("denied"),
-      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 30_000 },
-    );
+      })
+      .catch(() => setLocState("denied"));
   }, []);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect

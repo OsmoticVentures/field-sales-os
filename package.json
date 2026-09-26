@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/geolocation": "^8.2.2",
     "@capacitor/ios": "^8.5.2",
     "googleapis": "^174.0.1",
     "next": "16.2.6",

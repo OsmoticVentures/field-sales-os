@@ -10,14 +10,15 @@
  *
  * Adapted from the NutriBiotic OS's map/page.tsx, MapScreen.tsx and
  * RoutePanel.tsx. The list is the working surface (44px buttons, readable
- * at a red light); RouteMap.tsx above it shows the shape of the day on a
- * vanilla google.maps canvas, no map dependency added.
+ * at a red light); AccountsMap.tsx above it draws the whole territory,
+ * its filters and pin card, plus the day's own shape, on a vanilla
+ * google.maps canvas, no map dependency added.
  */
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
-import { RouteMap } from "./RouteMap";
+import { AccountsMap } from "./AccountsMap";
 import { dayLabel, defaultActiveDay, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
@@ -449,6 +450,19 @@ function RouteDay({
     }
   }
 
+  /** Names the exact day (source's MapScreen.tsx handleAddToRouteOnDay): the
+   *  active day keeps addEntry's own cheapest-insertion order; any other day
+   *  on the horizon just appends to that day's own draft. */
+  function onAddToRouteOnDay(id: string, day: string, lat: number, lng: number) {
+    if (day === activeDay) {
+      void addEntry(id, lat, lng);
+      return;
+    }
+    const entries = data.draft[day] ?? [];
+    if (entries.some((e) => (typeof e === "string" ? e : e.id) === id)) return;
+    patchDraft(day, [...entries, id]);
+  }
+
   function removeStop(id: string) {
     patchDraft(
       activeDay,
@@ -565,11 +579,21 @@ function RouteDay({
         hasStops={stops.length > 0}
       />
 
-      {(stops.length > 0 || start) && (
-        <div ref={mapBoxRef}>
-          <RouteMap stops={stops} start={start} end={end} coords={coords} doneIds={doneIds} focus={focus} />
-        </div>
-      )}
+      <div ref={mapBoxRef}>
+        <AccountsMap
+          accounts={data.accounts}
+          days={days}
+          activeDay={activeDay}
+          draftByDay={data.draft}
+          stops={stops}
+          start={start}
+          end={end}
+          coords={coords}
+          doneIds={doneIds}
+          focus={focus}
+          onAddToRouteOnDay={onAddToRouteOnDay}
+        />
+      </div>
 
       {calls.length > 0 && (
         <ul className="divide-y divide-[#EEECE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">

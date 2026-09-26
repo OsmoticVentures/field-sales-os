@@ -4,7 +4,22 @@
  * server dal and the client screen can import it.
  */
 
+import type { Readiness } from "../prospect/priority";
+
 export type Tier = "A" | "B" | "C" | "D" | "E" | "F" | "G";
+
+/** Migration 0073's five funnel stages, mirrored from the NutriBiotic OS's
+ *  nb_v_account_lead_stage. Values match the view exactly. */
+export type LeadStage = "prospect" | "new_to_activate" | "active" | "dormant" | "closed";
+
+/** lib/priority.ts's score for one account, computed server-side. Never
+ *  null here: an id absent from priorityById is unscored, drawn as nothing. */
+export type AccountPriority = { score: number; reason: string; band: "now" | "soon" | "later" | "unscored" };
+
+/** Whether the map is currently showing chain/practice/prospect accounts.
+ *  Persisted on nb_ui_prefs id=1, the same row the source app's map reads,
+ *  so the preference follows Juan between this app and the source. */
+export type MapDisplayPrefs = { showChains: boolean; showPractices: boolean; showProspects: boolean };
 
 export type RouteEndpoint = { label: string; address: string; lat: number; lng: number };
 
@@ -60,6 +75,19 @@ export type RouteAccount = {
   trailing_12m_revenue: number | null;
   lifetime_revenue: number | null;
   business_hours: Record<string, string[][]> | null;
+  /** Everything below is additional to the Route feature's original slice,
+   *  added to draw every account as a map pin with the source's filters and
+   *  pin card (portfolio's map/AccountsMap.tsx, MapAccount type). */
+  channel: string;
+  area: string | null;
+  /** HubSpot's own hs_lead_status mirror. Used only to keep Closed accounts
+   *  off the map, same as the source. */
+  lead_status: string | null;
+  lead_stage: LeadStage | null;
+  chain_excluded: boolean;
+  practice_excluded: boolean;
+  do_not_visit: boolean;
+  readiness: Readiness | null;
 };
 
 export type RouteStopView = { id: string; lat: number; lng: number } & (

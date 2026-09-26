@@ -298,6 +298,73 @@ function AddToSdr({ accountId }: { accountId: string }) {
   );
 }
 
+type DraftPitchResult = { status: "drafted" | "already_queued" | "not_written"; reason?: string };
+
+/**
+ * Draft outreach, on the spot. Ported from the NutriBiotic OS's account
+ * profile (commit aa9730c, lib/account-detail.tsx's DraftOutreachButton):
+ * one tap composes a pitch from this account's own Now/Opening/Impact
+ * summary through the same grounded composer the map's Suggested returns
+ * panel uses (lib/features/outbound/actions.ts's draftAccountPitch). A
+ * missing email or phone never blocks the draft itself: the Outbound
+ * screen's card offers Copy instead, meant for pasting into the store's own
+ * website contact form.
+ *
+ * DEVIATION FROM THE SOURCE: the source opens Outbound in a new tab
+ * (window.open) once the draft lands. This app never opens a tab on its
+ * own, he taps it himself, so a successful draft instead shows a link he
+ * can tap into Outbound, in this same tab, on his own time.
+ */
+function DraftOutreachButton({ accountId }: { accountId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<DraftPitchResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await apiFetch("/api/outbound/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ account_id: accountId }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; result?: DraftPitchResult };
+      if (!res.ok || j.ok === false || !j.result) throw new Error(j.error ?? "Could not draft that.");
+      setResult(j.result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not draft that.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (result?.status === "drafted" || result?.status === "already_queued") {
+    return (
+      <Link
+        href={`/outbound?account=${accountId}`}
+        className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#EEECE3] px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] ${press}`}
+      >
+        <Ico name="check" size={14} />
+        {result.status === "already_queued" ? "Already queued, view in Outbound" : "Drafted, view in Outbound"}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="inline-flex flex-col gap-1">
+      <button type="button" onClick={run} disabled={busy} className={`${actionBtn} disabled:opacity-60`}>
+        <Ico name="mail" size={14} />
+        {busy ? "Drafting" : "Draft outreach"}
+      </button>
+      {(result?.status === "not_written" && result.reason) || error ? (
+        <span className="max-w-[36ch] text-[12px] text-[#8A928C]">{result?.reason ?? error}</span>
+      ) : null}
+    </div>
+  );
+}
+
 function Purchases({ orders, lines }: { orders: PurchaseOrder[]; lines: PurchaseLine[] }) {
   const orderedAt = new Map(orders.map((o) => [o.id, o.ordered_at]));
   const totals = new Map<string, { qty: number; revenueCents: number; last: string | null }>();
@@ -418,6 +485,7 @@ export function AccountView({
         )}
         <AddToRoute accountId={a.id} days={routeDays} draftByDay={routeDraftByDay} />
         <AddToSdr accountId={a.id} />
+        <DraftOutreachButton accountId={a.id} />
         <Link href="/visit" className={actionBtn}>
           <Ico name="plus" size={14} />
           Log a visit

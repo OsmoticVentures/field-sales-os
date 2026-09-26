@@ -31,6 +31,9 @@ export type RawPlace = {
   nationalPhoneNumber?: string;
   websiteUri?: string;
   businessStatus?: string;
+  rating?: number;
+  userRatingCount?: number;
+  primaryType?: string;
   regularOpeningHours?: { periods?: Array<{ open?: { day?: number; hour?: number; minute?: number }; close?: { hour?: number; minute?: number } }> };
 };
 
@@ -103,6 +106,9 @@ const CANDIDATE_FIELD_MASK = [
   "places.websiteUri",
   "places.regularOpeningHours.periods",
   "places.businessStatus",
+  "places.rating",
+  "places.userRatingCount",
+  "places.primaryType",
 ];
 
 export type PlaceCandidate = {
@@ -120,6 +126,9 @@ export type PlaceCandidate = {
   website: string | null;
   businessStatus: string | null;
   businessHours: Record<string, string[][]> | null;
+  rating: number | null;
+  ratingCount: number | null;
+  primaryType: string | null;
 };
 
 function component(place: RawPlace, kind: string): string | null {
@@ -169,6 +178,9 @@ function toCandidate(place: RawPlace): PlaceCandidate {
     website: place.websiteUri ?? null,
     businessStatus: place.businessStatus ?? null,
     businessHours: openingHours(place),
+    rating: place.rating ?? null,
+    ratingCount: place.userRatingCount ?? null,
+    primaryType: place.primaryType ?? null,
   };
 }
 

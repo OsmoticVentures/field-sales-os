@@ -6,12 +6,17 @@
  * filtered to the active day. Only ever a stated "come back" from a logged
  * note (lib/features/route/return-suggestions.ts), never a model's guess.
  *
- * Two actions, each a door that already exists: Add to day goes through the
+ * Three actions, each a door that already exists: Add to day goes through the
  * same cheapest-gap addEntry the Add a stop search uses, Add to SDR posts to
- * /api/prospect/schedule like the account view's own SDR button. Either one
- * resolves the directive so the route planner never offers it twice. The
- * source's third action, Generate outbound, needs the outreach composer,
- * which this app does not have yet.
+ * /api/prospect/schedule like the account view's own SDR button, and
+ * Generate outbound calls composeAsk through /api/outbound/draft-from-reason
+ * (lib/features/outbound/actions.ts's draftAccountPitchFromReason), the same
+ * grounding gate the account profile's own Draft outreach button holds
+ * itself to, just fed the reason Juan types here instead of the account's
+ * Gap Selling summary. Each resolves the directive so the route planner
+ * never offers it twice. No window.open into a new tab (the house rule: a
+ * new tab never opens itself, he taps it): the drafted row is reachable from
+ * the app's own Outbound screen, behind More, whenever he wants it.
  */
 
 import { useEffect, useState } from "react";
@@ -25,7 +30,13 @@ function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 }
 
-async function postJson(path: string, body: unknown): Promise<{ ok: boolean; error?: string }> {
+type PostResult = {
+  ok: boolean;
+  error?: string;
+  result?: { status: "drafted" | "already_queued" | "not_written"; reason?: string };
+};
+
+async function postJson(path: string, body: unknown): Promise<PostResult> {
   const res = await apiFetch(path, {
     method: "POST",
     headers: { "content-type": "application/json", "idempotency-key": newKey() },
@@ -73,6 +84,8 @@ export function ReturnSuggestions({
   const [successById, setSuccessById] = useState<Record<string, string>>({});
   const [errorById, setErrorById] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [whyOpenId, setWhyOpenId] = useState<string | null>(null);
+  const [why, setWhy] = useState("");
 
   useEffect(() => {
     apiFetch("/api/route/returns")
@@ -121,6 +134,32 @@ export function ReturnSuggestions({
     }
   }
 
+  async function generateOutbound(s: ReturnSuggestion) {
+    const reason = why.trim();
+    if (!reason) return;
+    setErrorById((m) => ({ ...m, [s.accountId]: "" }));
+    setBusyId(s.accountId);
+    try {
+      const res = await postJson("/api/outbound/draft-from-reason", { account_id: s.accountId, reason });
+      const result = res.result;
+      if (!res.ok || !result) {
+        setErrorById((m) => ({ ...m, [s.accountId]: res.error ?? "Not drafted. Try again." }));
+        return;
+      }
+      if (result.status === "not_written") {
+        setErrorById((m) => ({ ...m, [s.accountId]: result.reason ?? "Not drafted." }));
+        return;
+      }
+      setWhyOpenId(null);
+      setWhy("");
+      settle(s, result.status === "already_queued" ? "Already queued" : "Drafted");
+    } catch {
+      setErrorById((m) => ({ ...m, [s.accountId]: "Not drafted. Try again." }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
       <div className="border-b border-[#EEECE3] px-4 py-2.5 text-[13px] font-semibold text-[#3D4A44]">Suggested returns</div>
@@ -152,15 +191,55 @@ export function ReturnSuggestions({
                 <div className="max-w-xs">
                   <SuccessNote title={success} />
                 </div>
+              ) : whyOpenId === s.accountId ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <input
+                    value={why}
+                    onChange={(e) => setWhy(e.target.value)}
+                    placeholder="Why: what to say, what they asked for"
+                    autoFocus
+                    className="min-h-9 min-w-0 flex-1 rounded-md border border-[#E2DFD5] bg-[#FCFBF7] px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-[#A9AFA9] focus:border-[#8A928C]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => generateOutbound(s)}
+                    disabled={busyId === s.accountId || !why.trim()}
+                    className="min-h-9 rounded-md bg-[#14201B] px-3 py-1.5 text-[12px] font-semibold text-[#F7F6F1] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {busyId === s.accountId ? "Drafting" : "Generate"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWhyOpenId(null);
+                      setWhy("");
+                    }}
+                    className="min-h-9 rounded-md px-2 py-1.5 text-[12px] font-medium text-[#8A928C] hover:text-[#3D4A44]"
+                  >
+                    Cancel
+                  </button>
+                </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <button type="button" onClick={() => addToDay(s)} className={actionBtn}>
-                    <Ico name="pin" size={13} />
-                    Add to day
+                  <button type="button" onClick={() => addToDay(s)} className={actionBtn} title="Add to day">
+                    <Ico name="route" size={13} />
+                    Route
                   </button>
-                  <button type="button" onClick={() => addToSdr(s)} disabled={busyId === s.accountId} className={actionBtn}>
+                  <button type="button" onClick={() => addToSdr(s)} disabled={busyId === s.accountId} className={actionBtn} title="Add to SDR">
                     <Ico name="phone" size={13} />
-                    {busyId === s.accountId ? "Adding" : "Add to SDR"}
+                    {busyId === s.accountId ? "Adding" : "SDR"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWhyOpenId(s.accountId);
+                      setWhy("");
+                    }}
+                    className={actionBtn}
+                    title="Generate outbound"
+                  >
+                    <Ico name="mail" size={13} />
+                    Draft
                   </button>
                 </div>
               )}

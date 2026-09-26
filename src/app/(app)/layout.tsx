@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { href: "/expenses", label: "Expenses", icon: "clock", tab: true },
   { href: "/reports", label: "Reports", icon: "chart" },
   { href: "/fuel", label: "Fuel", icon: "fuel" },
+  { href: "/outbound", label: "Outbound", icon: "mail" },
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

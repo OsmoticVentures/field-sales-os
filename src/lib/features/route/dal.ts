@@ -16,6 +16,8 @@ import type {
   CallEntry,
   CustomStop,
   CustomStopKind,
+  LeadStage,
+  MapDisplayPrefs,
   RouteAccount,
   RouteDraftEntry,
   RouteEndpoint,
@@ -67,22 +69,62 @@ async function prefsSelect<T extends Record<string, unknown>>(select: string): P
 
 // --- Accounts ---------------------------------------------------------
 
-type AccountRow = Omit<RouteAccount, "tier">;
+type AccountRow = Omit<RouteAccount, "tier" | "lead_stage">;
 
+/**
+ * Every account owned by Juan with a verified pin, plus the extra columns
+ * the map's pins, filters and pin card need (channel, area, lead_status,
+ * chain/practice_excluded, do_not_visit, readiness) and the one joined view
+ * (lead_stage, migration 0073, same as portfolio's lib/dal.ts). tier comes
+ * from a second view for the same reason it isn't a column on nb_accounts.
+ */
 export async function listOwnerAccounts(): Promise<RouteAccount[]> {
-  const [rows, grades] = await Promise.all([
+  const [rows, grades, stages] = await Promise.all([
     raw<AccountRow>(
       "nb_accounts",
-      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours" +
+      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness" +
         `&hubspot_owner_id=eq.${JUAN_OWNER_ID}&lat=not.is.null&closed_at=is.null&order=name.asc`,
     ),
     raw<{ account_id: string; potential_grade: Tier }>(
       "nb_v_account_potential",
       "select=account_id,potential_grade&limit=1000",
     ),
+    raw<{ account_id: string; lead_stage: LeadStage }>(
+      "nb_v_account_lead_stage",
+      "select=account_id,lead_stage&limit=2000",
+    ),
   ]);
   const tierById = new Map(grades.map((g) => [g.account_id, g.potential_grade]));
-  return rows.map((a) => ({ ...a, tier: tierById.get(a.id) ?? null }));
+  const stageById = new Map(stages.map((s) => [s.account_id, s.lead_stage]));
+  return rows.map((a) => ({ ...a, tier: tierById.get(a.id) ?? null, lead_stage: stageById.get(a.id) ?? null }));
+}
+
+// --- Map display prefs (show chains / practices / prospects) -----------
+
+const MAP_DISPLAY_DEFAULT: MapDisplayPrefs = { showChains: false, showPractices: false, showProspects: false };
+
+export async function getMapDisplayPrefs(): Promise<MapDisplayPrefs> {
+  const row = await prefsSelect<{
+    show_chain_accounts: boolean | null;
+    show_practice_accounts: boolean | null;
+    show_prospect_accounts: boolean | null;
+  }>("show_chain_accounts,show_practice_accounts,show_prospect_accounts");
+  if (!row) return MAP_DISPLAY_DEFAULT;
+  return {
+    showChains: row.show_chain_accounts ?? false,
+    showPractices: row.show_practice_accounts ?? false,
+    showProspects: row.show_prospect_accounts ?? false,
+  };
+}
+
+export async function setShowChainAccounts(show: boolean): Promise<void> {
+  await prefsPatch({ show_chain_accounts: show });
+}
+export async function setShowPracticeAccounts(show: boolean): Promise<void> {
+  await prefsPatch({ show_practice_accounts: show });
+}
+export async function setShowProspectAccounts(show: boolean): Promise<void> {
+  await prefsPatch({ show_prospect_accounts: show });
 }
 
 export async function getHomeEndpoint(): Promise<RouteEndpoint | null> {
@@ -359,3 +401,37 @@ export async function resolveDirective(id: string, resolution: string): Promise<
 }
 
 export type { CustomStop };
+
+// ---------------------------------------------------------------------------
+// Plan week support (added at the end of the file per PORTING.md/the planner
+// build's own instruction: extend this DAL, never fork it)
+// ---------------------------------------------------------------------------
+
+/** Raw account facts for a specific set of ids, unfiltered by lat/closed/
+ *  chain_excluded, unlike listOwnerAccounts. The planner uses this only to
+ *  work out WHY a return-visit directive's account can't be routed (closed,
+ *  no coordinates, do not visit, corporate-gated, or someone else's book),
+ *  so that reason can be reported instead of the directive silently
+ *  disappearing. */
+export type RawAccountFacts = {
+  id: string;
+  name: string;
+  lat: number | null;
+  lng: number | null;
+  closed_at: string | null;
+  chain_excluded: boolean | null;
+  do_not_visit: boolean | null;
+  hubspot_owner_id: string | null;
+  business_hours: Record<string, string[][]> | null;
+};
+
+export async function getAccountsByIds(ids: string[]): Promise<RawAccountFacts[]> {
+  if (ids.length === 0) return [];
+  return raw<RawAccountFacts>(
+    "nb_accounts",
+    new URLSearchParams({
+      select: "id,name,lat,lng,closed_at,chain_excluded,do_not_visit,hubspot_owner_id,business_hours",
+      id: `in.(${ids.join(",")})`,
+    }).toString(),
+  );
+}

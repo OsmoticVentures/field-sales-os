@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Geolocation } from "@capacitor/geolocation";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import type { RouteEndpoint, RouteStopView } from "@/lib/features/route/types";
 
@@ -104,12 +105,15 @@ export function RouteMap({
   }, [apiKey]);
 
   useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {},
-      { timeout: 8000, maximumAge: 600_000 },
-    );
+    let cancelled = false;
+    Geolocation.getCurrentPosition({ timeout: 8000, maximumAge: 600_000 })
+      .then((pos) => {
+        if (!cancelled) setMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Pins, rings and the road shape, redrawn whenever the day changes.
