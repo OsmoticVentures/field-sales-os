@@ -15,6 +15,7 @@
  * google.maps canvas, no map dependency added.
  */
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
@@ -387,7 +388,12 @@ function RouteDay({
         const reason = schedule.closedToday.has(s.id)
           ? "closed the rest of the day"
           : `arrives after its ${clock(minutesOfDay(anchor))} time`;
-        return { id: s.id, name: s.type === "account" ? s.account.name : s.custom.label, reason };
+        return {
+          id: s.id,
+          name: s.type === "account" ? s.account.name : s.custom.label,
+          accountId: s.type === "account" ? s.account.id : null,
+          reason,
+        };
       });
   }, [schedule, stops, stopTimes]);
 
@@ -558,7 +564,14 @@ function RouteDay({
         <ul className="flex flex-col gap-1 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3.5 py-3 text-[13px] leading-relaxed text-[#3D4A44]">
           {wontFit.map((w) => (
             <li key={w.id}>
-              <span className="font-medium">{w.name}</span> won't fit, {w.reason}
+              {w.accountId ? (
+                <Link prefetch={false} href={`/account/${w.accountId}`} className="font-medium underline-offset-2 hover:underline">
+                  {w.name}
+                </Link>
+              ) : (
+                <span className="font-medium">{w.name}</span>
+              )}{" "}
+              won't fit, {w.reason}
             </li>
           ))}
         </ul>
@@ -680,7 +693,17 @@ function RouteDay({
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className={`truncate text-[14.5px] font-medium ${isDone ? "line-through text-[#8A928C]" : ""}`}>{title}</span>
+                        {a ? (
+                          <Link
+                            prefetch={false}
+                            href={`/account/${a.id}`}
+                            className={`truncate text-[14.5px] font-medium underline-offset-2 hover:underline ${isDone ? "line-through text-[#8A928C]" : ""}`}
+                          >
+                            {title}
+                          </Link>
+                        ) : (
+                          <span className={`truncate text-[14.5px] font-medium ${isDone ? "line-through text-[#8A928C]" : ""}`}>{title}</span>
+                        )}
                         {c && (
                           <span className="rounded bg-[#F6EEDD] px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-wide text-[#7A5A1E]">
                             {CUSTOM_STOP_LABEL[c.kind]}
