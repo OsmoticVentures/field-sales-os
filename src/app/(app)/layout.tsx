@@ -44,7 +44,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {/* pb clears the mobile tab bar below md, once it exists; matches
             the aside breakpoint above. */}
         <main
-          className={`min-w-0 flex-1 px-5 py-7 md:px-9 md:pb-7 ${
+          className={`min-w-0 flex-1 px-5 py-7 [padding-top:calc(1.75rem+env(safe-area-inset-top))] md:px-9 md:pb-7 md:[padding-top:1.75rem] ${
             hasTabBar
               ? "pb-24 [padding-bottom:calc(6rem+env(safe-area-inset-bottom))]"
               : "pb-7 [padding-bottom:calc(1.75rem+env(safe-area-inset-bottom))] md:[padding-bottom:1.75rem]"
