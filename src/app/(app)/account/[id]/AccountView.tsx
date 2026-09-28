@@ -1,5 +1,6 @@
 "use client";
 
+import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { apiFetch } from "../../../../lib/core/api";
@@ -579,7 +580,7 @@ export function AccountView({
             ) : (
               <ul className="divide-y divide-[#EDEBE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
                 {activities.map((t) => {
-                  const note = t.detail ?? t.outcome?.replace(/_/g, " ");
+                  const note = collapseEmailSignature(t.kind, t.detail) ?? t.outcome?.replace(/_/g, " ");
                   return (
                     <li key={t.id} className="flex flex-col gap-1 px-4 py-3 text-[14px]">
                       <span className="flex items-baseline gap-3">

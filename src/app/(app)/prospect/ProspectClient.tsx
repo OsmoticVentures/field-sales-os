@@ -19,6 +19,7 @@
  * "done by hand, no logged call" case the source app already supports.
  */
 
+import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
@@ -927,7 +928,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
                 {panel.activities.map((act, i) => (
                   <div key={`${act.at}-${i}`} className="rounded-md bg-[#FAF9F5] p-2.5 text-[13.5px] text-[#5B6560]">
                     <span className="font-medium text-[#3D4A44] capitalize">{act.kind.replace(/_/g, " ")}</span> <span className="text-[#8A928C]">{daysAgo(act.at)}</span>
-                    {act.detail && <div className="mt-0.5 whitespace-pre-wrap">{act.detail}</div>}
+                    {act.detail && <div className="mt-0.5 whitespace-pre-wrap">{collapseEmailSignature(act.kind, act.detail)}</div>}
                   </div>
                 ))}
               </div>
