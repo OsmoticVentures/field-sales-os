@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { AccountsMap } from "./AccountsMap";
-import { dayLabel, defaultActiveDay, planningHorizonDates } from "@/lib/features/route/field-week";
+import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
@@ -286,6 +286,39 @@ function RouteDay({
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">("loading");
   const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
+
+  /* ADD TO SDR, from the route (Juan, 2026-09-28, ported from the old
+   * NutriBiotic OS's RoutePanel.tsx same day): posts to /api/prospect/schedule
+   * like ReturnSuggestions' own SDR button and the account view's SDR button,
+   * dated today, mid priority, a call. Doesn't touch the stop itself: still
+   * on the route, still driven to, this only queues the separate desk
+   * follow-up. Per-id maps, not per-row state, since the row is drawn inline
+   * in the stops.map() below rather than its own component. */
+  const [sdrQueued, setSdrQueued] = useState<Set<string>>(new Set());
+  const [sdrBusy, setSdrBusy] = useState<Set<string>>(new Set());
+  const [sdrError, setSdrError] = useState<Record<string, string>>({});
+  async function addStopToSdr(accountId: string) {
+    setSdrError((m) => ({ ...m, [accountId]: "" }));
+    setSdrBusy((s) => new Set(s).add(accountId));
+    try {
+      const res = await postJson<{ ok: boolean; error?: string }>("/api/prospect/schedule", {
+        account_id: accountId,
+        kind: "call",
+        scheduled_date: laTodayIso(),
+        priority: "mid",
+      });
+      if (res.ok) setSdrQueued((s) => new Set(s).add(accountId));
+      else setSdrError((m) => ({ ...m, [accountId]: res.error ?? "Not scheduled. Try again." }));
+    } catch {
+      setSdrError((m) => ({ ...m, [accountId]: "Not scheduled. Try again." }));
+    } finally {
+      setSdrBusy((s) => {
+        const next = new Set(s);
+        next.delete(accountId);
+        return next;
+      });
+    }
+  }
   const mapBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Drag to reorder: the dragged row dims and an insertion line shows where it
@@ -864,6 +897,25 @@ function RouteDay({
                       <button type="button" onClick={() => showInMap(s.id)} aria-label={`Show ${title} on the map`} className={sqBtn}>
                         <RowIco name="locate" />
                       </button>
+                      {/* ADD TO SDR, account stops only: a custom stop (lunch, hotel)
+                          has no account_id to schedule against. */}
+                      {a && (
+                        <button
+                          type="button"
+                          onClick={() => addStopToSdr(a.id)}
+                          disabled={sdrBusy.has(a.id) || sdrQueued.has(a.id)}
+                          aria-label={sdrQueued.has(a.id) ? `${title} added to the SDR queue, today` : `Add ${title} to the SDR queue, today`}
+                          title={sdrError[a.id] || (sdrQueued.has(a.id) ? "In the SDR queue, today" : "Add to SDR, today, mid priority")}
+                          className={
+                            sdrQueued.has(a.id)
+                              ? "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-[#2C6A46] bg-[#EAF3EC] px-3 py-2 text-[13px] font-medium text-[#2C6A46]"
+                              : `${iconBtn} bg-white`
+                          }
+                        >
+                          <Ico name={sdrQueued.has(a.id) ? "check" : "phone"} size={13} />
+                          {sdrQueued.has(a.id) ? "Added" : sdrBusy.has(a.id) ? "Adding" : "Add to SDR"}
+                        </button>
+                      )}
                       <a
                         href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
                         className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
