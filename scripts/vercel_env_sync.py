@@ -70,9 +70,15 @@ def main() -> int:
     values.update(FIXED)
     for key, value in values.items():
         for env in ENVS:
+            # --value/--yes, not stdin (2026-09-28): a newer vercel CLI treats
+            # `preview` as ambiguous without a branch and answers with an
+            # `action_required` JSON prompt instead of reading the piped
+            # value, which silently failed every preview write. --value
+            # skips the prompt outright; --yes answers "all Preview
+            # branches" for the one question CLI still asks on its own.
             r = subprocess.run(
-                ["vercel", "env", "add", key, env, "--force", *scope],
-                input=value, text=True, capture_output=True, cwd=HERE,
+                ["vercel", "env", "add", key, env, "--value", value, "--yes", "--force", *scope],
+                text=True, capture_output=True, cwd=HERE,
             )
             ok = r.returncode == 0 or "already exists" in r.stderr
             why = "" if ok else " " + (r.stderr.strip().splitlines() or ["no error text"])[-1][:100]
