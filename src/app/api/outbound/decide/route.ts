@@ -62,7 +62,7 @@ export async function POST(req: Request) {
         outcome: null,
         detail,
       });
-      const hubspot = await autoFileEngagement(activity.id);
+      const hubspot = await autoFileEngagement(activity.id, "outbound");
       const names = await getAccountNames([body.accountId]);
       return { filed: true, accountName: names[body.accountId] ?? null, ...hubspot };
     });

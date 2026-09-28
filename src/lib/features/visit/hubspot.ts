@@ -3,14 +3,19 @@
  * portfolio/src/app/nutribiotic/lib/hubspot.ts, keeping the parts that
  * matter for filing a Note/Call/Meeting: every call is logged with its
  * normalized payload hash, owner scope is asserted against the live record,
- * and nothing mutates unless NB_HUBSPOT_WRITE_ENABLED is exactly "true".
+ * and nothing mutates unless that call's own feature flag is exactly "true".
+ *
+ * SPLIT 2026-09-28 (Juan's ask): a single NB_HUBSPOT_WRITE_ENABLED used to
+ * gate both Visit Logger's own filing and Outbound's "mark sent" filing
+ * together, so there was no way to turn one on without the other. Every push
+ * now names which feature it's filing for (HubspotFeature) and is gated on
+ * that feature's own env var. Unset or anything other than "true" leaves
+ * that one feature read-only, so a typo or a missing var fails safe.
  *
  * NOT PORTED (see the handback for why): the pushable-properties derivation
  * (hubspot-fields.ts, company property sync), repairDerivedDomain, and the
  * association-leak auto-detach. None of those are needed to file one
- * deterministic engagement, and this port's HubSpot write path has not been
- * exercised against production either way, since NB_HUBSPOT_WRITE_ENABLED
- * stays off per this milestone's own instruction.
+ * deterministic engagement.
  */
 import "server-only";
 import { payloadHash } from "./hubspot-hash";
@@ -25,9 +30,21 @@ export const OWNER_ID = "36242368";
 
 const token = (): string => process.env.NB_HUBSPOT_TOKEN ?? "";
 
-/** Writes are off unless explicitly "true". Anything else, including unset,
- *  leaves this path read-only, so a typo fails safe. */
-export const writeEnabled = (): boolean => process.env.NB_HUBSPOT_WRITE_ENABLED === "true";
+/** Which feature is asking to file into HubSpot. Every write-capable call
+ *  names one explicitly; there is no default, so a missing feature is a
+ *  compile error, not a silent fall-through to some other feature's flag. */
+export type HubspotFeature = "visit" | "outbound";
+
+const FEATURE_FLAG_ENV: Record<HubspotFeature, string> = {
+  visit: "NB_HUBSPOT_VISIT_WRITE_ENABLED",
+  outbound: "NB_HUBSPOT_OUTBOUND_WRITE_ENABLED",
+};
+
+/** Writes are off unless that feature's own flag is explicitly "true".
+ *  Anything else, including unset, leaves this path read-only, so a typo
+ *  fails safe. */
+export const writeEnabled = (feature: HubspotFeature): boolean =>
+  process.env[FEATURE_FLAG_ENV[feature]] === "true";
 
 export class HubSpotError extends Error {
   constructor(readonly status: number, readonly body: string, method: string, path: string) {
@@ -52,20 +69,28 @@ type RequestOpts = {
   entity?: string;
   operation?: string;
   retries?: number;
+  /** Required for any call that turns out to be a push (see `direction`
+   *  below); a read-only call (GET, /read, /search) never needs it. */
+  feature?: HubspotFeature;
 };
 
 export async function request<T = Record<string, unknown>>(opts: RequestOpts): Promise<T> {
-  const { method, path, body, entity = "-", operation = "call", retries = 3 } = opts;
+  const { method, path, body, entity = "-", operation = "call", retries = 3, feature } = opts;
 
   if (!token()) {
     throw new ScopeError("HubSpot is not configured: NB_HUBSPOT_TOKEN is unset on this deployment.");
   }
 
   const direction = method === "GET" || path.endsWith("/read") || path.endsWith("/search") ? "pull" : "push";
-  if (direction === "push" && !writeEnabled()) {
-    throw new ScopeError(
-      `Refusing ${method} ${path}: NB_HUBSPOT_WRITE_ENABLED is not "true". This path is dry by default.`,
-    );
+  if (direction === "push") {
+    if (!feature) {
+      throw new ScopeError(`Refusing ${method} ${path}: no feature named for this push, cannot check its write flag.`);
+    }
+    if (!writeEnabled(feature)) {
+      throw new ScopeError(
+        `Refusing ${method} ${path}: ${FEATURE_FLAG_ENV[feature]} is not "true". This path is dry by default.`,
+      );
+    }
   }
 
   const phash = await payloadHash(body !== undefined ? body : { path });

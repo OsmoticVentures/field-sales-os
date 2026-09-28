@@ -1,7 +1,7 @@
 /**
  * Record a touchpoint: Juan types what just happened, one forced-tool-schema
  * model call turns it into structured field-sales data, and it files into
- * the OS and (when NB_HUBSPOT_WRITE_ENABLED is "true") into HubSpot as a
+ * the OS and (when that feature's own write flag is "true") into HubSpot as a
  * Note/Call/Meeting. Ported from
  * portfolio/src/app/nutribiotic/lib/touchpoint.ts. The extraction prompt,
  * the tool schema, and the confidence threshold below are kept exactly, per
@@ -46,7 +46,7 @@ import {
   type Contact,
 } from "./dal";
 import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
-import { writeEnabled } from "./hubspot";
+import { writeEnabled, type HubspotFeature } from "./hubspot";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
@@ -57,16 +57,19 @@ export type HubspotFilingReport = {
 };
 
 /**
- * File the just-logged activity into HubSpot, gated on NB_HUBSPOT_WRITE_ENABLED.
- * When the flag is off (the default, and this milestone's instruction), this
- * still builds the dry preview (proves the body builder end to end) and
- * returns hubspotFiled:false with an explicit reason, rather than silently
- * skipping the step.
+ * File the just-logged activity into HubSpot, gated on that feature's own
+ * write flag (NB_HUBSPOT_VISIT_WRITE_ENABLED or NB_HUBSPOT_OUTBOUND_WRITE_ENABLED,
+ * split 2026-09-28 so one can be on without the other). Defaults to "visit"
+ * since that's Visit Logger's own flow; Outbound's mark-sent passes "outbound"
+ * explicitly. When that feature's flag is off, this still builds the dry
+ * preview (proves the body builder end to end) and returns
+ * hubspotFiled:false with an explicit reason, rather than silently skipping
+ * the step.
  */
-export async function autoFileEngagement(activityId: number): Promise<HubspotFilingReport> {
-  const enabled = writeEnabled();
+export async function autoFileEngagement(activityId: number, feature: HubspotFeature = "visit"): Promise<HubspotFilingReport> {
+  const enabled = writeEnabled(feature);
   try {
-    const filed = await runEngagement(activityId, { write: enabled });
+    const filed = await runEngagement(activityId, { write: enabled, feature });
     if (!enabled) {
       return { hubspotFiled: false, hubspotNoteId: null, hubspotError: "CRM filing off" };
     }

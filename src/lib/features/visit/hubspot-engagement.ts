@@ -9,8 +9,8 @@
  * new HubSpot contact for an unmatched person, pushing the company phone
  * back to HubSpot, and the association-leak auto-detach. Those are all
  * enrichment on top of a filed engagement, not the engagement itself, and
- * every one of them only runs when NB_HUBSPOT_WRITE_ENABLED is "true",
- * which this deployment leaves off. An account with no portal company yet
+ * every one of them only runs when that feature's own write flag is "true",
+ * which this deployment leaves off by default. An account with no portal company yet
  * (hubspot-graduate.ts's job in the source) is refused here rather than
  * auto-created; the touchpoint still files into the OS either way.
  */
@@ -24,7 +24,7 @@ import {
   type Contact,
   type EngagementActivity,
 } from "./dal";
-import { assertJuansBook, OWNER_ID, request } from "./hubspot";
+import { assertJuansBook, OWNER_ID, request, type HubspotFeature } from "./hubspot";
 
 export class Blocked extends Error {}
 
@@ -355,8 +355,13 @@ export type EngagementResult = {
 
 /** One activity, all the way to a Note/Call/Meeting, or a dry preview of
  *  the same. Mirrors the source's runEngagement: every read runs
- *  regardless of `write`; only the final POST and its stamp are gated. */
-export async function runEngagement(activityId: number, opts: { write: boolean }): Promise<EngagementResult> {
+ *  regardless of `write`; only the final POST and its stamp are gated.
+ *  `feature` says which caller this is (Visit Logger vs Outbound
+ *  mark-sent), so the actual create POST checks that feature's own flag. */
+export async function runEngagement(
+  activityId: number,
+  opts: { write: boolean; feature: HubspotFeature },
+): Promise<EngagementResult> {
   const activity = await getActivityById(activityId);
   if (!activity) throw new Blocked(`nb_activities has no row with id ${activityId}.`);
   if (!activity.account_id) throw new Blocked(`activity ${activityId} has no account_id.`);
@@ -429,6 +434,7 @@ export async function runEngagement(activityId: number, opts: { write: boolean }
       body: { properties: writeProps, associations: assoc },
       entity: ENGAGEMENT_OBJECT[otype],
       operation: "create",
+      feature: opts.feature,
     });
     if (!res.id) throw new Blocked(`HubSpot accepted the ${otype.toLowerCase()} but returned no id; refusing to stamp.`);
     noteId = res.id;
