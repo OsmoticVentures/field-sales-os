@@ -1,21 +1,19 @@
 /**
- * The Search screen's three actions. This route validates one and queues it.
+ * The Search screen's three actions. This route validates one, queues it,
+ * and runs it on this server right after answering.
  *
- * THIS ROUTE OWNS NO SEARCH LOGIC. Every filter, the triage weights, the
- * point-in-polygon test, the territory test, the book de-dup, the chain
- * regex plus curated exclude list, and the landing spread all live in
- * bridges/nutribiotic/places_search_ingest.py, on Juan's Mac. That is
- * unchanged by this port: Vercel has no Python and no bridges/ directory, so
- * this route never runs a search itself. Ported from
- * portfolio/src/app/nutribiotic/api/search/route.ts.
+ * The pipeline (lib/features/search/pipeline.ts, ported from
+ * bridges/nutribiotic/places_search_ingest.py) owns every filter, the triage
+ * weights, the point-in-polygon test, the territory test, the book de-dup
+ * and the landing. This route owns none of it.
  *
  *   POST /nb/api/search   validates the request, inserts one pending row in
- *                         nb_search_jobs, returns { job } immediately.
- *   bridges/nutribiotic/search_worker.py, on Juan's Mac under launchd, claims
- *                         the row, runs the stage locally, writes the answer
- *                         back onto the row. Unchanged by this port.
+ *                         nb_search_jobs, returns { job } immediately, then
+ *                         runs the job after the response (worker.ts).
  *   GET  /nb/api/search?job=id   the browser polls this until the row says
- *                         done or error.
+ *                         done or error. A row still pending after a few
+ *                         seconds is picked up here too, so a job whose
+ *                         first run never started is never stranded.
  *
  * IDEMPOTENCY, ADDED FOR THIS REPO (the source app has none, per PORTING.md).
  * The queue insert is the write, so a re-tap of the same click (a dropped
@@ -23,17 +21,26 @@
  * second run; the client generates one key per click and does not reuse it
  * across a different click.
  */
+import { after } from "next/server";
 import { hasAccess } from "../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../lib/core/idempotency";
 import {
   createSearchJob,
+  failIfStale,
   getSearchJobResult,
   getSearchJobStatus,
   type SearchJobStage,
 } from "../../../lib/features/search/dal";
+import { runSearchJob } from "../../../lib/features/search/worker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A deep search can spend up to 150 Places calls, and enrich reads up to 25
+// sites; the run happens after the response, inside this window.
+export const maxDuration = 300;
+
+/** A pending row older than this is started by the poll instead. */
+const KICK_AFTER_MS = 8_000;
 
 /** A bound on one search. The worker reports `capped_off` when it bites, so a
  *  truncated list says so on screen rather than looking like the whole answer. */
@@ -78,7 +85,7 @@ function phrases(v: unknown, cap: number, maxLen: number): string[] {
   return out;
 }
 
-/** Candidate records, passed straight back through to the worker. Only
+/** Candidate records, passed straight back through to the pipeline. Only
  *  checked here for shape: an object carrying the `key` the worker assigns. */
 function candidates(v: unknown, cap: number): Record<string, unknown>[] | null {
   if (!Array.isArray(v)) return null;
@@ -200,6 +207,7 @@ export async function POST(req: Request) {
     const { result: job, replayed } = await withIdempotency(`search:${key}`, () =>
       createSearchJob(stage, params),
     );
+    after(() => runSearchJob(job));
     return Response.json(
       { ok: true, stage, job, replayed, status: "pending", limits: { MAX_CANDIDATES, MAX_ENRICH, MAX_LAND } },
       { headers: { "cache-control": "no-store" } },
@@ -231,11 +239,16 @@ export async function GET(req: Request) {
   let row;
   try {
     row = await getSearchJobStatus(id);
+    if (row && (await failIfStale(row))) row = await getSearchJobStatus(id);
   } catch {
     return Response.json({ ok: false, error: "Could not read the run's status." }, { status: 502 });
   }
   if (!row) {
     return Response.json({ ok: false, error: "No such run." }, { status: 404 });
+  }
+
+  if (row.status === "pending" && Date.now() - Date.parse(row.created_at) > KICK_AFTER_MS) {
+    after(() => runSearchJob(id));
   }
 
   const base = {
@@ -253,7 +266,7 @@ export async function GET(req: Request) {
 
   if (row.status === "error") {
     return Response.json(
-      { ok: false, ...base, error: row.error ?? "The run failed on the Mac.", errors: [], candidates: [] },
+      { ok: false, ...base, error: row.error ?? "The run failed.", errors: [], candidates: [] },
       { headers: { "cache-control": "no-store" } },
     );
   }

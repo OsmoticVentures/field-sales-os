@@ -1,16 +1,12 @@
 /**
- * Search Map's own data slice. Not the full lib/dal.ts (5,000+ lines, not
- * split yet, per PORTING.md and research/feature-inventory.md), just the
- * handful of reads and the one job-queue write this feature touches. Ported
- * from portfolio/src/app/nutribiotic/lib/dal.ts's nb_search_jobs section and
- * its listAccountsForMatching/listBookPlaces reads.
+ * Search Map's own data slice: the nb_search_jobs queue, the book reads the
+ * pipeline de-dups against, and the landing inserts. Ported from
+ * portfolio/src/app/nutribiotic/lib/dal.ts's nb_search_jobs section and its
+ * listAccountsForMatching/listBookPlaces reads, plus the sb helpers
+ * bridges/nutribiotic/search_worker.py and lib/prospect_land.py used.
  *
- * THIS ROUTE OWNS NO SEARCH LOGIC. The Places search, the chain regex, the
- * curated exclude list, the validity gates and the landing spread all live in
- * bridges/nutribiotic/places_search_ingest.py, which keeps running unchanged
- * on Juan's Mac. This file only queues a job row and reads it back, same as
- * the source app since 2026-09-09: there is no Python and no bridges/
- * directory on Vercel, so the Next.js side never runs a search itself.
+ * The pipeline itself (pipeline.ts) runs on Vercel, right after the job row
+ * is written, so a search no longer waits on Juan's Mac.
  */
 import "server-only";
 
@@ -31,6 +27,42 @@ async function sbGet<T>(table: string, params: Record<string, string>): Promise<
     throw new Error(`Supabase ${table} -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
   return (await res.json()) as T[];
+}
+
+const JOBS = "nb_search_jobs";
+
+function sbHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, ...extra };
+}
+
+async function sbPatch<T>(table: string, filters: Record<string, string>, body: unknown, returnRows: boolean): Promise<T[]> {
+  if (!configured()) throw new Error(`Cannot write to "${table}": no data source configured.`);
+  const res = await fetch(`${SB_URL}/rest/v1/${table}?${new URLSearchParams(filters)}`, {
+    method: "PATCH",
+    headers: sbHeaders({ "Content-Type": "application/json", Prefer: returnRows ? "return=representation" : "return=minimal" }),
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase ${table} PATCH -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  return returnRows ? ((await res.json()) as T[]) : [];
+}
+
+async function sbDelete(table: string, filters: Record<string, string>): Promise<void> {
+  if (!configured()) return;
+  const res = await fetch(`${SB_URL}/rest/v1/${table}?${new URLSearchParams(filters)}`, {
+    method: "DELETE",
+    headers: sbHeaders({ Prefer: "return=minimal" }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase ${table} DELETE -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+}
+
+export function isConfigured(): boolean {
+  return configured();
 }
 
 async function sbInsert(table: string, body: unknown): Promise<void> {
@@ -58,12 +90,13 @@ function randId(prefix: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// nb_search_jobs · the Search screen's queue across the Mac boundary
+// nb_search_jobs · the Search screen's queue
 // ---------------------------------------------------------------------------
 //
-// bridges/nutribiotic/search_worker.py, running on Juan's Mac under launchd,
-// claims a pending row here, runs the pipeline locally and writes the answer
-// back onto the same row. This app never runs a search itself.
+// The POST route writes a pending row and runs it (worker.ts) right after the
+// response; the browser polls the row. A claim is a PATCH predicated on
+// status=pending, so two runners (this app and the old Mac worker, while it
+// is still loaded) can never both run one job.
 
 export type SearchJobStage = "search" | "enrich" | "land";
 export type SearchJobStatus = "pending" | "running" | "done" | "error";
@@ -84,7 +117,7 @@ export async function createSearchJob(
   params: Record<string, unknown>,
 ): Promise<string> {
   const id = randId("sj");
-  await sbInsert("nb_search_jobs", { id, stage, params, status: "pending" });
+  await sbInsert(JOBS, { id, stage, params, status: "pending" });
   return id;
 }
 
@@ -139,3 +172,96 @@ export async function listBookPlaces(): Promise<BookPlace[]> {
     closed_at: "is.null",
   });
 }
+
+// ---------------------------------------------------------------------------
+// The runner's side of the queue
+// ---------------------------------------------------------------------------
+
+export type ClaimedJob = { id: string; stage: SearchJobStage; params: Record<string, unknown> | string | null };
+
+/** Take the job, or learn somebody else already did. */
+export async function claimSearchJob(id: string): Promise<ClaimedJob | null> {
+  const rows = await sbPatch<ClaimedJob>(
+    JOBS,
+    { id: `eq.${id}`, status: "eq.pending" },
+    { status: "running", started_at: new Date().toISOString() },
+    true,
+  );
+  return rows[0] ?? null;
+}
+
+export async function finishSearchJob(id: string, done: { result?: unknown; error?: string }): Promise<void> {
+  const body: Record<string, unknown> = { status: done.error ? "error" : "done" };
+  if (done.result !== undefined) body.result = done.result;
+  if (done.error !== undefined) body.error = done.error.slice(0, 2000);
+  await sbPatch(JOBS, { id: `eq.${id}` }, body, false);
+}
+
+/** A job left running past this was interrupted; it is failed rather than
+ *  left spinning, since the screen has no other way to learn that. */
+const STALE_RUNNING_MIN = 20;
+
+export async function failIfStale(job: SearchJob): Promise<boolean> {
+  if (job.status !== "running" || !job.started_at) return false;
+  if (Date.now() - Date.parse(job.started_at) < STALE_RUNNING_MIN * 60_000) return false;
+  const rows = await sbPatch<{ id: string }>(
+    JOBS,
+    { id: `eq.${job.id}`, status: "eq.running" },
+    { status: "error", error: "This run was interrupted before it finished, and its result was never recorded. Run it again." },
+    true,
+  );
+  return rows.length > 0;
+}
+
+/** The table's bound: finished rows older than three days. */
+const RETENTION_DAYS = 3;
+
+export async function pruneSearchJobs(): Promise<void> {
+  const cutoff = new Date(Date.now() - RETENTION_DAYS * 86_400_000).toISOString();
+  await sbDelete(JOBS, { status: "in.(done,error)", updated_at: `lt.${cutoff}` });
+}
+
+// ---------------------------------------------------------------------------
+// The book, for the pipeline's de-dup, and the landing inserts
+// ---------------------------------------------------------------------------
+
+export type LocalAccount = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  street: string | null;
+  city: string | null;
+  postal: string | null;
+  places_id: string | null;
+  source: string | null;
+  source_external_id: string | null;
+  hubspot_company_id: string | null;
+  lifecycle: string | null;
+  erp_customer_code: string | null;
+};
+
+const LOCAL_COLS =
+  "id,name,phone,street,city,postal,places_id,source,source_external_id,hubspot_company_id,lifecycle,erp_customer_code";
+
+/** Every account, narrow select, paged (prospect_land.load_local). */
+export async function loadLocalAccounts(): Promise<LocalAccount[]> {
+  const out: LocalAccount[] = [];
+  for (let page = 0; ; page++) {
+    const rows = await sbGet<LocalAccount>("nb_accounts", {
+      select: LOCAL_COLS,
+      order: "id.asc",
+      limit: "1000",
+      offset: String(page * 1000),
+    });
+    out.push(...rows);
+    if (rows.length < 1000) return out;
+  }
+}
+
+export async function insertRows(table: "nb_accounts" | "nb_sdr_schedule", rows: unknown[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += 200) {
+    await sbInsert(table, rows.slice(i, i + 200));
+  }
+}
+
+export { randId };

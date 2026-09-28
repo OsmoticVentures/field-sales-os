@@ -13,15 +13,15 @@
  *                       the site first for any row "Look further" hasn't already
  *                       covered.
  *
- * THE PIPELINE IS bridges/nutribiotic/places_search_ingest.py, unchanged by
- * this port. This screen is its console: it computes no counts of its own,
+ * THE PIPELINE IS lib/features/search/pipeline.ts (ported from
+ * bridges/nutribiotic/places_search_ingest.py). This screen is its console: it computes no counts of its own,
  * never fills a blank, and does not decide what is inside the drawn area
  * (the server's ray-cast does). A candidate with no about-us line or no named
  * human renders with that cell EMPTY, never "unknown".
  *
- * EVERY ACTION IS A QUEUED JOB, NOT A REQUEST THAT WAITS. The pipeline runs
- * on Juan's Mac; Vercel has no Python. Each button posts a job, gets an id
- * back, and polls it. "Pending" is a real, recoverable state, not a failure.
+ * EVERY ACTION IS A QUEUED JOB, NOT A REQUEST THAT WAITS. The server runs it
+ * right after queuing it; each button posts a job, gets an id back, and
+ * polls it. "Pending" is a real, recoverable state, not a failure.
  */
 
 import Link from "next/link";
@@ -129,9 +129,9 @@ const WAITING_AFTER_MS = 20_000;
 const GIVE_UP_MS = 180_000;
 
 const RUNNING_LINE: Record<Exclude<Busy, null>, string> = {
-  search: "Searching Google from your Mac",
-  enrich: "Reading their websites from your Mac",
-  land: "Adding them from your Mac",
+  search: "Searching Google",
+  enrich: "Reading their websites",
+  land: "Adding them",
 };
 
 /** Sunday-first, matching Google's own period.open.day and JS Date.getDay(). */
@@ -258,10 +258,10 @@ export function SearchClient() {
   ]);
 
   /**
-   * Queue one stage and wait for the Mac to answer it. POST is one insert
-   * and carries a fresh Idempotency-Key per click; everything after it is
-   * polling one row, which is safe to miss a beat on since the run itself
-   * lives on the Mac, unaffected by a dropped poll from this tab.
+   * Queue one stage and wait for it. POST is one insert and carries a fresh
+   * Idempotency-Key per click; everything after it is polling one row, which
+   * is safe to miss a beat on since the run itself lives on the server,
+   * unaffected by a dropped poll from this tab.
    */
   const post = useCallback(
     async (stage: Exclude<Busy, null>, payload: Record<string, unknown>): Promise<StageReply | null> => {
@@ -320,8 +320,8 @@ export function SearchClient() {
           setProgress(null);
           setFailure(
             last === "running"
-              ? "This started on your Mac and has not finished in three minutes. It is still running there."
-              : "Your Mac has not picked this up in three minutes. It stays queued and will start once it is awake.",
+              ? "This has not finished in three minutes. It is still running."
+              : "This has not started in three minutes. Try it again.",
           );
           return null;
         }
@@ -1046,7 +1046,7 @@ function ProgressLine({ progress }: { progress: Progress }) {
     progress.status === "running"
       ? RUNNING_LINE[progress.stage]
       : waiting
-        ? "Waiting on your Mac. This starts as soon as it is awake."
+        ? "Starting"
         : "Queued";
 
   return (
