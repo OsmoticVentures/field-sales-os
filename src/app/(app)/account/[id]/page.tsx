@@ -6,21 +6,26 @@ import { notFound } from "next/navigation";
 import { PageHead } from "../../../../lib/core/ui";
 import { getClientAccount, listClientActivities, listClientContacts } from "../../../../lib/features/clients/dal";
 import { realChannel } from "../../../../lib/features/clients/ui";
-import { listPurchases } from "../../../../lib/features/prospect/dal";
+import { getAccount, getPriorityBook, listAccountSdrQueue, listPurchases } from "../../../../lib/features/prospect/dal";
 import { getRouteStateByDay, isConfigured as routeConfigured } from "../../../../lib/features/route/dal";
 import { planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { AccountView } from "./AccountView";
+import { TierButton } from "./TierButton";
+import { dayLabel } from "../../../../lib/features/route/field-week";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [account, contacts, activities, purchases, routeState] = await Promise.all([
+  const [account, contacts, activities, purchases, routeState, prospectAccount, book, sdrQueue] = await Promise.all([
     getClientAccount(id),
     listClientContacts(id),
     listClientActivities(id),
     listPurchases(id),
     routeConfigured() ? getRouteStateByDay() : Promise.resolve(null),
+    getAccount(id).catch(() => null),
+    getPriorityBook().catch(() => null),
+    listAccountSdrQueue(id).catch(() => []),
   ]);
   if (!account) notFound();
 
@@ -38,7 +43,23 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 
   return (
     <>
-      <PageHead title={account.name} sub={sub || undefined} />
+      <PageHead
+        title={account.name}
+        sub={sub || undefined}
+        aside={
+          <TierButton
+            accountId={account.id}
+            initialTier={account.potential_juan ?? (account.potential_hq ? account.potential_hq.split(" ")[0] || null : null)}
+            score={book?.byId.get(id)?.score ?? null}
+            warmth={prospectAccount?.readiness ?? null}
+            leadStatus={prospectAccount?.lead_status ?? null}
+            sdr={sdrQueue.map((e) => {
+              const { weekday, short } = dayLabel(e.scheduled_date);
+              return { kind: e.kind, date: e.scheduled_date, label: `${e.kind === "visit" ? "Visit" : "Call"} ${weekday} ${short}` };
+            })}
+          />
+        }
+      />
       <AccountView
         account={account}
         contacts={contacts}

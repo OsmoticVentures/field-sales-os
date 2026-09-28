@@ -232,6 +232,21 @@ export async function listSdrSchedule(days = 6): Promise<SdrScheduleItem[]> {
   return rows.filter((r) => r.scheduled_date <= to);
 }
 
+/** The account's open SDR queue entries, soonest first. */
+export async function listAccountSdrQueue(accountId: string): Promise<SdrScheduleItem[]> {
+  if (!isConfigured()) return [];
+  return sbGet<SdrScheduleItem>(
+    "nb_sdr_schedule",
+    new URLSearchParams({
+      select: "*",
+      account_id: `eq.${accountId}`,
+      status: "eq.pending",
+      order: "scheduled_date.asc",
+      limit: "5",
+    }),
+  );
+}
+
 export type NewSdrScheduleItem = {
   account_id?: string | null;
   prospect_name?: string | null;

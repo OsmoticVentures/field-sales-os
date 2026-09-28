@@ -210,10 +210,13 @@ export function SuccessNote({
  *  there is no extra network request here and no layout shift. */
 export const displayFace = "font-[family-name:var(--font-fraunces)]";
 
-export function PageHead({ title, sub }: { title: string; sub?: string }) {
+export function PageHead({ title, sub, aside }: { title: string; sub?: string; aside?: ReactNode }) {
   return (
     <header className="mb-6">
-      <h1 className={`${displayFace} text-[27px] leading-tight font-semibold tracking-tight`}>{title}</h1>
+      <div className="flex items-start justify-between gap-3">
+        <h1 className={`${displayFace} text-[27px] leading-tight font-semibold tracking-tight`}>{title}</h1>
+        {aside}
+      </div>
       {sub && <p className="mt-1.5 text-[14px] leading-relaxed text-[#5B6560]">{sub}</p>}
     </header>
   );
