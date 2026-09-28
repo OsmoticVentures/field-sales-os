@@ -751,7 +751,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
               {panel?.businessHours && <OpenBadge businessHours={panel.businessHours} />}
               {area && (
                 <span className="inline-flex items-center gap-1.5 text-[13px] text-[#5B6560]">
-                  <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: area.color }} />
+                  
                   {area.label}
                 </span>
               )}
@@ -956,7 +956,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
 // Ranked opportunities (right rail on desktop, below the panel on phone)
 // ---------------------------------------------------------------------------
 
-function RankedList({ ranked, areaColor, onView }: { ranked: RankedAccount[]; areaColor: Record<string, string>; onView: (r: RankedAccount) => void }) {
+function RankedList({ ranked, onView }: { ranked: RankedAccount[]; onView: (r: RankedAccount) => void }) {
   if (ranked.length === 0) return null;
   return (
     <Card>
@@ -967,7 +967,7 @@ function RankedList({ ranked, areaColor, onView }: { ranked: RankedAccount[]; ar
             <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${r.band === "now" ? "bg-[#F3E3C6] text-[#8A6D2F]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>{r.score}</span>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                {r.area && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: areaColor[r.area] ?? "#8A928C" }} />}
+                
                 <button type="button" onClick={() => onView(r)} className="truncate text-left text-[13.5px] font-medium text-[#14201B] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 hover:underline">
                   {r.name}
                 </button>
@@ -1009,7 +1009,6 @@ export function ProspectClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
 
-  const areaColor = useMemo(() => Object.fromEntries(areas.map((a) => [a.id, a.color])), [areas]);
 
   useEffect(() => {
     if (!focusAccountId) return;
@@ -1183,7 +1182,7 @@ export function ProspectClient({
       <div className="flex flex-col gap-6 @min-[720px]:grid @min-[720px]:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @min-[720px]:grid-rows-[auto_1fr] @min-[720px]:items-start @min-[720px]:[grid-template-areas:'days_panel''rank_panel'] @min-[1000px]:grid-cols-[300px_minmax(0,1fr)_260px] @min-[1000px]:grid-rows-[auto] @min-[1000px]:[grid-template-areas:'days_panel_rank']">
         {topRanked && topRanked.length > 0 && (
           <div className="order-1 flex w-full min-w-0 flex-col gap-4 @min-[720px]:[grid-area:rank]">
-            <RankedList ranked={topRanked} areaColor={areaColor} onView={viewRanked} />
+            <RankedList ranked={topRanked} onView={viewRanked} />
           </div>
         )}
 

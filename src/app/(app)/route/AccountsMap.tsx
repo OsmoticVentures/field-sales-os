@@ -79,6 +79,18 @@ const POTENTIAL_COLOR: Partial<Record<Tier, string>> = {
   E: "#8A928C",
 };
 
+/** Pin color follows the score on the card: its priority band. */
+const BAND_COLOR: Record<string, string> = {
+  now: "#B5372A",
+  soon: "#D97E2B",
+  later: "#8A928C",
+};
+const BAND_LEGEND: { band: string; label: string }[] = [
+  { band: "now", label: "High potential" },
+  { band: "soon", label: "Medium" },
+  { band: "later", label: "Low" },
+];
+
 const TIERS: Tier[] = ["A", "B", "C", "D", "E", "F", "G"];
 
 const SDR_PRIORITIES: { value: SdrPriority; label: string; tone: string }[] = [
@@ -586,7 +598,8 @@ export function AccountsMap({
 
     for (const a of pinAccounts) {
       const prospect = isProspect(a);
-      const potential = !prospect && a.tier ? POTENTIAL_COLOR[a.tier] : undefined;
+      const band = priorityById[a.id]?.band;
+      const potential = !prospect ? ((band && BAND_COLOR[band]) || (a.tier ? POTENTIAL_COLOR[a.tier] : undefined)) : undefined;
       const routeNum = routeNumberById.get(a.id);
       const done = routeNum ? doneIds.has(a.id) : false;
       const fillColor = done
@@ -595,7 +608,7 @@ export function AccountsMap({
           ? "#14201B"
           : prospect
             ? LEAD_STAGE_COLOR.prospect
-            : (potential ?? (a.area && areaById.get(a.area)?.color) ?? "#5B6560");
+            : (potential ?? "#5B6560");
       const marker = new g.maps.Marker({
         position: { lat: a.lat, lng: a.lng },
         map,
@@ -653,7 +666,7 @@ export function AccountsMap({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinAccounts, stops, routeNumberById, doneIds, coords, start, end, loaded, areaById]);
+  }, [pinAccounts, stops, routeNumberById, doneIds, coords, start, end, loaded, priorityById]);
 
   // The rep's own dot, kept separate so a location fix never refits the view.
   useEffect(() => {
@@ -725,7 +738,6 @@ export function AccountsMap({
               <Chip
                 key={a.id}
                 active={filters.areas.has(a.id)}
-                dot={a.color}
                 onClick={() => setFiltersAndClose({ ...filters, areas: toggle(filters.areas, a.id) })}
               >
                 {a.label} <Count n={counts.areas[a.id] ?? 0} />
@@ -825,6 +837,14 @@ export function AccountsMap({
 
       <div className="relative h-[300px] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:h-[420px]">
         <div ref={containerRef} className="absolute inset-0" />
+        <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-2.5 rounded-md bg-white/90 px-2 py-1 text-[10.5px] font-medium text-[#3D4A44]">
+          {BAND_LEGEND.map((l) => (
+            <span key={l.band} className="inline-flex items-center gap-1">
+              <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: BAND_COLOR[l.band] }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
         {!loaded && <div className="absolute inset-0 animate-pulse bg-[#EDEBE3] motion-reduce:animate-none" />}
       </div>
 
@@ -950,7 +970,7 @@ function AccountPinCard({
           <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11.5px]">
             {realChannel(a.channel) && <span className="text-[#5B6560]">{realChannel(a.channel)}</span>}
             {area && (
-              <span className="rounded-full px-1.5 py-0.5 text-[10.5px] font-medium text-white" style={{ background: area.color }}>
+              <span className="rounded-full bg-[#ECEAE1] px-1.5 py-0.5 text-[10.5px] font-medium text-[#3D4A44]">
                 {area.label}
               </span>
             )}
