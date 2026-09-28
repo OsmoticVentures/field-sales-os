@@ -163,10 +163,28 @@ function applyAccountRead(accountId: string | null, grade: VisitGrade | null, re
 // the capture box
 // ---------------------------------------------------------------------------
 
-export function TouchpointCapture() {
-  const [text, setText] = useState("");
-  const [kind, setKind] = useState<KindOption>("meeting");
-  const [kindTouched, setKindTouched] = useState(false);
+export function TouchpointCapture({
+  accountIdHint,
+  onFiled,
+  defaultKind,
+  initialText,
+  autoFocus = true,
+}: {
+  /** The account the note is about, when the caller already knows it (the
+   *  prospect view). Skips matching; the note files straight to it. */
+  accountIdHint?: string | null;
+  /** Fires once, after a clean file. Never on the resolver or error paths. */
+  onFiled?: (result: FiledResult) => void;
+  /** Pre-selects a kind and sends it even if no pill is tapped. */
+  defaultKind?: KindOption;
+  /** Pre-typed opening, caret at the end. Applied once, on mount. */
+  initialText?: string;
+  /** False on a phone where landing here is not yet the intent to type. */
+  autoFocus?: boolean;
+} = {}) {
+  const [text, setText] = useState(initialText ?? "");
+  const [kind, setKind] = useState<KindOption>(defaultKind ?? "meeting");
+  const [kindTouched, setKindTouched] = useState(Boolean(defaultKind));
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<FiledResult | null>(null);
@@ -201,6 +219,17 @@ export function TouchpointCapture() {
   }
 
   useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 420)}px`;
+    if (initialText) el.setSelectionRange(initialText.length, initialText.length);
+    if (autoFocus) el.focus({ preventScroll: true });
+    // Mount only: a template is applied once, never over what he typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!success) return;
     const t = setTimeout(() => setSuccess(null), 1200);
     return () => clearTimeout(t);
@@ -213,8 +242,8 @@ export function TouchpointCapture() {
 
   function reset() {
     setText("");
-    setKind("meeting");
-    setKindTouched(false);
+    setKind(defaultKind ?? "meeting");
+    setKindTouched(Boolean(defaultKind));
     setGrade(null);
     setReadiness(null);
     setNewCompany(false);
@@ -222,7 +251,7 @@ export function TouchpointCapture() {
     requestAnimationFrame(() => {
       if (textareaRef.current) {
         autosize(textareaRef.current);
-        textareaRef.current.focus({ preventScroll: true });
+        if (autoFocus) textareaRef.current.focus({ preventScroll: true });
       }
     });
   }
@@ -236,7 +265,7 @@ export function TouchpointCapture() {
         const res = await apiFetch("/api/visit/touchpoint", {
           method: "POST",
           headers: { "content-type": "application/json", "idempotency-key": key },
-          body: JSON.stringify({ text: value, kindOverride: kindTouched ? kind : undefined, forceNewAccount: newCompany }),
+          body: JSON.stringify({ text: value, accountIdHint: accountIdHint ?? undefined, kindOverride: kindTouched ? kind : undefined, forceNewAccount: newCompany }),
         });
         const data = await res.json();
         if (!data.ok) {
@@ -254,6 +283,7 @@ export function TouchpointCapture() {
         } else {
           applyAccountRead(result.accountId, grade, readiness);
           setSuccess(result);
+          onFiled?.(result);
         }
         reset();
       } catch {
@@ -341,7 +371,7 @@ export function TouchpointCapture() {
               }}
               placeholder="What just happened?"
               rows={5}
-              autoFocus
+              autoFocus={autoFocus}
               autoCapitalize="sentences"
               autoCorrect="on"
               spellCheck
@@ -421,7 +451,7 @@ export function TouchpointCapture() {
                 >
                   <Ico name="camera" size={17} />
                 </button>
-                <button
+                {!accountIdHint && <button
                   type="button"
                   aria-pressed={newCompany}
                   onClick={() => setNewCompany((v) => !v)}
@@ -434,7 +464,7 @@ export function TouchpointCapture() {
                 >
                   <Ico name={newCompany ? "check" : "plus"} size={13} />
                   New company
-                </button>
+                </button>}
                 <span className="min-h-[1em] text-[12px] leading-relaxed text-[#8A6D2F]">
                   {photoUiState === "uploading" && "Attaching photo"}
                   {photoUiState === "error" && "Photo failed to attach."}

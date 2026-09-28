@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
 import { FindContacts } from "../../../lib/features/enrich/ui";
+import { TouchpointCapture } from "../../../lib/features/visit/ui";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 
@@ -942,6 +943,25 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
           </>
         )}
       </Card>
+
+      {item.account_id && (
+        <Card>
+          <div className="mb-2 text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">{item.kind === "visit" ? "Log this visit" : "Log this call"}</div>
+          {/* Keyed per account so the opening line is right for whoever is
+              open. No autofocus: tapping a prospect to look must not raise
+              the keyboard over the account. */}
+          <TouchpointCapture
+            key={item.account_id}
+            accountIdHint={item.account_id}
+            defaultKind={item.kind === "visit" ? "meeting" : "call"}
+            initialText={`${item.kind === "visit" ? "Visited" : "Called"} ${item.displayName} and spoke with: `}
+            autoFocus={false}
+            onFiled={() => {
+              if (item.status === "pending" && !item.id.startsWith("unscheduled:")) onDone();
+            }}
+          />
+        </Card>
+      )}
 
       {showSuccess ? (
         <SuccessNote title="Done" />
