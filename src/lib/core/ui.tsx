@@ -67,6 +67,7 @@ export const ICONS: Record<string, ReactNode> = {
     </>
   ),
   plus: <path d="M8 2.8v10.4M2.8 8h10.4" />,
+  "chevron-left": <path d="m10 3-5 5 5 5" />,
   "chevron-up": <path d="m4 10 4-4 4 4" />,
   "chevron-down": <path d="m4 6 4 4 4-4" />,
   pin: (

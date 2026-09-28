@@ -1,4 +1,5 @@
 import { hasAccess } from "../../lib/core/devices";
+import { ScrollKeeper } from "../../lib/core/scroll-keeper";
 import { SidebarNav, TabBar, type NavItem } from "./Nav";
 
 /**
@@ -21,7 +22,7 @@ const NAV: NavItem[] = [
   { href: "/outbound", label: "Outbound", icon: "mail" },
 ];
 
-export default async function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
   // The layout must not be the gate: it renders the unauthenticated view
   // bare (no nav) rather than redirecting, so proxy (which already handles
   // the redirect) never loops against this component.
@@ -53,6 +54,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </div>
+
+      <ScrollKeeper />
+      {modal}
 
       <TabBar items={NAV} />
     </div>

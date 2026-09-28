@@ -21,6 +21,7 @@
 
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
@@ -914,6 +915,10 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
                 <Ico name="pin" size={13} />
                 Open in Google Maps
               </a>
+              <Link prefetch={false} href={`/account/${panel.id}`} className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#5B6560] hover:text-[#14201B]">
+                <Ico name="book" size={13} />
+                Client view
+              </Link>
               {panel.hubspotCompanyId && (
                 <a href={HUBSPOT_COMPANY_URL(panel.hubspotCompanyId)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#5B6560] hover:text-[#14201B]">
                   <Ico name="hubspot" size={13} />
