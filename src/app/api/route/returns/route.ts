@@ -5,7 +5,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
-import { isConfigured, listPendingReturnDirectives, resolveDirective } from "../../../../lib/features/route/dal";
+import { isConfigured, listPendingReturnDirectives, listReturnContext, resolveDirective } from "../../../../lib/features/route/dal";
 import { buildReturnSuggestions } from "../../../../lib/features/route/return-suggestions";
 import { getPriorityBook } from "../../../../lib/features/prospect/dal";
 
@@ -17,7 +17,8 @@ export async function GET() {
   try {
     const [book, directives] = await Promise.all([getPriorityBook(), listPendingReturnDirectives()]);
     const bookIds = new Set(book.ranked.map((r) => r.account.id));
-    return Response.json({ ok: true, suggestions: buildReturnSuggestions(bookIds, directives) });
+    const context = await listReturnContext([...new Set(directives.map((d) => d.account_id))].filter((id) => bookIds.has(id)));
+    return Response.json({ ok: true, suggestions: buildReturnSuggestions(bookIds, directives, context) });
   } catch (e) {
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't load suggestions." }, { status: 500 });
   }

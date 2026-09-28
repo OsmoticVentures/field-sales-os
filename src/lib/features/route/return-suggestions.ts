@@ -1,9 +1,13 @@
 /**
- * Suggested returns: accounts worth going back to because Juan said so in a
- * logged field note, call, or visit. Ported from the NutriBiotic OS's
+ * Suggested returns: accounts whose visit in the last 60 days went well and
+ * that need a revisit for a stated purpose or time (Juan, 2026-09-28). Ported from the NutriBiotic OS's
  * lib/return-suggestions.ts (2026-09-25). Only a stated "come back",
  * already queued in nb_directives, ever puts an account here: not a score,
  * not the reorder cycle.
+ *
+ * A directive is offered only when it clears worthOffering below: not a
+ * low-grade or closing account, a positive recent visit, a purpose beyond
+ * logistics, and not already past its own "today"/"tomorrow".
  *
  * A directive with a stated date inside the coming 7 days is a suggestion
  * for that exact date, always shown there, uncapped. One with no stated date
@@ -11,7 +15,7 @@
  * at most. A stated date past the week waits until the horizon reaches it.
  */
 import { planningHorizonDates } from "./field-week";
-import type { ReturnDirective } from "./dal";
+import type { ReturnContext, ReturnDirective } from "./dal";
 
 export type ReturnSuggestion = {
   accountId: string;
@@ -46,9 +50,41 @@ function parseFollowUp(directive: string): { title: string; statedTimeIso: strin
   return { title, statedTimeIso, extra, quote };
 }
 
+const BELOW_C = new Set(["D", "E", "F", "G"]);
+const GOOD_OUTCOMES = new Set(["left_sample", "reached", "interested", "meeting_set"]);
+const POSITIVE = /\b(likes?|liked|loves?|interested|interest|excited|warm|great|ready to buy|would buy|wants?|try|trying|soft[- ]clos\w*|good fit|perfect fit|solid fit|potential|opening meeting)\b/i;
+const LOGISTICS_ONLY = /\b(closed|call ahead|call (the )?\w+( \w+)? before|before (returning|trying|coming)|hours|no answer)\b/i;
+const GENERIC_TITLE = /^(follow[- ]up|return)( visit)? (to|at) (?!.*\b(if|about|with|for|see|check)\b)/i;
+const SAME_DAY = /\b(today|tonight|tomorrow)\b/i;
+
+/** True when the account had a visit or meeting in the last 60 days that
+ *  went well: a sample left, a reached buyer, or a positive line in the note. */
+function wentWell(ctx: ReturnContext): boolean {
+  return ctx.notes.some(
+    (n) =>
+      (n.kind === "visit" || n.kind === "meeting") &&
+      ((n.outcome !== null && GOOD_OUTCOMES.has(n.outcome)) || (n.detail !== null && POSITIVE.test(n.detail))),
+  );
+}
+
+/** Deterministic gate, no model: every clause reads a logged field. */
+function worthOffering(d: ReturnDirective, parsed: { title: string; statedTimeIso: string | null; extra: string | null }, ctx: ReturnContext | undefined): boolean {
+  if (!ctx) return false;
+  if (ctx.tier && BELOW_C.has(ctx.tier)) return false;
+  if (ctx.leadStage === "closed" || ctx.leadStatus === "Closed") return false;
+  if (!wentWell(ctx)) return false;
+  const text = [parsed.title, parsed.extra].filter(Boolean).join(". ");
+  if (LOGISTICS_ONLY.test(text)) return false;
+  // A bare "Return visit to X" names no purpose; a vague window doesn't either.
+  if (!parsed.statedTimeIso && GENERIC_TITLE.test(parsed.title)) return false;
+  // "Today" / "tomorrow" in a note is spent two days later.
+  if (!parsed.statedTimeIso && SAME_DAY.test(text) && Date.now() - new Date(d.created_at).getTime() > 2 * 86_400_000) return false;
+  return true;
+}
+
 /** `bookIds`: Juan's ranked book. A directive on an account outside it
  *  (another rep's, or closed) is not offered here. */
-export function buildReturnSuggestions(bookIds: Set<string>, directives: ReturnDirective[]): ReturnSuggestion[] {
+export function buildReturnSuggestions(bookIds: Set<string>, directives: ReturnDirective[], context: Map<string, ReturnContext>): ReturnSuggestion[] {
   const week = planningHorizonDates(7);
   const weekSet = new Set(week);
 
@@ -57,9 +93,11 @@ export function buildReturnSuggestions(bookIds: Set<string>, directives: ReturnD
   const dated: { directive: ReturnDirective; parsed: Parsed; date: string }[] = [];
   const backlog: { directive: ReturnDirective; parsed: Parsed }[] = [];
 
-  for (const d of directives) {
+  // Newest first, so an account's latest ask wins over a stale one.
+  for (const d of [...directives].reverse()) {
     if (seen.has(d.account_id) || !bookIds.has(d.account_id)) continue;
     const parsed = parseFollowUp(d.directive);
+    if (!worthOffering(d, parsed, context.get(d.account_id))) continue;
     const statedDate = parsed.statedTimeIso ? parsed.statedTimeIso.slice(0, 10) : null;
     if (statedDate && !weekSet.has(statedDate)) continue;
     seen.add(d.account_id);

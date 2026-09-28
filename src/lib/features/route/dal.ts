@@ -387,6 +387,53 @@ export async function listPendingReturnDirectives(): Promise<ReturnDirective[]> 
   return rows.filter((r): r is ReturnDirective => Boolean(r.account_id) && r.directive.startsWith("[follow-up:"));
 }
 
+export type ReturnContext = {
+  tier: string | null;
+  leadStage: string | null;
+  leadStatus: string | null;
+  /** Visits, meetings and notes from the last 60 days, newest first. */
+  notes: { at: string; kind: string; outcome: string | null; detail: string | null }[];
+};
+
+/** What the Suggested returns filter needs to judge a directive: the
+ *  account's grade and stage, and its last 60 days of logged touches. */
+export async function listReturnContext(accountIds: string[]): Promise<Map<string, ReturnContext>> {
+  const out = new Map<string, ReturnContext>();
+  if (accountIds.length === 0) return out;
+  const inList = `in.(${accountIds.map((id) => encodeURIComponent(id)).join(",")})`;
+  const since = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  const [accounts, grades, stages, touches] = await Promise.all([
+    raw<{ id: string; lead_status: string | null }>("nb_accounts", new URLSearchParams({ select: "id,lead_status", id: inList }).toString()),
+    raw<{ account_id: string; potential_grade: string | null }>(
+      "nb_v_account_potential",
+      new URLSearchParams({ select: "account_id,potential_grade", account_id: inList }).toString(),
+    ),
+    raw<{ account_id: string; lead_stage: string | null }>(
+      "nb_v_account_lead_stage",
+      new URLSearchParams({ select: "account_id,lead_stage", account_id: inList }).toString(),
+    ),
+    raw<{ account_id: string; at: string; kind: string; outcome: string | null; detail: string | null }>(
+      "nb_v_activities_effective",
+      new URLSearchParams({
+        select: "account_id,at,kind,outcome,detail",
+        account_id: inList,
+        corrected: "is.false",
+        retracted: "is.false",
+        at: `gte.${since}`,
+        order: "at.desc",
+        limit: "1000",
+      }).toString(),
+    ),
+  ]);
+  const grade = new Map(grades.map((g) => [g.account_id, g.potential_grade]));
+  const stage = new Map(stages.map((g) => [g.account_id, g.lead_stage]));
+  for (const a of accounts) {
+    out.set(a.id, { tier: grade.get(a.id) ?? null, leadStage: stage.get(a.id) ?? null, leadStatus: a.lead_status, notes: [] });
+  }
+  for (const t of touches) out.get(t.account_id)?.notes.push({ at: t.at, kind: t.kind, outcome: t.outcome, detail: t.detail });
+  return out;
+}
+
 /** Marks one directive handled from Suggested returns, stamped `routed` the
  *  same way the source and follow_through.py stamp one, so the planner never
  *  offers the same account twice. */

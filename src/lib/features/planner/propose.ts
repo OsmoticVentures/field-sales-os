@@ -37,6 +37,7 @@ import {
   isConfigured,
   listOwnerAccounts,
   listPendingReturnDirectives,
+  listReturnContext,
 } from "../route/dal";
 import { getPriorityBook } from "../prospect/dal";
 import { buildReturnSuggestions } from "../route/return-suggestions";
@@ -188,7 +189,8 @@ export async function proposeWeek(daysCount: number = DEFAULT_HORIZON_DAYS): Pro
     else if (f.lat === null || f.lng === null) unroutable.push({ accountId: id, name: f.name, reason: "no coordinates" });
   }
 
-  const suggestions = buildReturnSuggestions(routableIds, directives);
+  const returnContext = await listReturnContext([...new Set(directives.map((d) => d.account_id))].filter((id) => routableIds.has(id)));
+  const suggestions = buildReturnSuggestions(routableIds, directives, returnContext);
 
   const accountsById = new Map<string, PlanAccount>(candidates.map((c) => [c.id, c]));
   for (const s of suggestions) {
