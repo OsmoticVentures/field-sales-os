@@ -22,7 +22,7 @@ import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/pr
 import { dayLabel, laTodayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 
-const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E", "F", "G"] as const;
+const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
 
 const press = "transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 const actionBtn = `inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5] hover:text-[#14201B] ${press}`;

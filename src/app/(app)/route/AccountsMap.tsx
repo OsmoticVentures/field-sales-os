@@ -70,28 +70,19 @@ const MAP_STYLE = [
   { featureType: "water", elementType: "geometry", stylers: [{ color: "#dde4e0" }] },
 ];
 
-/** Same ramp the source pins wear: cools as HQ potential capacity falls. */
+/** One step per HQ potential letter, A strongest through E weakest. F and G wear E's color. */
 const POTENTIAL_COLOR: Partial<Record<Tier, string>> = {
   A: "#B5372A",
-  B: "#B5372A",
-  C: "#D97E2B",
-  D: "#C79A1E",
+  B: "#D97E2B",
+  C: "#C79A1E",
+  D: "#A79878",
   E: "#8A928C",
+  F: "#8A928C",
+  G: "#8A928C",
 };
+const POTENTIAL_LEGEND: Tier[] = ["A", "B", "C", "D", "E"];
 
-/** Pin color follows the score on the card: its priority band. */
-const BAND_COLOR: Record<string, string> = {
-  now: "#B5372A",
-  soon: "#D97E2B",
-  later: "#8A928C",
-};
-const BAND_LEGEND: { band: string; label: string }[] = [
-  { band: "now", label: "High potential" },
-  { band: "soon", label: "Medium" },
-  { band: "later", label: "Low" },
-];
-
-const TIERS: Tier[] = ["A", "B", "C", "D", "E", "F", "G"];
+const TIERS: Tier[] = ["A", "B", "C", "D", "E"];
 
 const SDR_PRIORITIES: { value: SdrPriority; label: string; tone: string }[] = [
   { value: "low", label: "Low", tone: "bg-[#ECEAE1] text-[#5B6560] hover:bg-[#E2DFD5]" },
@@ -598,8 +589,7 @@ export function AccountsMap({
 
     for (const a of pinAccounts) {
       const prospect = isProspect(a);
-      const band = priorityById[a.id]?.band;
-      const potential = !prospect ? ((band && BAND_COLOR[band]) || (a.tier ? POTENTIAL_COLOR[a.tier] : undefined)) : undefined;
+      const potential = !prospect && a.tier ? POTENTIAL_COLOR[a.tier] : undefined;
       const routeNum = routeNumberById.get(a.id);
       const done = routeNum ? doneIds.has(a.id) : false;
       const fillColor = done
@@ -838,10 +828,10 @@ export function AccountsMap({
       <div className="relative h-[300px] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:h-[420px]">
         <div ref={containerRef} className="absolute inset-0" />
         <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-2.5 rounded-md bg-white/90 px-2 py-1 text-[10.5px] font-medium text-[#3D4A44]">
-          {BAND_LEGEND.map((l) => (
-            <span key={l.band} className="inline-flex items-center gap-1">
-              <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: BAND_COLOR[l.band] }} />
-              {l.label}
+          {POTENTIAL_LEGEND.map((t) => (
+            <span key={t} className="inline-flex items-center gap-1">
+              <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: POTENTIAL_COLOR[t] }} />
+              {t}
             </span>
           ))}
         </div>
