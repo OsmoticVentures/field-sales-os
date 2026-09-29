@@ -6,6 +6,8 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
+import { createCompany, findPossibleDuplicates } from "../../../../lib/features/visit/hubspot-company";
+import { writeEnabled } from "../../../../lib/features/visit/hubspot";
 import { insertBareAccount } from "../../../../lib/features/visit/dal";
 import { resolveTouchpointToAccount } from "../../../../lib/features/visit/touchpoint";
 
@@ -33,7 +35,21 @@ export async function POST(req: Request) {
       if (body?.mode === "create") {
         const name = (body?.name as string | undefined)?.trim();
         if (!name) throw new Error("A business name is required.");
-        const account = await insertBareAccount({ name, city: (body?.city as string | undefined) || null });
+        const city = (body?.city as string | undefined) || null;
+        // A new store needs its HubSpot company before the visit can file.
+        // The portal-wide duplicate check runs first; any hit blocks the
+        // create, since a second company for a store the other rep already
+        // has is the one mistake nothing local can catch.
+        let companyId: string | null = null;
+        if (writeEnabled("visit")) {
+          const dupes = await findPossibleDuplicates(name);
+          if (dupes.length > 0) {
+            const names = dupes.slice(0, 3).map((d) => [d.name, d.city].filter(Boolean).join(", ")).join("; ");
+            throw new Error(`${name} may already be in HubSpot (${names}). Nothing created. Pick it from the search instead.`);
+          }
+          companyId = await createCompany({ name, city });
+        }
+        const account = await insertBareAccount({ name, city, hubspot_company_id: companyId });
         return resolveTouchpointToAccount(touchpointId, account.id, account.name);
       }
       const accountId = body?.accountId as string | undefined;

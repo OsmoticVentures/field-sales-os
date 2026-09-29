@@ -220,11 +220,12 @@ export async function applyAccountFacts(
  *  (a human links one, or a future graduation path does). This substitutes
  *  for the source's Google-Places-driven createBusinessFromPlace, which
  *  this port does not carry (see handback). */
-export async function insertBareAccount(input: { name: string; city?: string | null }): Promise<Account> {
+export async function insertBareAccount(input: { name: string; city?: string | null; hubspot_company_id?: string | null }): Promise<Account> {
   const [row] = await mutate<Account>("nb_accounts", "POST", {
     id: randId("a"),
     name: input.name,
     city: input.city ?? null,
+    hubspot_company_id: input.hubspot_company_id ?? null,
     origin: "manual",
     hubspot_owner_id: JUAN_OWNER_ID,
     owner_name: "Juan Arenas Martin",
