@@ -5,8 +5,11 @@
  * builder below (typedProperties, noteLines, noteBody, the marker) is kept
  * exactly, per this milestone's instruction.
  *
- * NOT PORTED, deliberately (see the handback for the full list): creating a
- * new HubSpot contact for an unmatched person, pushing the company phone
+ * Every person the touchpoint names is attached to the engagement as a
+ * HubSpot contact (Juan, 2026-09-29: "hubspot contacts always"): found on the
+ * company first, created and linked back to nb_contacts on a true miss.
+ *
+ * NOT PORTED, deliberately (see the handback for the full list): pushing the company phone
  * back to HubSpot, and the association-leak auto-detach. Those are all
  * enrichment on top of a filed engagement, not the engagement itself, and
  * every one of them only runs when that feature's own write flag is "true",
@@ -19,17 +22,20 @@ import {
   findRecentDuplicateEngagement,
   getAccountForEngagement,
   getActivityById,
+  getTouchpointPeople,
+  linkContactHubspotId,
   listContacts,
   stampActivityEngagementId,
   type Contact,
   type EngagementActivity,
 } from "./dal";
-import { assertJuansBook, OWNER_ID, request, type HubspotFeature } from "./hubspot";
+import { assertJuansBook, batchRead, OWNER_ID, request, type HubspotFeature } from "./hubspot";
 
 export class Blocked extends Error {}
 
 const NOTE_TO_COMPANY = 190;
 const NOTE_TO_CONTACT = 202;
+const CONTACT_TO_COMPANY = 279;
 const CALL_TO_COMPANY = 182;
 const CALL_TO_CONTACT = 194;
 const MEETING_TO_COMPANY = 188;
@@ -254,6 +260,64 @@ function matchPeople(
   return { matched, unmatched };
 }
 
+/** Give every matched OS contact a live HubSpot contact: reuse one already on
+ *  the company (same first name, and same last name when both have one),
+ *  otherwise create it associated to the company, then stamp the id back on
+ *  nb_contacts so the next note matches instead of duplicating. A nameless
+ *  person is never created. Company scope is asserted by the caller. */
+async function ensureHubspotContacts(companyId: string, matched: MatchedPerson[], feature: HubspotFeature): Promise<void> {
+  const missing = matched.filter((m) => !m.contact.hubspot_contact_id);
+  if (missing.length === 0) return;
+
+  const assoc = await request<{ results?: Array<{ toObjectId?: number | string }> }>({
+    method: "GET",
+    path: `/crm/v4/objects/companies/${companyId}/associations/contacts?limit=500`,
+    entity: "contacts",
+    operation: "list_company_contacts",
+  });
+  const ids = (assoc.results ?? []).map((r) => String(r.toObjectId)).filter(Boolean);
+  const live = ids.length ? await batchRead("contacts", ids, ["firstname", "lastname"]) : [];
+  const norm = (v?: string | null) => (v ?? "").trim().toLowerCase();
+
+  for (const m of missing) {
+    const c = m.contact;
+    const first = norm(c.first_name);
+    const last = norm(c.last_name);
+    if (!first && !last) continue;
+    const hit = live.find(
+      (l) => norm(l.properties?.firstname) === first && (!last || !norm(l.properties?.lastname) || norm(l.properties?.lastname) === last),
+    );
+    let hid = hit?.id ?? null;
+    if (!hid) {
+      const props = Object.fromEntries(
+        Object.entries({
+          firstname: c.first_name,
+          lastname: c.last_name,
+          jobtitle: c.title,
+          email: c.email,
+          phone: c.phone,
+        }).filter(([, v]) => v),
+      );
+      const res = await request<{ id?: string }>({
+        method: "POST",
+        path: "/crm/v3/objects/contacts",
+        body: {
+          properties: props,
+          associations: [{ to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: CONTACT_TO_COMPANY }] }],
+        },
+        entity: "contacts",
+        operation: "create",
+        feature,
+      });
+      hid = res.id ?? null;
+    }
+    if (hid) {
+      await linkContactHubspotId(c.id, hid);
+      c.hubspot_contact_id = hid;
+    }
+  }
+}
+
 function noteLines(
   activity: EngagementActivity,
   matched: MatchedPerson[],
@@ -397,9 +461,8 @@ export async function runEngagement(
   }
 
   const contacts = await listContacts(account.id);
-  const parsed = { people: [] as ParsedPerson[] };
+  const parsed = { people: (await getTouchpointPeople(activityId)) as ParsedPerson[] };
   const { matched } = matchPeople(contacts, activity, parsed);
-  const contactIds = matched.map((m) => m.contact.hubspot_contact_id).filter((v): v is string => Boolean(v));
 
   const lines = noteLines(activity, matched, etype, otype, activity.detail, null);
   const body = noteBody(lines, activityId);
@@ -416,6 +479,9 @@ export async function runEngagement(
     const dropped = scope.dropped.find((d) => d.id === companyId);
     throw new Blocked(`portal company ${companyId} (${account.name}) has hubspot_owner_id ${dropped?.owner ?? "(none)"}, not Juan's ${OWNER_ID}. DROPPED, nothing written.`);
   }
+
+  await ensureHubspotContacts(companyId, matched, opts.feature);
+  const contactIds = matched.map((m) => m.contact.hubspot_contact_id).filter((v): v is string => Boolean(v));
 
   const dup = await alreadyFiled(activityId, otype);
   let noteId: string;

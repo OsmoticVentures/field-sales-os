@@ -301,6 +301,19 @@ export async function patchContact(id: string, patch: Partial<NewContact>): Prom
   return row;
 }
 
+/** The people the extractor parsed out of the touchpoint that produced this
+ *  activity. Empty when the activity was not logged from a touchpoint. */
+export async function getTouchpointPeople(activityId: number): Promise<
+  Array<{ first_name?: string | null; last_name?: string | null; title?: string | null; email?: string | null; phone?: string | null }>
+> {
+  const rows = await query<{ parsed: { people?: Array<Record<string, string | null>> } | null }>("nb_touchpoints", {
+    select: "parsed",
+    activity_id: `eq.${activityId}`,
+    limit: "1",
+  });
+  return rows[0]?.parsed?.people ?? [];
+}
+
 export async function linkContactHubspotId(id: string, hubspotContactId: string): Promise<void> {
   await mutate("nb_contacts", "PATCH", { hubspot_contact_id: hubspotContactId }, { id: `eq.${id}`, hubspot_contact_id: "is.null" });
 }
