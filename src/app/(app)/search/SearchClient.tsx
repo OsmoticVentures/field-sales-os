@@ -509,7 +509,7 @@ export function SearchClient() {
     <div className="flex flex-col gap-4 pb-24 lg:pb-0">
       <BookSearch />
 
-      <div className={`${panel} hidden p-3 lg:block`}>
+      <div className={`${panel} p-3`}>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[240px] flex-1">
             <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
@@ -521,19 +521,20 @@ export function SearchClient() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && canSearch) runSearch();
               }}
-              placeholder="What kind of business?"
+              placeholder="Find new businesses, e.g. medical spa"
               aria-label="What kind of business to search for"
               className="min-h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] py-2.5 pl-9 pr-3 text-base text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
             />
           </div>
-          <button type="button" onClick={() => runSearch()} disabled={!canSearch} className={primaryBtn}>
+          <button type="button" onClick={() => runSearch()} disabled={!canSearch} className={`${primaryBtn} flex-1 justify-center lg:flex-none`}>
+            <Ico name="search" size={13} />
             {busy === "search" && !deepRun ? "Searching..." : "Search this area"}
           </button>
           <button
             type="button"
             onClick={() => runSearch(true)}
             disabled={!canSearch}
-            className={secondaryBtn}
+            className={`${secondaryBtn} flex-1 justify-center lg:flex-none`}
             title="Keeps splitting any part of the area still at Google's cap until none of it is, for a complete list"
           >
             <Ico name="search" size={13} />
@@ -845,58 +846,12 @@ export function SearchClient() {
         />
       )}
 
-      <MobileSearchBar query={query} onQueryChange={setQuery} onSearch={() => runSearch()} canSearch={canSearch} busy={busy} />
-    </div>
-  );
-}
-
-/** The mobile-only search action, pinned to the bottom of the viewport so it
- *  stays reachable regardless of scroll. The full query + Find all bar above
- *  stays desktop-only. */
-function MobileSearchBar({
-  query,
-  onQueryChange,
-  onSearch,
-  canSearch,
-  busy,
-}: {
-  query: string;
-  onQueryChange: (v: string) => void;
-  onSearch: () => void;
-  canSearch: boolean;
-  busy: Busy;
-}) {
-  return (
-    <div
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-[#E2DFD5] bg-white/95 px-3 pt-2 backdrop-blur lg:hidden"
-      style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" }}
-    >
-      <div className="flex items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
-            <Ico name="search" size={15} />
-          </span>
-          <input
-            value={query}
-            onChange={(e) => onQueryChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && canSearch) onSearch();
-            }}
-            placeholder="What kind of business?"
-            aria-label="What kind of business to search for"
-            className="min-h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] py-2.5 pl-9 pr-3 text-base text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
-          />
-        </div>
-        <button type="button" onClick={onSearch} disabled={!canSearch} className={`${primaryBtn} shrink-0`}>
-          {busy === "search" ? "Searching..." : "Search"}
-        </button>
-      </div>
     </div>
   );
 }
 
 /** The selection action bar. Rises into place with a spring-like ease rather
- *  than popping in, and clears the mobile search bar and its safe area. */
+ *  than popping in, and clears the tab bar and its safe area. */
 function SelectionBar({
   count,
   enrichedCount,
@@ -996,7 +951,14 @@ function BookSearch() {
 
   return (
     <div className={`${panel} relative p-3`}>
-      <div className="relative">
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setShow(true);
+        }}
+      >
+      <div className="relative min-w-0 flex-1">
         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8A928C]">
           <Ico name="search" size={15} />
         </span>
@@ -1008,11 +970,16 @@ function BookSearch() {
           }}
           onFocus={() => setShow(true)}
           onBlur={() => setTimeout(() => setShow(false), 150)}
-          placeholder="Search the book by name"
+          placeholder="Find a current client by name"
           aria-label="Search accounts already in the book"
+          enterKeyHint="search"
           className="min-h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] py-2.5 pl-9 pr-3 text-base text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
         />
       </div>
+      <button type="submit" disabled={q.trim().length < 2} className={`${secondaryBtn} shrink-0`}>
+        Search
+      </button>
+      </form>
 
       {show && q.trim().length >= 2 && (
         <div className="absolute inset-x-3 top-full z-20 mt-1 overflow-hidden rounded-md border border-[#E2DFD5] bg-white shadow-lg">
