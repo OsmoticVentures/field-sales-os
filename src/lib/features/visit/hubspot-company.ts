@@ -51,8 +51,20 @@ export async function findPossibleDuplicates(name: string, website?: string | nu
 
 /** Owned to Juan, lead status NEW (the one documented create-time exception
  *  to hs_lead_status being pull-only). Only non-empty fields are sent. */
-export async function createCompany(input: { name: string; city?: string | null; state?: string | null }): Promise<string> {
+export async function createCompany(input: {
+  name: string;
+  street?: string | null;
+  postal?: string | null;
+  city?: string | null;
+  state?: string | null;
+  phone?: string | null;
+  website?: string | null;
+}): Promise<string> {
   const properties: Record<string, string> = { hubspot_owner_id: OWNER_ID, name: input.name, hs_lead_status: "NEW" };
+  if (input.street) properties.address = input.street;
+  if (input.postal) properties.zip = input.postal;
+  if (input.phone) properties.phone = input.phone;
+  if (input.website) properties.website = input.website;
   if (input.city) properties.city = input.city;
   if (input.state) properties.state = input.state;
 
