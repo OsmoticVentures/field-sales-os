@@ -4,6 +4,8 @@ import WidgetKit
 
 /// fieldsalesos:// links from the home-screen widget.
 ///   sdr?account=ID       the SDR page with that client loaded
+///   call?account=ID&tel=N  the SDR page loaded for that client, then the dialer
+///                        (no tel: red alert, nothing dials)
 ///   account?id=ID        the account sheet
 ///   odo?kind=start|end   odometer prompt (photo stays on the phone), then
 ///                        &go=ID opens Maps, &done=ID marks that stop done
@@ -20,6 +22,16 @@ enum DeepLink {
         switch url.host {
         case "sdr":
             if let id = q["account"] { load(webView, "/prospect?account=\(id)") }
+        case "call":
+            guard let id = q["account"] else { return }
+            load(webView, "/prospect?account=\(id)")
+            guard let tel = q["tel"], !tel.isEmpty, let dial = URL(string: "tel:\(tel)") else {
+                let a = UIAlertController(title: "No phone number", message: "This account has no phone on file.", preferredStyle: .alert)
+                a.addAction(UIAlertAction(title: "OK", style: .destructive))
+                (vc.presentedViewController ?? vc).present(a, animated: true)
+                return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { UIApplication.shared.open(dial) }
         case "account":
             if let id = q["id"] { load(webView, "/account/\(id)") }
         case "odo":

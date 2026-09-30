@@ -134,6 +134,11 @@ struct StopRow: View {
     let remaining: Int
     let showMiles: Bool
 
+    var callURL: URL {
+        let tel = (stop.call_url ?? "").replacingOccurrences(of: "tel:", with: "")
+        if stop.type == "account" { return deepLink("call", ["account": stop.id, "tel": tel]) }
+        return URL(string: stop.call_url ?? "tel:")!
+    }
     var goURL: URL {
         if data.day_state == "not_started" { return deepLink("odo", ["kind": "start", "day": data.day, "go": stop.id]) }
         return stop.mapsURL ?? URL(string: "maps://")!
@@ -161,7 +166,9 @@ struct StopRow: View {
             }
             HStack(spacing: 5) {
                 PillLink(label: "GO", url: goURL, filled: true)
-                if let c = stop.call_url, let u = URL(string: c) { PillLink(label: "Call", url: u) }
+                if stop.type == "account" || stop.call_url != nil {
+                    PillLink(label: stop.call_url == nil ? "No phone" : "Call", url: callURL)
+                }
                 if stop.type == "account" {
                     PillLink(label: "Account", url: deepLink("account", ["id": stop.id]))
                     PillLink(label: "SDR", url: deepLink("sdr", ["account": stop.id]))
