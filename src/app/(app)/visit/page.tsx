@@ -2,7 +2,9 @@ import Link from "next/link";
 import { PageHead } from "../../../lib/core/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
 
-export const dynamic = "force-dynamic";
+// Static: served from the CDN, gated by proxy, data loads through API
+// routes that each check access.
+export const dynamic = "force-static";
 
 export const metadata = { title: "Visit · Field Sales OS" };
 

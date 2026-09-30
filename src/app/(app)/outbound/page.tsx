@@ -11,6 +11,7 @@
  * from himself, and Mark sent only records his own word that he sent it.
  */
 import { PageHead } from "../../../lib/core/ui";
+import { requireAccess } from "../../../lib/core/devices";
 import { isConfigured, listPendingDrafts } from "../../../lib/features/outbound/dal";
 import { getAccountNames } from "../../../lib/features/visit/dal";
 import { OutboundClient } from "./OutboundClient";
@@ -20,6 +21,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Outbound · Field Sales OS" };
 
 export default async function OutboundPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
+  await requireAccess();
   const accountFilter = (await searchParams).account?.trim() || null;
 
   if (!isConfigured()) {

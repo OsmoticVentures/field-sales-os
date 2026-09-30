@@ -15,6 +15,7 @@
  * unchanged), opening hours, and the ranked opportunity list.
  */
 import { PageHead } from "../../../lib/core/ui";
+import { requireAccess } from "../../../lib/core/devices";
 import { ProspectClient } from "./ProspectClient";
 import { getAccountCallCards, getPriorityBook, isConfigured, listAreas, listSdrSchedule, todayStartLA } from "../../../lib/features/prospect/dal";
 import { sortAreasByProspects } from "../../../lib/features/prospect/priority";
@@ -26,6 +27,7 @@ export const metadata = { title: "Prospect · Field Sales OS" };
 const DAYS_AHEAD = 6;
 
 export default async function ProspectPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
+  await requireAccess();
   const focusAccountId = (await searchParams).account?.trim() || null;
 
   if (!isConfigured()) {

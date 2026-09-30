@@ -123,6 +123,41 @@ export async function readDeviceToken(token: string | undefined): Promise<string
 }
 
 /**
+ * The trust stamp: proof that this device was checked against the registry
+ * (devices.ts) within the last day. While it holds, a remembered phone skips
+ * the database on every request. Signed over "trust:<deviceId>.<expiry>", so
+ * a device token can never pass as a stamp or the reverse. Revoking a device
+ * takes effect when its stamp runs out, within a day.
+ */
+export const TRUST_COOKIE = "nb_trust";
+export const TRUST_TTL_SECONDS = 60 * 60 * 24;
+
+export async function mintTrustStamp(deviceId: string): Promise<string> {
+  const payload = `${deviceId}.${Date.now() + TRUST_TTL_SECONDS * 1000}`;
+  return `${payload}.${await hmac(`trust:${payload}`)}`;
+}
+
+/** The device id a valid, unexpired stamp vouches for, or null. */
+export async function readTrustStamp(token: string | undefined): Promise<string | null> {
+  if (!token) return null;
+  const sigAt = token.lastIndexOf(".");
+  if (sigAt < 1) return null;
+  const payload = token.slice(0, sigAt);
+  let expected: string;
+  try {
+    expected = await hmac(`trust:${payload}`);
+  } catch {
+    return null;
+  }
+  if (!timingSafeEqual(token.slice(sigAt + 1), expected)) return null;
+  const expAt = payload.lastIndexOf(".");
+  if (expAt < 1) return null;
+  const exp = Number(payload.slice(expAt + 1));
+  if (!Number.isFinite(exp) || Date.now() >= exp) return null;
+  return payload.slice(0, expAt);
+}
+
+/**
  * Both auth cookies, read once. `cookies()` is async in Next 16 and only
  * resolves inside the request's own async chain, so this is the ONE place
  * outside the PIN endpoint that touches the jar: callers await it at the top
@@ -130,11 +165,28 @@ export async function readDeviceToken(token: string | undefined): Promise<string
  * verifiers above. Never call it from module scope, from inside a `cache()`d
  * or `"use cache"` function, or after the response has been returned.
  */
-export type AuthCookies = { session: string | undefined; device: string | undefined };
+export type AuthCookies = { session: string | undefined; device: string | undefined; trust: string | undefined };
 
 export async function readAuthCookies(): Promise<AuthCookies> {
   const jar = await cookies();
-  return { session: jar.get(COOKIE)?.value, device: jar.get(DEVICE_COOKIE)?.value };
+  return { session: jar.get(COOKIE)?.value, device: jar.get(DEVICE_COOKIE)?.value, trust: jar.get(TRUST_COOKIE)?.value };
+}
+
+/** Attach a fresh trust stamp. Only a route handler can set a cookie; from a
+ *  server component this is a silent no-op and the next API call stamps. */
+export async function setTrustStamp(deviceId: string): Promise<void> {
+  try {
+    const jar = await cookies();
+    jar.set(TRUST_COOKIE, await mintTrustStamp(deviceId), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/nb",
+      maxAge: TRUST_TTL_SECONDS,
+    });
+  } catch {
+    // Not a route handler. Nothing lost: the registry answered this time.
+  }
 }
 
 /** The device id claimed by this request's cookie, signature-checked only. */

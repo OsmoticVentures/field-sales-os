@@ -8,7 +8,9 @@
 import { PageHead } from "../../../lib/core/ui";
 import { RouteClient } from "./RouteClient";
 
-export const dynamic = "force-dynamic";
+// Static: served from the CDN, gated by proxy, data loads through API
+// routes that each check access.
+export const dynamic = "force-static";
 
 export const metadata = {
   title: "Route · Field Sales OS",

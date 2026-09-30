@@ -10,6 +10,7 @@ import { cookies } from "next/headers";
 import {
   COOKIE,
   DEVICE_COOKIE,
+  TRUST_COOKIE,
   DEVICE_LIMIT,
   DEVICE_TTL,
   SESSION_TTL_SECONDS,
@@ -21,6 +22,7 @@ import {
   registerFailure,
   registerSuccess,
   requestUserAgent,
+  setTrustStamp,
 } from "../../../lib/core/session";
 import { deviceLabel, enrollDevice, trustedDeviceIdFrom } from "../../../lib/core/devices";
 
@@ -91,11 +93,13 @@ export async function POST(req: Request) {
       if (existing) {
         jar.set(DEVICE_COOKIE, await mintDeviceToken(existing), { ...opts, maxAge: DEVICE_TTL });
         remembered = "already";
+        await setTrustStamp(existing);
       } else {
         const id = await enrollDevice(deviceLabel(ua, surface), ua, DEVICE_LIMIT);
         if (id) {
           jar.set(DEVICE_COOKIE, await mintDeviceToken(id), { ...opts, maxAge: DEVICE_TTL });
           remembered = "ok";
+          await setTrustStamp(id);
         } else {
           remembered = "full";
         }
@@ -113,5 +117,6 @@ export async function DELETE() {
   const jar = await cookies();
   jar.delete({ name: COOKIE, path: "/nb" });
   jar.delete({ name: DEVICE_COOKIE, path: "/nb" });
+  jar.delete({ name: TRUST_COOKIE, path: "/nb" });
   return NextResponse.json({ ok: true });
 }

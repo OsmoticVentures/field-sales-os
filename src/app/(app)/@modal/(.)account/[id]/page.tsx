@@ -7,6 +7,7 @@
  * content streams into it, rather than the tap waiting on every read.
  */
 import { Suspense } from "react";
+import { requireAccess } from "../../../../../lib/core/devices";
 import { AccountContent } from "../../../account/[id]/AccountContent";
 import { AccountSheet } from "../../../account/[id]/AccountSheet";
 import AccountSkeleton from "../../../account/[id]/loading";
@@ -14,6 +15,7 @@ import AccountSkeleton from "../../../account/[id]/loading";
 export const dynamic = "force-dynamic";
 
 export default async function AccountModal({ params }: { params: Promise<{ id: string }> }) {
+  await requireAccess();
   const { id } = await params;
   return (
     <AccountSheet>

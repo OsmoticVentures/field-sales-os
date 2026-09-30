@@ -399,10 +399,10 @@ export type PriorityBook = {
 /**
  * The book is four reads of up to 2,000 rows each and changes on the scale
  * of visits, not seconds, yet Prospect, the Route map and every client view
- * ask for it. One copy per warm server for a minute, shared by concurrent
+ * ask for it. One copy per warm server for ten minutes, shared by concurrent
  * callers; a write that moves a score drops it (invalidatePriorityBook).
  */
-const BOOK_TTL_MS = 60 * 1000;
+const BOOK_TTL_MS = 10 * 60 * 1000;
 let bookMemo: { at: number; p: Promise<PriorityBook> } | null = null;
 
 export function invalidatePriorityBook(): void {

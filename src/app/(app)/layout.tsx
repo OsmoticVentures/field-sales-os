@@ -1,4 +1,3 @@
-import { hasAccess } from "../../lib/core/devices";
 import { ScrollKeeper } from "../../lib/core/scroll-keeper";
 import { SidebarNav, TabBar, type NavItem } from "./Nav";
 
@@ -22,13 +21,11 @@ const NAV: NavItem[] = [
   { href: "/outbound", label: "Outbound", icon: "mail" },
 ];
 
-export default async function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
-  // The layout must not be the gate: it renders the unauthenticated view
-  // bare (no nav) rather than redirecting, so proxy (which already handles
-  // the redirect) never loops against this component.
-  if (!(await hasAccess())) {
-    return <div className="min-h-screen bg-[#F7F6F1] text-[#14201B]">{children}</div>;
-  }
+export default function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
+  // No access check here, on purpose: one here makes every screen render
+  // on demand. Proxy turns away a signed-out request before it lands; a
+  // screen that renders data on the server calls requireAccess() itself;
+  // every API route asks hasAccess(). The rest are static and instant.
 
   const hasTabBar = NAV.length > 1;
 

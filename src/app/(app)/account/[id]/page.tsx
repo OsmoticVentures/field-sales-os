@@ -4,11 +4,13 @@
  * screen underneath stays mounted.
  */
 import { getClientAccount } from "../../../../lib/features/clients/dal";
+import { requireAccess } from "../../../../lib/core/devices";
 import { AccountContent } from "./AccountContent";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireAccess();
   return <AccountContent id={(await params).id} />;
 }
 

@@ -18,7 +18,8 @@
 
 import "server-only";
 import { cache } from "react";
-import { readAuthCookies, readDeviceToken, verifyToken } from "./session";
+import { redirect } from "next/navigation";
+import { readAuthCookies, readDeviceToken, readTrustStamp, setTrustStamp, verifyToken } from "./session";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -48,13 +49,14 @@ function newDeviceId(): string {
 }
 
 /**
- * A device confirmed live in the last two minutes skips the round trip.
- * Every screen and every API call asks hasAccess(), and on a remembered
- * phone that was one database read in front of each of them. Revoking a
- * device still takes effect, within two minutes on a warm server. Only a
- * positive answer is remembered, never a refusal.
+ * A device confirmed live in the last day skips the round trip, on two
+ * layers: the signed trust stamp cookie (session.ts), and this warm-server
+ * memory for a request that arrives without one. Every screen and every API
+ * call asks hasAccess(), and on a remembered phone that was one database
+ * read in front of each. Revoking a device takes effect within a day. Only
+ * a positive answer is remembered, never a refusal.
  */
-const TRUST_TTL_MS = 2 * 60 * 1000;
+const TRUST_TTL_MS = 24 * 60 * 60 * 1000;
 const trustedAt = new Map<string, number>();
 
 /**
@@ -127,9 +129,24 @@ async function touch(id: string, lastSeen: string | null): Promise<void> {
  *  device. Reads the jar itself, first thing, inside the caller's await
  *  chain; the only memoized part is the database lookup behind it. */
 export async function hasAccess(): Promise<boolean> {
-  const { session, device } = await readAuthCookies();
+  const { session, device, trust } = await readAuthCookies();
   if (await verifyToken(session)) return true;
-  return (await trustedDeviceIdFrom(device)) !== null;
+
+  const claimed = await readDeviceToken(device);
+  if (!claimed) return false;
+  if ((await readTrustStamp(trust)) === claimed) return true;
+
+  const id = await lookupTrusted(claimed);
+  if (id === null) return false;
+  await setTrustStamp(id);
+  return true;
+}
+
+/** For a screen that renders data on the server: the gate, or off to the
+ *  PIN. Screens that load their data after opening need no call here, their
+ *  API routes each ask hasAccess(), so those pages can be static. */
+export async function requireAccess(): Promise<void> {
+  if (!(await hasAccess())) redirect("/gate");
 }
 
 export async function liveDeviceCount(): Promise<number> {

@@ -1,4 +1,5 @@
 import { Card, PageHead } from "../../../lib/core/ui";
+import { requireAccess } from "../../../lib/core/devices";
 import { CopyScript } from "./CopyScript";
 
 export const dynamic = "force-dynamic";
@@ -6,7 +7,9 @@ export const metadata = { title: "Widget · Field Sales OS" };
 
 const BASE = `${process.env.NB_PUBLIC_ORIGIN ?? "https://osmoticventures.com"}/nb`;
 
-export default function WidgetPage() {
+export default async function WidgetPage() {
+  // Renders the widget token, so it gates itself.
+  await requireAccess();
   const token = process.env.NB_WIDGET_TOKEN;
   const bootstrap = token
     ? [

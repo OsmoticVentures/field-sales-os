@@ -17,6 +17,7 @@
  * handback for where they'd live.
  */
 import { PageHead, Card, eyebrowCls } from "../../../lib/core/ui";
+import { requireAccess } from "../../../lib/core/devices";
 import {
   getAllTimeMetrics,
   getReportDraft,
@@ -52,6 +53,7 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<{ date?: string }>;
 }) {
+  await requireAccess();
   const today = reportDateLA();
   const sp = await searchParams;
   const selectedDate = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) && sp.date <= today ? sp.date : today;

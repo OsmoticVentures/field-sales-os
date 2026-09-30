@@ -5,6 +5,7 @@
  * the list on one lucky input. Rows open the client view at /account/[id].
  */
 import Link from "next/link";
+import { requireAccess } from "../../../lib/core/devices";
 import { Card, PageHead } from "../../../lib/core/ui";
 import {
   getAccountHoursMap,
@@ -29,6 +30,7 @@ const chip = (on: boolean) =>
 const eyebrow = "text-[12px] font-semibold uppercase tracking-[0.14em] text-[#8A928C]";
 
 export default async function ClientsPage({ searchParams }: { searchParams: Promise<{ area?: string; sort?: string }> }) {
+  await requireAccess();
   const sp = await searchParams;
 
   if (!isConfigured()) {
