@@ -13,7 +13,7 @@ import { PageHead } from "../../../lib/core/ui";
 export const dynamic = "force-static";
 
 export const metadata = {
-  title: "Fuel · Field Sales OS",
+  title: "Fuel · ClientOS",
   appleWebApp: { title: "Fuel" },
 };
 

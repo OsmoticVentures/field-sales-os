@@ -15,7 +15,7 @@ import { SearchClient } from "./SearchClient";
 export const dynamic = "force-static";
 
 export const metadata = {
-  title: "Search · Field Sales OS",
+  title: "Search · ClientOS",
   appleWebApp: { title: "Search" },
 };
 

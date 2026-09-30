@@ -16,5 +16,5 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   const account = await getClientAccount((await params).id).catch(() => null);
-  return { title: `${account?.name ?? "Client"} · Field Sales OS` };
+  return { title: `${account?.name ?? "Client"} · ClientOS` };
 }

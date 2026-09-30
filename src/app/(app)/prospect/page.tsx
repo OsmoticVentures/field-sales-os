@@ -22,7 +22,7 @@ import { sortAreasByProspects } from "../../../lib/features/prospect/priority";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Prospect · Field Sales OS" };
+export const metadata = { title: "Prospect · ClientOS" };
 
 const DAYS_AHEAD = 6;
 

@@ -13,7 +13,7 @@ import { RouteClient } from "./RouteClient";
 export const dynamic = "force-static";
 
 export const metadata = {
-  title: "Route · Field Sales OS",
+  title: "Route · ClientOS",
   appleWebApp: { title: "Route" },
 };
 

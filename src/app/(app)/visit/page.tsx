@@ -6,7 +6,7 @@ import { TouchpointCapture } from "../../../lib/features/visit/ui";
 // routes that each check access.
 export const dynamic = "force-static";
 
-export const metadata = { title: "Visit · Field Sales OS" };
+export const metadata = { title: "Visit · ClientOS" };
 
 export default function VisitPage() {
   return (

@@ -18,7 +18,7 @@ import { Confidence, OpenBadge, TierChip, realLifecycle } from "../../../lib/fea
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Clients · Field Sales OS" };
+export const metadata = { title: "Clients · ClientOS" };
 
 const STAGES = ["identified", "contacted", "discovery", "sampled", "trial", "stocked", "reordered"];
 

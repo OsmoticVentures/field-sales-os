@@ -5,7 +5,7 @@ import { ReviewQueues } from "../../../../lib/features/visit/ui";
 // routes that each check access.
 export const dynamic = "force-static";
 
-export const metadata = { title: "Visit review · Field Sales OS" };
+export const metadata = { title: "Visit review · ClientOS" };
 
 /**
  * The manual review backlog: touchpoints parked days ago with nothing

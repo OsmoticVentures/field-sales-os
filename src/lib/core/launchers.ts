@@ -26,7 +26,7 @@ type Launcher = {
 const EXPENSES: Launcher = {
   href: "/expenses/manifest.webmanifest",
   id: "/expenses",
-  name: "Field Sales OS Expenses",
+  name: "ClientOS Expenses",
   short_name: "Expenses",
   description: "Clock in and out, log a break, and drop in a receipt or odometer photo.",
   start_url: "/expenses",

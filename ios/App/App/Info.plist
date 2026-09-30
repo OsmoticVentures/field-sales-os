@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Field Sales OS</string>
+	<string>ClientOS</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -36,13 +36,13 @@
 		</dict>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Field Sales OS photographs the odometer at the start and end of a route.</string>
+	<string>ClientOS photographs the odometer at the start and end of a route.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Field Sales OS saves odometer photos to your camera roll.</string>
+	<string>ClientOS saves odometer photos to your camera roll.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Field Sales OS uses your location to log visits, find nearby accounts, and plan routes.</string>
+	<string>ClientOS uses your location to log visits, find nearby accounts, and plan routes.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Field Sales OS uses your location to log visits, find nearby accounts, and plan routes.</string>
+	<string>ClientOS uses your location to log visits, find nearby accounts, and plan routes.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

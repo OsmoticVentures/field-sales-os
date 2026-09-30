@@ -106,7 +106,7 @@ export function GateForm() {
   return (
     <div className="flex min-h-[70vh] items-center justify-center px-5">
       <form onSubmit={submit} className="w-full max-w-[330px]">
-        <div className="text-[23px] font-semibold tracking-tight">Field Sales OS</div>
+        <div className="text-[23px] font-semibold tracking-tight">ClientOS</div>
         <p className="mt-1.5 text-[13.5px] text-[#5B6560]">Enter your PIN to unlock.</p>
 
         <input

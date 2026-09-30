@@ -9,7 +9,7 @@ import { GateForm } from "./GateForm";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Unlock · Field Sales OS",
+  title: "Unlock · ClientOS",
   robots: { index: false, follow: false },
 };
 

@@ -11,7 +11,7 @@ import { PageHead } from "../../../lib/core/ui";
 export const dynamic = "force-static";
 
 export const metadata = {
-  title: "Plan week · Field Sales OS",
+  title: "Plan week · ClientOS",
   appleWebApp: { title: "Plan week" },
 };
 

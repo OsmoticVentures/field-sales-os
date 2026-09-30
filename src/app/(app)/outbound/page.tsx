@@ -18,7 +18,7 @@ import { OutboundClient } from "./OutboundClient";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Outbound · Field Sales OS" };
+export const metadata = { title: "Outbound · ClientOS" };
 
 export default async function OutboundPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
   await requireAccess();

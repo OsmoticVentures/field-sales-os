@@ -3,7 +3,7 @@ import { requireAccess } from "../../../lib/core/devices";
 import { CopyScript } from "./CopyScript";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Widget · Field Sales OS" };
+export const metadata = { title: "Widget · ClientOS" };
 
 const BASE = `${process.env.NB_PUBLIC_ORIGIN ?? "https://osmoticventures.com"}/nb`;
 

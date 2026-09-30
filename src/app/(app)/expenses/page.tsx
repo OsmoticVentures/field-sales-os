@@ -14,7 +14,7 @@ import { PageHead } from "../../../lib/core/ui";
 export const dynamic = "force-static";
 
 export const metadata = {
-  title: "Expenses · Field Sales OS",
+  title: "Expenses · ClientOS",
   appleWebApp: { title: "Expenses" },
   manifest: LAUNCHERS.EXPENSES.href,
 };

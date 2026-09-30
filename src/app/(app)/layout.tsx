@@ -34,7 +34,7 @@ export default function AppLayout({ children, modal }: { children: React.ReactNo
       <div className="mx-auto flex min-h-screen max-w-[1700px] gap-0">
         <aside className="hidden w-[200px] shrink-0 border-r border-[#E2DFD5] px-5 py-7 md:block">
           <div className="mb-8">
-            <div className="text-[17px] leading-none font-semibold tracking-tight">Field Sales OS</div>
+            <div className="text-[17px] leading-none font-semibold tracking-tight">ClientOS</div>
           </div>
           <SidebarNav items={NAV} />
         </aside>

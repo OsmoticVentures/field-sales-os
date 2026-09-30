@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.osmoticventures.fieldsalesos',
-  appName: 'Field Sales OS',
+  appName: 'ClientOS',
   webDir: 'www',
   server: {
     url: 'https://osmoticventures.com/nb',

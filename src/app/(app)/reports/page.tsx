@@ -30,7 +30,7 @@ import { ReportsClient } from "./ReportsClient";
 
 export const dynamic = "force-dynamic";
 
-export const metadata = { title: "Reports · Field Sales OS" };
+export const metadata = { title: "Reports · ClientOS" };
 
 type NumericMetricKey = "visits" | "touchpoints" | "miles" | "daysWorked" | "newAccounts" | "accountsClosed";
 const METRIC_TILES: Array<{ key: NumericMetricKey; label: string; fmt?: (n: number) => string }> = [

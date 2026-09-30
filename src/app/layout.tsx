@@ -16,8 +16,8 @@ const fraunces = Fraunces({
 });
 
 export const metadata: Metadata = {
-  title: "Field Sales OS",
-  description: "Field Sales OS",
+  title: "ClientOS",
+  description: "ClientOS",
   robots: { index: false, follow: false },
   appleWebApp: { capable: true, statusBarStyle: "default" },
   other: { "apple-mobile-web-app-capable": "yes" },
