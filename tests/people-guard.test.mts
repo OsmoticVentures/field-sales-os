@@ -1,0 +1,12 @@
+import { verifyPerson } from "../src/lib/features/enrich/people-guard.ts";
+const page = "Our Team\nHannah Hunt\nOwner and Practice Manager\nBob Lee, RN\nConnect With Us";
+const t = (n: string, ok: boolean) => { if (!ok) { console.error("FAIL", n); process.exitCode = 1; } };
+const a = verifyPerson({ name: "Hannah Hunt", title: "Owner", is_decision_maker: false, source_text: "Hannah Hunt Owner and Practice Manager" }, page);
+t("real person kept, DM from title not model", a.ok && a.is_decision_maker);
+t("invented person dropped", !verifyPerson({ name: "Jane Roe", title: "Owner" }, page).ok);
+t("invented title dropped", !verifyPerson({ name: "Bob Lee", title: "Director" }, page).ok);
+t("furniture dropped", !verifyPerson({ name: "Connect With Us", title: null }, page).ok);
+t("invented quote dropped", !verifyPerson({ name: "Bob Lee", title: null, source_text: "Bob Lee founded the clinic" }, page).ok);
+const b = verifyPerson({ name: "Bob Lee", title: "RN", is_decision_maker: true }, page);
+t("model cannot promote a non-DM", b.ok && !b.is_decision_maker);
+if (!process.exitCode) console.log("people-guard: all cases pass");

@@ -30,6 +30,7 @@ import {
   type FetchedPage,
 } from "./html";
 import { bestPhone, contactPageCandidates, extractJsonLd, hoursSnippets, isScriptShell, sanitizeHours, visibleText } from "../../shared/web-page";
+import { verifyPerson } from "./people-guard";
 import type { FoundPerson, SourceTier } from "./types";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
@@ -114,7 +115,8 @@ async function extractFromPage(
   tier: SourceTier,
   deadline: number,
 ): Promise<{ people: FoundPerson[]; hours: Record<string, string[][]> | null; failed?: string }> {
-  if (!client || !text.trim()) return { people: [], hours: null };
+  if (!client) return { people: [], hours: null, failed: `${url}: names were not read, no model key is configured here` };
+  if (!text.trim()) return { people: [], hours: null };
   const timeout = deadline - Date.now() - 500;
   if (timeout < 4000) return { people: [], hours: null, failed: `${url}: no time left to read it` };
   let out: ExtractOutput | null = null;
@@ -136,19 +138,31 @@ async function extractFromPage(
     return { people: [], hours: null, failed: `${url}: the page was fetched but could not be read for names` };
   }
   if (!out) return { people: [], hours: null };
-  const people: FoundPerson[] = (Array.isArray(out.people) ? out.people : [])
-    .filter((p) => p && typeof p.name === "string" && p.name.trim().length >= 2)
-    .map((p) => ({
+  // The page is the authority, not the model: every person must be printed on
+  // the page text they were read from, with the quoted line and the title, and
+  // decision-maker status is read off the title here (people-guard.ts).
+  const people: FoundPerson[] = [];
+  const dropped: string[] = [];
+  for (const p of Array.isArray(out.people) ? out.people : []) {
+    if (!p || typeof p.name !== "string") continue;
+    const v = verifyPerson(p, text);
+    if (!v.ok) {
+      dropped.push(v.reason);
+      continue;
+    }
+    people.push({
       name: p.name.trim(),
-      title: p.title && p.title.trim() ? p.title.trim() : null,
-      is_decision_maker: Boolean(p.is_decision_maker && p.title),
+      title: v.title,
+      is_decision_maker: v.is_decision_maker,
       source_tier: tier,
       found_by: `website: ${url}`,
       basis: `page text, "${(p.source_text || "").slice(0, 90)}"`,
       source_text: p.source_text || null,
       source_url: url,
-    }));
-  return { people, hours: out.hours_stated ? sanitizeHours(out.hours) : null };
+    });
+  }
+  const failed = dropped.length ? `${url}: ${dropped.length} name(s) not kept, not printed on the page (${dropped[0]})` : undefined;
+  return { people, hours: out.hours_stated ? sanitizeHours(out.hours) : null, ...(failed ? { failed } : {}) };
 }
 
 /** The page text the model reads: headings marked, cut to fit, with any

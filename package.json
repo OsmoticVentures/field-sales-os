@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-strip-types tests/people-guard.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",

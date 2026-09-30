@@ -33,7 +33,7 @@ import {
   type EnrichAccount,
 } from "./dal";
 import { runSitePass, type SitePassResult } from "./site-pass";
-import { runPlacesPass } from "./places-pass";
+import { runPlacesPass, type PlacesPassResult } from "./places-pass";
 import { runWebSearchPass } from "./websearch-pass";
 import { isDirectory } from "./html";
 import type { FilledField, FindContactsResult, FoundPerson, NotFoundField, Proposal, TierOutcome } from "./types";
@@ -115,16 +115,30 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   // whole pass dying at the limit with nothing saved.
   const deadline = Date.now() + FIND_CONTACTS_BUDGET_MS;
 
-  // ---- Tier 1-2 and tier 3 together: the own site and Google Places ------
-  // Independent reads, so run at once; the tier order is applied when the
-  // people are merged, not by waiting.
+  // ---- Head Hunter first: tiers 1-2, the account's own site ---------------
+  // Juan, 2026-09-30: Head Hunter is the top priority in every enrichment run.
+  // The site read starts before anything else and is listed first in the
+  // result. Places runs beside it (independent reads, so no waiting), but it is
+  // bounded, and neither can take the other down: a thrown error in one is
+  // stated in that tier's own line and the other's findings are still saved.
   const address = [account.street, account.city, account.state].filter(Boolean).join(", ");
   const near = account.lat != null && account.lng != null ? { lat: account.lat, lng: account.lng } : undefined;
-  const [sitePass, places] = await Promise.all([
-    runSitePass(account.website, account.name, { deadline: deadline - 20_000 }),
+  const sitePromise = runSitePass(account.website, account.name, { deadline: deadline - 20_000 });
+  const placesPromise = Promise.race([
     runPlacesPass(account.name, address || null, near),
+    new Promise<PlacesPassResult>((resolve) =>
+      setTimeout(() => resolve({ ran: false, skipped_reason: "Google Places took too long; run it again.", candidate: null, closed: false }), 25_000),
+    ),
   ]);
-  let site: SitePassResult = sitePass;
+  const [siteSettled, placesSettled] = await Promise.allSettled([sitePromise, placesPromise]);
+  let site: SitePassResult =
+    siteSettled.status === "fulfilled"
+      ? siteSettled.value
+      : { ran: false, skipped_reason: `The website read failed: ${siteSettled.reason instanceof Error ? siteSettled.reason.message : "unknown error"}. Nothing was guessed.`, pages_read: [], failures: [], people: [], names_without_role: [], site_phone: null, site_email: null, site_hours: null, socials: {} };
+  const places: PlacesPassResult =
+    placesSettled.status === "fulfilled"
+      ? placesSettled.value
+      : { ran: false, skipped_reason: "Google Places failed.", candidate: null, closed: false };
   tiers.push({ tier: "site_team", ran: site.ran, skipped_reason: site.skipped_reason, pages_read: site.pages_read, failures: site.failures });
   if (site.ran) peopleGroups.push(site.people);
 
