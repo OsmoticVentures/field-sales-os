@@ -3,7 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { warmJson } from "../../lib/core/api";
 import { Ico } from "../../lib/core/ui";
+
+/** The reads each screen makes as it mounts. A finger landing on its tab
+ *  starts them, so the data is already on its way when the screen appears.
+ *  Server-rendered screens (Clients, Prospect, Reports, Outbound) are not
+ *  here: their data rides in the page itself. */
+const MOUNT_READS: Record<string, string[]> = {
+  "/route": ["/api/route/state", "/api/route/map", "/api/route/returns"],
+  "/expenses": ["/api/expenses/summary"],
+  "/search": ["/api/search/book"],
+  "/plan": ["/api/planner/propose"],
+};
+
+const warm = (href: string) => () => MOUNT_READS[href]?.forEach(warmJson);
 
 export type NavItem = {
   href: string;
@@ -30,6 +44,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
           <Link
             key={n.href}
             href={n.href}
+            onPointerDown={warm(n.href)}
             aria-current={active ? "page" : undefined}
             className={`flex min-h-11 items-center gap-2.5 rounded-md px-2.5 py-2 text-[14px] transition-colors ${
               active ? "bg-[#ECEAE1] font-medium text-[#14201B]" : "text-[#3D4A44] hover:bg-[#ECEAE1] hover:text-[#14201B]"
@@ -103,6 +118,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
               <Link
                 key={n.href}
                 href={n.href}
+                onPointerDown={warm(n.href)}
                 tabIndex={moreOpen ? 0 : -1}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-[15px] transition-colors ${
@@ -121,7 +137,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
         {tabs.map((n) => {
           const active = isActive(pathname, n.href);
           return (
-            <Link key={n.href} href={n.href} aria-current={active ? "page" : undefined} className={tabCls(active)}>
+            <Link key={n.href} href={n.href} onPointerDown={warm(n.href)} aria-current={active ? "page" : undefined} className={tabCls(active)}>
               <Ico name={n.icon} size={18} />
               {n.label}
             </Link>

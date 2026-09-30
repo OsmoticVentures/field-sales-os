@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
   // Keep the client bundle honest: nothing here should ship a server secret.
   // Every route that reads process.env.* for a token lives in a route
   // handler, never a client component (see PORTING.md, added at m7).
+
+  // The root answers at the edge, no function start, no page render.
+  // basePath-relative: this is /nb -> /nb/visit.
+  async redirects() {
+    return [{ source: "/", destination: "/visit", permanent: false }];
+  },
 };
 
 export default nextConfig;

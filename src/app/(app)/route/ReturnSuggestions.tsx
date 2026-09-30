@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/core/api";
+import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn } from "@/lib/core/ui";
 import { laTodayIso } from "@/lib/features/route/field-week";
 import type { ReturnSuggestion } from "@/lib/features/route/return-suggestions";
@@ -79,7 +79,9 @@ export function ReturnSuggestions({
   inRoute: Set<string>;
   onAddToDay: (a: RouteAccount) => void;
 }) {
-  const [suggestions, setSuggestions] = useState<ReturnSuggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<ReturnSuggestion[]>(
+    () => peekJson<{ ok: boolean; suggestions?: ReturnSuggestion[] }>("/api/route/returns")?.suggestions ?? [],
+  );
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [successById, setSuccessById] = useState<Record<string, string>>({});
   const [errorById, setErrorById] = useState<Record<string, string>>({});
@@ -88,9 +90,8 @@ export function ReturnSuggestions({
   const [why, setWhy] = useState("");
 
   useEffect(() => {
-    apiFetch("/api/route/returns")
-      .then((r) => r.json())
-      .then((j: { ok: boolean; suggestions?: ReturnSuggestion[] }) => {
+    getJson<{ ok: boolean; suggestions?: ReturnSuggestion[] }>("/api/route/returns")
+      .then((j) => {
         if (j.ok && j.suggestions) setSuggestions(j.suggestions);
       })
       .catch(() => {});

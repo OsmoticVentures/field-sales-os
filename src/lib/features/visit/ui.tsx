@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { apiFetch } from "../../core/api";
+import { apiFetch, getJson, peekJson } from "../../core/api";
 import { Ico, SkeletonBar, ghostBtn, inputCls, primaryBtn } from "../../core/ui";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
@@ -796,17 +796,24 @@ type QueuedTouchpoint = {
   parsed: { business_name_guess?: string | null; account_confidence?: string } | null;
 };
 
+type QueuesPayload = {
+  ok: boolean;
+  pending?: QueuedTouchpoint[];
+  pendingNextSteps?: QueuedTouchpoint[];
+  accountNames?: Record<string, string>;
+};
+
 export function ReviewQueues() {
-  const [pending, setPending] = useState<QueuedTouchpoint[] | null>(null);
-  const [pendingNextSteps, setPendingNextSteps] = useState<QueuedTouchpoint[] | null>(null);
-  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  const cached = peekJson<QueuesPayload>("/api/visit/queues");
+  const [pending, setPending] = useState<QueuedTouchpoint[] | null>(cached?.pending ?? null);
+  const [pendingNextSteps, setPendingNextSteps] = useState<QueuedTouchpoint[] | null>(cached?.pendingNextSteps ?? null);
+  const [accountNames, setAccountNames] = useState<Record<string, string>>(cached?.accountNames ?? {});
   const [failed, setFailed] = useState(false);
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let live = true;
-    apiFetch("/api/visit/queues", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    getJson<QueuesPayload>("/api/visit/queues")
       .then((json) => {
         if (!live) return;
         if (!json.ok) {

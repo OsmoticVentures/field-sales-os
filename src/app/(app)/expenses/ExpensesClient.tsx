@@ -18,11 +18,12 @@
  * deliberate tap.
  */
 
-import { apiFetch } from "@/lib/core/api";
+import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { useEffect, useRef, useState } from "react";
 import { Card, Ico, SuccessNote, displayFace, eyebrowCls, ghostBtn, inputCls, labelCls, primaryBtn } from "../../../lib/core/ui";
 
 type Summary = { period: string; label: string; sheetLink: string } | null;
+type SummaryPayload = { ok: boolean; period: string; label: string; sheetLink: string };
 
 type PhotoType = "odometer" | "receipt" | "statement" | "unsure";
 
@@ -60,12 +61,14 @@ function newId(): string {
 }
 
 export function ExpensesClient() {
-  const [summary, setSummary] = useState<Summary>(null);
+  const [summary, setSummary] = useState<Summary>(() => {
+    const j = peekJson<SummaryPayload>("/api/expenses/summary");
+    return j?.ok ? { period: j.period, label: j.label, sheetLink: j.sheetLink } : null;
+  });
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiFetch("/api/expenses/summary")
-      .then((r) => r.json())
+    getJson<SummaryPayload>("/api/expenses/summary")
       .then((j) => (j.ok ? setSummary({ period: j.period, label: j.label, sheetLink: j.sheetLink }) : setSummaryError("unavailable")))
       .catch(() => setSummaryError("unavailable"));
   }, []);

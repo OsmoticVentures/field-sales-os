@@ -57,11 +57,13 @@ export default async function ReportsPage({
   const selectedDate = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) && sp.date <= today ? sp.date : today;
   const week = weekWindowFor(selectedDate);
 
-  const [allTime, daily, weekly, archive] = await Promise.all([
+  const [allTime, daily, weekly, archive, dailyArchivedUrl, weeklyArchivedUrl] = await Promise.all([
     getAllTimeMetrics(),
     getReportDraft(selectedDate, "daily"),
     week ? getReportDraft(week.end, "weekly") : Promise.resolve(null),
     listPlaybookReportArchive(),
+    reportPreviewHref(`daily-${selectedDate}.pdf`),
+    week ? reportPreviewHref(`weekly-${week.start}_to_${week.end}.pdf`) : null,
   ]);
 
   // through_date is a max() over metric rows and has read as a day past
@@ -69,10 +71,10 @@ export default async function ReportsPage({
   // for; capped here rather than trusted raw.
   const throughDate = allTime?.throughDate && allTime.throughDate <= today ? allTime.throughDate : allTime?.throughDate ? today : null;
 
-  const dailyPreviewUrl = daily?.preview_path && !daily.dirty ? await reportPreviewHref(daily.preview_path) : null;
-  const dailyArchivedUrl = await reportPreviewHref(`daily-${selectedDate}.pdf`);
-  const weeklyPreviewUrl = weekly?.preview_path && !weekly.dirty ? await reportPreviewHref(weekly.preview_path) : null;
-  const weeklyArchivedUrl = week ? await reportPreviewHref(`weekly-${week.start}_to_${week.end}.pdf`) : null;
+  const [dailyPreviewUrl, weeklyPreviewUrl] = await Promise.all([
+    daily?.preview_path && !daily.dirty ? reportPreviewHref(daily.preview_path) : null,
+    weekly?.preview_path && !weekly.dirty ? reportPreviewHref(weekly.preview_path) : null,
+  ]);
 
   return (
     <>

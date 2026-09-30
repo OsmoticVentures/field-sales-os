@@ -7,12 +7,14 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
-import { setAccountPhone, setAccountPotentialJuan } from "../../../../lib/features/prospect/dal";
+import { invalidatePriorityBook, setAccountPhone, setAccountPotentialJuan } from "../../../../lib/features/prospect/dal";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
+  // The tier feeds the priority score; the next read recomputes it.
+  invalidatePriorityBook();
   const key = idempotencyKey(req);
   if (!key) return Response.json({ ok: false, error: "Idempotency-Key header is required." }, { status: 400 });
 

@@ -26,7 +26,7 @@
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { apiFetch } from "@/lib/core/api";
+import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
 import { rankMatches } from "../../../lib/features/search/search-match";
 import { AreaPicker, mapsUrl, type Pin } from "./AreaPicker";
@@ -929,15 +929,14 @@ const BOOK_RESULT_LIMIT = 5;
  * view is the door in.
  */
 function BookSearch() {
-  const [book, setBook] = useState<BookResult[]>([]);
+  const [book, setBook] = useState<BookResult[]>(() => peekJson<{ ok: boolean; results?: BookResult[] }>("/api/search/book")?.results ?? []);
   const [q, setQ] = useState("");
   const [show, setShow] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/search/book")
-      .then((res) => res.json())
-      .then((json: { ok: boolean; results?: BookResult[] }) => {
+    getJson<{ ok: boolean; results?: BookResult[] }>("/api/search/book")
+      .then((json) => {
         if (!cancelled && json.ok) setBook(json.results ?? []);
       })
       .catch(() => {});

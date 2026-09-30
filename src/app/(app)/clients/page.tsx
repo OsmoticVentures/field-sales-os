@@ -40,10 +40,18 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     );
   }
 
-  const [areas, pipeline] = await Promise.all([listClientAreas(), listPipeline()]);
-  const area = areas.find((a) => a.id === sp.area) ?? null;
+  // The account list starts with the areas rather than after them; only an
+  // area id that turns out not to exist costs a second read.
   const byEngagement = sp.sort === "engagement";
-  const rows = await listClientAccounts({ area: area?.id ?? null, sort: byEngagement ? "engagement" : "tier" });
+  const sort = byEngagement ? "engagement" : "tier";
+  const askedArea = sp.area ?? null;
+  const [areas, pipeline, askedRows] = await Promise.all([
+    listClientAreas(),
+    listPipeline(),
+    listClientAccounts({ area: askedArea, sort }),
+  ]);
+  const area = areas.find((a) => a.id === askedArea) ?? null;
+  const rows = (area?.id ?? null) === askedArea ? askedRows : await listClientAccounts({ area: null, sort });
   const hoursById = await getAccountHoursMap(rows.map((r) => r.account_id));
 
   const byTier: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };

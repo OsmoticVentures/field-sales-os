@@ -7,6 +7,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { recordTouchpoint } from "../../../../lib/features/visit/touchpoint";
+import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +16,8 @@ export async function POST(req: Request) {
   if (!(await hasAccess())) {
     return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
+  // A new touch moves the priority score; the next read recomputes it.
+  invalidatePriorityBook();
 
   const key = idempotencyKey(req);
   if (!key) {

@@ -48,6 +48,16 @@ function newDeviceId(): string {
 }
 
 /**
+ * A device confirmed live in the last two minutes skips the round trip.
+ * Every screen and every API call asks hasAccess(), and on a remembered
+ * phone that was one database read in front of each of them. Revoking a
+ * device still takes effect, within two minutes on a warm server. Only a
+ * positive answer is remembered, never a refusal.
+ */
+const TRUST_TTL_MS = 2 * 60 * 1000;
+const trustedAt = new Map<string, number>();
+
+/**
  * Is this claimed device id still trusted? `cache()` keyed on the id because
  * one render pass asks this many times and it must not be many round trips.
  * The cookie is read by the caller, never in here: `cookies()` must resolve
@@ -55,6 +65,9 @@ function newDeviceId(): string {
  */
 const lookupTrusted = cache(async (claimed: string): Promise<string | null> => {
   if (!configured()) return null;
+
+  const hit = trustedAt.get(claimed);
+  if (hit && Date.now() - hit < TRUST_TTL_MS) return claimed;
 
   const params = new URLSearchParams({
     select: "id,last_seen_at",
@@ -72,8 +85,12 @@ const lookupTrusted = cache(async (claimed: string): Promise<string | null> => {
     // Fail closed: a device that cannot be confirmed live is not trusted.
     return null;
   }
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    trustedAt.delete(claimed);
+    return null;
+  }
 
+  trustedAt.set(claimed, Date.now());
   void touch(rows[0].id, rows[0].last_seen_at).catch(() => {});
   return rows[0].id;
 });

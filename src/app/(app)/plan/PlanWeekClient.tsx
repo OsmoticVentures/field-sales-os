@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { apiFetch } from "@/lib/core/api";
+import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Card, Ico, SuccessNote, displayFace, eyebrowCls, ghostBtn, primaryBtn } from "@/lib/core/ui";
 import { dayLabel } from "@/lib/features/route/field-week";
 import type { PlannedDay, PlannedStop, ProposedWeek, UnroutableEntry } from "@/lib/features/planner/types";
@@ -49,16 +49,16 @@ const REASON_LABEL: Record<UnroutableEntry["reason"], string> = {
 };
 
 export function PlanWeekClient() {
-  const [week, setWeek] = useState<ProposedWeek | null>(null);
+  const cached = peekJson<ProposeResponse>("/api/planner/propose");
+  const [week, setWeek] = useState<ProposedWeek | null>(cached?.ok && cached.status === "ok" ? cached.week : null);
   const [blockedReason, setBlockedReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!week);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/planner/propose")
-      .then((r) => r.json())
-      .then((j: ProposeResponse) => {
+    getJson<ProposeResponse>("/api/planner/propose")
+      .then((j) => {
         if (cancelled) return;
         if (!j.ok) {
           setError(j.error);

@@ -37,11 +37,11 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
     );
   }
 
-  const schedule = await listSdrSchedule(DAYS_AHEAD);
+  const [schedule, priority, areas] = await Promise.all([listSdrSchedule(DAYS_AHEAD), getPriorityBook(), listAreas()]);
   const accountIds = [
     ...new Set([...schedule.map((r) => r.account_id).filter((id): id is string => !!id), ...(focusAccountId ? [focusAccountId] : [])]),
   ];
-  const [cards, priority, areas] = await Promise.all([getAccountCallCards(accountIds), getPriorityBook(), listAreas()]);
+  const cards = await getAccountCallCards(accountIds);
 
   const items = schedule.map((r) => {
     const card = r.account_id ? cards[r.account_id] : undefined;

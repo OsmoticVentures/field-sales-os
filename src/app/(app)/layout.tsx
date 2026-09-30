@@ -11,8 +11,8 @@ import { SidebarNav, TabBar, type NavItem } from "./Nav";
  * More tab, see Nav.tsx. A new port is one line here.
  */
 const NAV: NavItem[] = [
-  { href: "/route", label: "Route", icon: "route", tab: true },
   { href: "/visit", label: "Visit", icon: "edit", tab: true },
+  { href: "/route", label: "Route", icon: "route", tab: true },
   { href: "/prospect", label: "Prospect", icon: "phone", tab: true },
   { href: "/clients", label: "Clients", icon: "book" },
   { href: "/search", label: "Search", icon: "search" },

@@ -396,7 +396,30 @@ export type PriorityBook = {
   areaProspects: Map<string, number>;
 };
 
-export async function getPriorityBook(): Promise<PriorityBook> {
+/**
+ * The book is four reads of up to 2,000 rows each and changes on the scale
+ * of visits, not seconds, yet Prospect, the Route map and every client view
+ * ask for it. One copy per warm server for a minute, shared by concurrent
+ * callers; a write that moves a score drops it (invalidatePriorityBook).
+ */
+const BOOK_TTL_MS = 60 * 1000;
+let bookMemo: { at: number; p: Promise<PriorityBook> } | null = null;
+
+export function invalidatePriorityBook(): void {
+  bookMemo = null;
+}
+
+export function getPriorityBook(): Promise<PriorityBook> {
+  if (bookMemo && Date.now() - bookMemo.at < BOOK_TTL_MS) return bookMemo.p;
+  const memo = { at: Date.now(), p: readPriorityBook() };
+  bookMemo = memo;
+  memo.p.catch(() => {
+    if (bookMemo === memo) bookMemo = null;
+  });
+  return memo.p;
+}
+
+async function readPriorityBook(): Promise<PriorityBook> {
   const empty: PriorityBook = { byId: new Map(), ranked: [], areaProspects: new Map() };
   if (!isConfigured()) return empty;
 

@@ -16,7 +16,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
-import { apiFetch } from "@/lib/core/api";
+import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico } from "@/lib/core/ui";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { dayLabel } from "@/lib/features/route/field-week";
@@ -279,6 +279,8 @@ function AddToSdr({ accountId, days }: { accountId: string; days: string[] }) {
   );
 }
 
+type MapPayload = { ok: boolean; areas?: TerritoryArea[]; priorityById?: Record<string, AccountPriority>; displayPrefs?: MapDisplayPrefs };
+
 export function AccountsMap({
   accounts,
   days,
@@ -322,14 +324,16 @@ export function AccountsMap({
   const meRef = useRef<G>(null);
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
 
-  const [areas, setAreas] = useState<TerritoryArea[]>([]);
-  const [priorityById, setPriorityById] = useState<Record<string, AccountPriority>>({});
-  const [displayPrefs, setDisplayPrefs] = useState<MapDisplayPrefs>({ showChains: false, showPractices: false, showProspects: false });
+  const cached = peekJson<MapPayload>("/api/route/map");
+  const [areas, setAreas] = useState<TerritoryArea[]>(cached?.areas ?? []);
+  const [priorityById, setPriorityById] = useState<Record<string, AccountPriority>>(cached?.priorityById ?? {});
+  const [displayPrefs, setDisplayPrefs] = useState<MapDisplayPrefs>(
+    cached?.displayPrefs ?? { showChains: false, showPractices: false, showProspects: false },
+  );
 
   useEffect(() => {
-    apiFetch("/api/route/map")
-      .then((r) => r.json())
-      .then((j: { ok: boolean; areas?: TerritoryArea[]; priorityById?: Record<string, AccountPriority>; displayPrefs?: MapDisplayPrefs }) => {
+    getJson<MapPayload>("/api/route/map")
+      .then((j) => {
         if (!j.ok) return;
         setAreas(j.areas ?? []);
         setPriorityById(j.priorityById ?? {});

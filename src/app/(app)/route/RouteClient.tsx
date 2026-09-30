@@ -17,7 +17,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import { apiFetch } from "@/lib/core/api";
+import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
+import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { AccountsMap } from "./AccountsMap";
 import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/lib/features/route/field-week";
@@ -205,22 +206,36 @@ const iconBtn = `${ghostBtn} inline-flex items-center justify-center gap-1.5 px-
 const sqBtn = `${ghostBtn} inline-flex min-w-11 items-center justify-center bg-white px-0 py-0`;
 
 export function RouteClient() {
-  const [data, setData] = useState<StatePayload | null>(null);
+  // Last visit's route paints at once; the fresh read replaces it. Only
+  // the day stays put if the rep already picked one.
+  const [data, setData] = useState<StatePayload | null>(() => peekJson<StatePayload>("/api/route/state") ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeDay, setActiveDay] = useState<string | null>(null);
+  const [activeDay, setActiveDay] = useState<string | null>(() => data?.activeDay ?? null);
 
   useEffect(() => {
-    apiFetch("/api/route/state")
-      .then((r) => r.json())
-      .then((j: StatePayload) => {
+    // Everything the screen will ask for, started together rather than as
+    // each piece mounts: the map's own read, the return suggestions, and
+    // the Maps script.
+    warmJson("/api/route/map");
+    warmJson("/api/route/returns");
+    const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (key) void loadGoogleMaps(key).catch(() => {});
+
+    let live = true;
+    getJson<StatePayload>("/api/route/state")
+      .then((j) => {
+        if (!live) return;
         if (!j.ok) {
           setLoadError("Couldn't load the route.");
           return;
         }
         setData(j);
-        setActiveDay(j.activeDay);
+        setActiveDay((d) => (d && j.days.includes(d) ? d : j.activeDay));
       })
-      .catch(() => setLoadError("Couldn't load the route."));
+      .catch(() => live && setLoadError("Couldn't load the route."));
+    return () => {
+      live = false;
+    };
   }, []);
 
   if (loadError) return <p className="text-[14px] text-[#8A2E2E]">{loadError}</p>;
