@@ -1,9 +1,11 @@
 "use client";
 
 /**
- * Visit Logger's client UI: the capture box and, when the note's store is not
- * named with confidence, the account pick right inside it. A note is either
- * filed or still on the screen with its text; nothing is parked for later.
+ * Visit Logger's client UI: the capture box. When the note's store is not
+ * named with confidence, or anything fails, the screen stays exactly as it
+ * was (text, kind, grade, readiness) and one red line under the composer says
+ * what it could not be sure of, with the closest accounts as tappable picks.
+ * A note is either filed or still on the screen; nothing is parked for later.
  * Ported and trimmed from portfolio/src/app/nutribiotic/lib/touchpoint-ui.tsx
  * and new-account-ui.tsx.
  *
@@ -16,7 +18,7 @@
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { apiFetch } from "../../core/api";
-import { Ico, ghostBtn, inputCls, primaryBtn } from "../../core/ui";
+import { Ico, ghostBtn, primaryBtn } from "../../core/ui";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
 function Spinner({ light = true }: { light?: boolean }) {
@@ -190,7 +192,8 @@ export function TouchpointCapture({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<FiledResult | null>(null);
-  const [choose, setChoose] = useState<NeedsAccountResult | null>(null);
+  // Not sure which store: the closest accounts, offered inside the error line.
+  const [unsure, setUnsure] = useState<NeedsAccountResult | null>(null);
   const [grade, setGrade] = useState<VisitGrade | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [newCompany, setNewCompany] = useState(false);
@@ -253,7 +256,7 @@ export function TouchpointCapture({
     setGrade(null);
     setReadiness(null);
     setNewCompany(false);
-    setChoose(null);
+    setUnsure(null);
     requestAnimationFrame(() => {
       if (textareaRef.current) {
         autosize(textareaRef.current);
@@ -277,9 +280,12 @@ export function TouchpointCapture({
     lastTry.current = () => run(attempt);
     startTransition(async () => {
       setError(null);
+      setUnsure(null);
       try {
         await attempt();
       } catch (e) {
+        // Not sure is not a failure to retry: the fix is in the note.
+        if (e instanceof Unsure) lastTry.current = null;
         setError(e instanceof Error ? e.message : "That note did not file.");
       }
     });
@@ -296,13 +302,39 @@ export function TouchpointCapture({
         { text: value, accountIdHint: accountIdHint ?? undefined, kindOverride: kindOverride(), forceNewAccount: newCompany },
         key.current,
       );
-      if (result.needsAccount) setChoose(result);
-      else filed(result);
+      if (!result.needsAccount) return filed(result);
+
+      // New company: create it from the name the note gave, then file to it.
+      // No name, no guess: say so and leave everything as it was.
+      if (newCompany) {
+        const name = result.businessNameGuess?.trim();
+        if (!name) throw new Unsure("Couldn't tell the new store's name. Put it in the note and log again.");
+        const made = await postJson<{ accountId: string; accountName: string }>(
+          "/api/visit/new-account",
+          { name },
+          `${key.current}:new:${name.toLowerCase()}`,
+        );
+        const done = await postJson<TouchpointApiResult>(
+          "/api/visit/touchpoint",
+          { text: value, accountIdHint: made.accountId, kindOverride: kindOverride(), parsed: result.parsed },
+          `${key.current}:${made.accountId}`,
+        );
+        if (done.needsAccount) throw new Error(`Created ${made.accountName}, but the note did not file to it. Log again.`);
+        return filed(done);
+      }
+
+      setUnsure(result);
+      throw new Unsure(
+        result.businessNameGuess
+          ? `Couldn't tell which store "${result.businessNameGuess}" is. Put the store name in the note and log again.`
+          : "Couldn't tell which store this was. Put the store name in the note and log again.",
+      );
     });
   }
 
+  /** One of the closest accounts, tapped from the error line. */
   function fileTo(account: { id: string; name: string }) {
-    const pick = choose;
+    const pick = unsure;
     if (!pick || pending) return;
     run(async () => {
       const result = await postJson<TouchpointApiResult>(
@@ -310,26 +342,7 @@ export function TouchpointCapture({
         { text, accountIdHint: account.id, kindOverride: kindOverride(), parsed: pick.parsed },
         `${key.current}:${account.id}`,
       );
-      if (result.needsAccount) throw new Error("That account did not take. Pick it again.");
-      filed(result);
-    });
-  }
-
-  function createAndFile(name: string) {
-    const pick = choose;
-    if (!pick || pending || !name.trim()) return;
-    run(async () => {
-      const made = await postJson<{ accountId: string; accountName: string }>(
-        "/api/visit/new-account",
-        { name: name.trim() },
-        `${key.current}:new:${name.trim().toLowerCase()}`,
-      );
-      const result = await postJson<TouchpointApiResult>(
-        "/api/visit/touchpoint",
-        { text, accountIdHint: made.accountId, kindOverride: kindOverride(), parsed: pick.parsed },
-        `${key.current}:${made.accountId}`,
-      );
-      if (result.needsAccount) throw new Error(`${made.accountName} was created but the note did not file to it. Pick it from the search.`);
+      if (result.needsAccount) throw new Error(`Couldn't file to ${account.name}. Log again.`);
       filed(result);
     });
   }
@@ -387,20 +400,6 @@ export function TouchpointCapture({
               </div>
             )}
           </div>
-        ) : choose ? (
-          <AccountPicker
-            summary={choose.summary}
-            nameGuess={choose.businessNameGuess}
-            match={choose.matchAccountId && choose.matchAccountName ? { id: choose.matchAccountId, name: choose.matchAccountName } : null}
-            initialCandidates={choose.candidates}
-            busy={pending}
-            onPick={fileTo}
-            onCreate={createAndFile}
-            onBack={() => {
-              setChoose(null);
-              setError(null);
-            }}
-          />
         ) : (
           <>
             <div className="mb-3 flex gap-1">
@@ -429,6 +428,11 @@ export function TouchpointCapture({
               onChange={(e) => {
                 setText(e.target.value);
                 autosize(e.target);
+                if (error) {
+                  setError(null);
+                  setUnsure(null);
+                  lastTry.current = null;
+                }
               }}
               placeholder="What just happened?"
               rows={5}
@@ -547,29 +551,12 @@ export function TouchpointCapture({
                 {pending ? "Logging" : "Log"}
               </button>
             </div>
+
+            {error && <ErrorLine message={error} picks={unsure ? pickList(unsure) : []} busy={pending} onPick={fileTo} onRetry={lastTry.current} />}
           </>
         )}
       </div>
 
-      {error && (
-        <div role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-md border border-[#D9B8B3] bg-[#FBF1EF] px-3 py-2.5">
-          <div className="flex min-w-0 items-start gap-1.5 text-[13.5px] leading-relaxed font-medium text-[#8A2E2E]">
-            <Ico name="alert" size={14} />
-            <span>{error}</span>
-          </div>
-          {lastTry.current && (
-            <button
-              type="button"
-              onClick={() => lastTry.current?.()}
-              disabled={pending}
-              className="flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-[#8A2E2E] px-4 text-[13px] font-medium text-white transition-transform active:scale-[0.97] disabled:opacity-50"
-            >
-              {pending && <Spinner />}
-              Try again
-            </button>
-          )}
-        </div>
-      )}
       {photoUiState === "error" && (
         <div role="alert" className="mt-2 text-[13px] font-medium text-[#8A2E2E]">
           The note filed, the photo did not attach.
@@ -580,120 +567,62 @@ export function TouchpointCapture({
 }
 
 // ---------------------------------------------------------------------------
-// the account pick, inside the capture box
+// the error line under the composer
 // ---------------------------------------------------------------------------
 
-function AccountPicker({
-  summary,
-  nameGuess,
-  match,
-  initialCandidates,
+/** Thrown when the note is fine but its store can't be told with confidence.
+ *  Shown like any error, never offered as a retry. */
+class Unsure extends Error {}
+
+/** The best match first, then the rest of the closest accounts, three at most. */
+function pickList(u: NeedsAccountResult): AccountOption[] {
+  const best = u.matchAccountId && u.matchAccountName ? [{ id: u.matchAccountId, name: u.matchAccountName, city: null }] : [];
+  return [...best, ...u.candidates.filter((c) => c.id !== u.matchAccountId)].slice(0, 3);
+}
+
+function ErrorLine({
+  message,
+  picks,
   busy,
   onPick,
-  onCreate,
-  onBack,
+  onRetry,
 }: {
-  summary: string;
-  nameGuess: string | null;
-  match: { id: string; name: string } | null;
-  initialCandidates: AccountOption[];
+  message: string;
+  picks: AccountOption[];
   busy: boolean;
   onPick: (a: { id: string; name: string }) => void;
-  onCreate: (name: string) => void;
-  onBack: () => void;
+  onRetry: (() => void) | null;
 }) {
-  const [query, setQuery] = useState(nameGuess ?? "");
-  const [candidates, setCandidates] = useState<AccountOption[]>(initialCandidates);
-  const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(initialCandidates.length > 0 || Boolean(nameGuess));
-  const [searchError, setSearchError] = useState<string | null>(null);
-
-  async function search() {
-    if (!query.trim() || searching) return;
-    setSearching(true);
-    setSearchError(null);
-    try {
-      const res = await apiFetch(`/api/visit/search-accounts?q=${encodeURIComponent(query)}`);
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Search failed.");
-      setCandidates(data.candidates ?? []);
-    } catch {
-      setCandidates([]);
-      setSearchError("Search failed. Check the connection and search again.");
-    } finally {
-      setSearching(false);
-      setSearched(true);
-    }
-  }
-
-  const options = match ? [match as AccountOption, ...candidates.filter((c) => c.id !== match.id)] : candidates;
-
   return (
-    <div className="flex flex-col gap-3">
-      <p className="line-clamp-3 text-[13.5px] leading-relaxed text-[#3D4A44]">{summary}</p>
-
-      <div className="text-[15px] font-semibold text-[#14201B]">Which account?</div>
-
-      {options.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          {options.map((c) => (
+    <div role="alert" className="mt-3 text-[13.5px] leading-relaxed font-medium text-[#8A2E2E]">
+      <span>{message}</span>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="ml-1.5 inline-flex min-h-11 items-center gap-1.5 underline underline-offset-2 disabled:opacity-50"
+        >
+          {busy && <Spinner light={false} />}
+          Try again
+        </button>
+      )}
+      {picks.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {picks.map((c) => (
             <button
               key={c.id}
               type="button"
               onClick={() => onPick(c)}
               disabled={busy}
-              className="flex min-h-12 w-full items-center justify-between gap-3 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3.5 text-left text-[14px] text-[#14201B] transition-transform active:scale-[0.99] disabled:opacity-50"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-[#D9B8B3] px-3.5 text-[13px] font-medium text-[#8A2E2E] transition-transform active:scale-[0.97] disabled:opacity-50"
             >
-              <span className="min-w-0 truncate font-medium">{c.name}</span>
-              {c.city && <span className="shrink-0 text-[12.5px] text-[#8A928C]">{c.city}</span>}
+              {c.name}
+              {c.city && <span className="font-normal opacity-70">{c.city}</span>}
             </button>
           ))}
         </div>
       )}
-
-      <div className="flex items-center gap-2">
-        <input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setSearchError(null);
-          }}
-          onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder="Business name"
-          className={`${inputCls} min-w-0 flex-1`}
-        />
-        <button
-          type="button"
-          onClick={search}
-          disabled={searching || !query.trim()}
-          aria-label="Search"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#14201B] text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40"
-        >
-          {searching ? <Spinner /> : <Ico name="search" size={16} />}
-        </button>
-      </div>
-
-      {searchError && <div className="text-[13px] font-medium text-[#8A2E2E]">{searchError}</div>}
-      {searched && !searching && !searchError && options.length === 0 && (
-        <div className="text-[13px] text-[#5B6560]">Not in your book.</div>
-      )}
-
-      <div className="flex items-center justify-between gap-2">
-        <button type="button" onClick={onBack} disabled={busy} className={ghostBtn}>
-          Back
-        </button>
-        {query.trim() && (
-          <button
-            type="button"
-            onClick={() => onCreate(query)}
-            disabled={busy}
-            className={`${primaryBtn} flex min-w-0 items-center gap-1.5`}
-          >
-            {busy ? <Spinner /> : <Ico name="plus" size={13} />}
-            <span className="truncate">New: {query.trim()}</span>
-          </button>
-        )}
-      </div>
     </div>
   );
 }

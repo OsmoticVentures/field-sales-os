@@ -40,16 +40,25 @@ export async function POST(req: Request) {
   try {
     // A failure is thrown, not returned, so it is never stored under the key:
     // the one-tap retry with the same key runs again instead of replaying it.
+    // "Not sure which store" writes nothing and is not stored either, so the
+    // same note logged again after an edit is read fresh.
     const { result, replayed } = await withIdempotency(`visit:touchpoint:${key}`, async () => {
       const r = await recordTouchpoint(text, accountIdHint, { kindOverride, forceNewAccount, parsed });
       if (!r.ok) throw new NotFiled(r.error);
+      if (r.needsAccount) throw new NotSure(r);
       return r;
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    if (err instanceof NotSure) return Response.json({ ok: true, result: err.result, replayed: false });
     const status = err instanceof NotFiled ? 422 : 500;
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "That note did not file." }, { status });
   }
 }
 
 class NotFiled extends Error {}
+class NotSure extends Error {
+  constructor(readonly result: unknown) {
+    super("Not sure which store.");
+  }
+}
