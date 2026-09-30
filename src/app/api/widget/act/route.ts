@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   } catch {
     return Response.json({ ok: false, error: "Expected JSON." }, { status: 400 });
   }
-  if (typeof body.id !== "string" || !body.id) {
+  if (body.action !== "odo" && (typeof body.id !== "string" || !body.id)) {
     return Response.json({ ok: false, error: "id is required." }, { status: 400 });
   }
 
