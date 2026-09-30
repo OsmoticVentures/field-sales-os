@@ -24,6 +24,21 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.osmoticventures.fieldsalesos</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fieldsalesos</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Field Sales OS photographs the odometer at the start and end of a route.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Field Sales OS saves odometer photos to your camera roll.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Field Sales OS uses your location to log visits, find nearby accounts, and plan routes.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

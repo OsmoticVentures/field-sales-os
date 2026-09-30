@@ -7,7 +7,7 @@
  * Scope stays Juan's book: insertSdrScheduleItem refuses any account he does
  * not own.
  */
-import { getRouteStateByDay, setRouteDone } from "../../../../lib/features/route/dal";
+import { getRouteStateByDay, setRouteDone, setRouteMileageDay } from "../../../../lib/features/route/dal";
 import { insertSdrScheduleItem, listSdrSchedule, type SdrPriority } from "../../../../lib/features/prospect/dal";
 import { laTodayIso, planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { hasAccess } from "../../../../lib/core/devices";
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   if (!(await hasWidgetToken(req)) && !(await hasAccess())) {
     return Response.json({ ok: false, error: "Sign in again." }, { status: 401 });
   }
-  let body: { action?: string; day?: string; id?: string; priority?: string };
+  let body: { action?: string; day?: string; id?: string; priority?: string; kind?: string };
   try {
     body = await req.json();
   } catch {
@@ -42,6 +42,19 @@ export async function POST(req: Request) {
       if (!current.includes(body.id)) {
         await setRouteDone({ ...state.done, [body.day]: [...current, body.id] });
       }
+      return Response.json({ ok: true });
+    }
+
+    if (body.action === "odo") {
+      // The photo stays on the phone (filed weekly in Expenses). This only
+      // records that the side was handled, so the day never asks twice.
+      const kind = body.kind === "end" ? "end" : "start";
+      if (typeof body.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.day)) {
+        return Response.json({ ok: false, error: "day must be YYYY-MM-DD." }, { status: 400 });
+      }
+      await setRouteMileageDay(body.day, {
+        [kind]: { odo: null, driveFileId: "", photoLink: "", capturedAt: new Date().toISOString(), manual: true },
+      });
       return Response.json({ ok: true });
     }
 

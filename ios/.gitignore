@@ -11,3 +11,6 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# Widget bearer, generated on the Mac that builds
+App/Shared/Secrets.swift

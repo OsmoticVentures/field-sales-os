@@ -12,9 +12,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+        if let url = connectionOptions.urlContexts.first?.url { DeepLink.handle(url, from: window) }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        if let url = URLContexts.first?.url, url.scheme == "fieldsalesos" { DeepLink.handle(url, from: window); return }
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
     }
 

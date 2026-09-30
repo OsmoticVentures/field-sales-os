@@ -7,19 +7,59 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		189ABA6400881303DCFE8AD8 /* RouteAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175558934085E0E9D2E76EC7 /* RouteAPI.swift */; };
+		1E112E21652887A1D1DEFFCC /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B31C898129EF2B3097944AF /* Foundation.framework */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
+		3DADDA2B955D43BC0DEB493E /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAAA21415C7DBE776D71A894 /* DeepLink.swift */; };
+		4673630EAE0FC4AAF38E088E /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FEB2C1EE0A86620030872D /* Secrets.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
+		4FEF8A6BA2C99676931B5BE6 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FEB2C1EE0A86620030872D /* Secrets.swift */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		56BDB2671E2F22F43B7159EC /* FieldRouteWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DEE874EA9A9ABE657812BF39 /* FieldRouteWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		57A0110881F3887A929ABAB5 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 62A10C9EAF60B42540DA6BFF /* WidgetKit.framework */; };
+		69B660C1629E268650E1B8CB /* RouteAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175558934085E0E9D2E76EC7 /* RouteAPI.swift */; };
+		8616612F0FF7A68B857F1BC3 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 62A10C9EAF60B42540DA6BFF /* WidgetKit.framework */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
+		B5680144289F01CE459753AD /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 958A3E77F3B67BA0B87886BF /* SwiftUI.framework */; };
+		DA020C035D49AD80725AB46B /* FieldRouteWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7CF74D4013C5FF1ACC345E /* FieldRouteWidget.swift */; };
+		EC565A47E0BCBDD19FA87AB1 /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 02352958F3570221B3E0377B /* AppIntents.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		006EC14317BC9F022F504495 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C0BDB18C9CCA524973A8C3D8;
+			remoteInfo = FieldRouteWidget;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		08905E208F04987EF8559FD9 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				56BDB2671E2F22F43B7159EC /* FieldRouteWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		02352958F3570221B3E0377B /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/AppIntents.framework; sourceTree = DEVELOPER_DIR; };
+		175558934085E0E9D2E76EC7 /* RouteAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RouteAPI.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
+		35FEB2C1EE0A86620030872D /* Secrets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
+		4B31C898129EF2B3097944AF /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -28,8 +68,14 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
+		5C7CF74D4013C5FF1ACC345E /* FieldRouteWidget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FieldRouteWidget.swift; sourceTree = "<group>"; };
+		62A10C9EAF60B42540DA6BFF /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/WidgetKit.framework; sourceTree = DEVELOPER_DIR; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		958A3E77F3B67BA0B87886BF /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS26.0.sdk/System/Library/Frameworks/SwiftUI.framework; sourceTree = DEVELOPER_DIR; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		A83A04EDC0C6754BE76181AE /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		BAAA21415C7DBE776D71A894 /* DeepLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeepLink.swift; sourceTree = "<group>"; };
+		DEE874EA9A9ABE657812BF39 /* FieldRouteWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FieldRouteWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,18 +84,52 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
+				8616612F0FF7A68B857F1BC3 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		75D6082E7C5A288D55331A34 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1E112E21652887A1D1DEFFCC /* Foundation.framework in Frameworks */,
+				57A0110881F3887A929ABAB5 /* WidgetKit.framework in Frameworks */,
+				B5680144289F01CE459753AD /* SwiftUI.framework in Frameworks */,
+				EC565A47E0BCBDD19FA87AB1 /* AppIntents.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1B80CF4490831E21DD122FF4 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2178449C2C55B395D881B753 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		2178449C2C55B395D881B753 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				4B31C898129EF2B3097944AF /* Foundation.framework */,
+				62A10C9EAF60B42540DA6BFF /* WidgetKit.framework */,
+				958A3E77F3B67BA0B87886BF /* SwiftUI.framework */,
+				02352958F3570221B3E0377B /* AppIntents.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
 		504EC2FB1FED79650016851F = {
 			isa = PBXGroup;
 			children = (
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				504EC3061FED79650016851F /* App */,
 				504EC3051FED79650016851F /* Products */,
+				1B80CF4490831E21DD122FF4 /* Frameworks */,
+				55ABB4B043A32EDCD1AB37E8 /* FieldRouteWidget */,
+				61AF4DCCD32C184349B35243 /* Shared */,
 			);
 			sourceTree = "<group>";
 		};
@@ -57,6 +137,7 @@
 			isa = PBXGroup;
 			children = (
 				504EC3041FED79650016851F /* App.app */,
+				DEE874EA9A9ABE657812BF39 /* FieldRouteWidget.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -73,8 +154,29 @@
 				504EC3131FED79650016851F /* Info.plist */,
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
+				BAAA21415C7DBE776D71A894 /* DeepLink.swift */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		55ABB4B043A32EDCD1AB37E8 /* FieldRouteWidget */ = {
+			isa = PBXGroup;
+			children = (
+				5C7CF74D4013C5FF1ACC345E /* FieldRouteWidget.swift */,
+				A83A04EDC0C6754BE76181AE /* Info.plist */,
+			);
+			name = FieldRouteWidget;
+			path = FieldRouteWidget;
+			sourceTree = "<group>";
+		};
+		61AF4DCCD32C184349B35243 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				175558934085E0E9D2E76EC7 /* RouteAPI.swift */,
+				35FEB2C1EE0A86620030872D /* Secrets.swift */,
+			);
+			name = Shared;
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -87,10 +189,12 @@
 				504EC3001FED79650016851F /* Sources */,
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
+				08905E208F04987EF8559FD9 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				DC7B1A2A6CABF449C26D6C6D /* PBXTargetDependency */,
 			);
 			name = App;
 			packageProductDependencies = (
@@ -99,6 +203,23 @@
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
 			productType = "com.apple.product-type.application";
+		};
+		C0BDB18C9CCA524973A8C3D8 /* FieldRouteWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 310D8444CD9D05180592B3B7 /* Build configuration list for PBXNativeTarget "FieldRouteWidget" */;
+			buildPhases = (
+				BE19CF89DEF1943CF60C2599 /* Sources */,
+				75D6082E7C5A288D55331A34 /* Frameworks */,
+				0BBF8EAEE23C5993DD060ABD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FieldRouteWidget;
+			productName = FieldRouteWidget;
+			productReference = DEE874EA9A9ABE657812BF39 /* FieldRouteWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -134,11 +255,19 @@
 			projectRoot = "";
 			targets = (
 				504EC3031FED79650016851F /* App */,
+				C0BDB18C9CCA524973A8C3D8 /* FieldRouteWidget */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		0BBF8EAEE23C5993DD060ABD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		504EC3021FED79650016851F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -161,10 +290,32 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
+				3DADDA2B955D43BC0DEB493E /* DeepLink.swift in Sources */,
+				189ABA6400881303DCFE8AD8 /* RouteAPI.swift in Sources */,
+				4FEF8A6BA2C99676931B5BE6 /* Secrets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BE19CF89DEF1943CF60C2599 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA020C035D49AD80725AB46B /* FieldRouteWidget.swift in Sources */,
+				69B660C1629E268650E1B8CB /* RouteAPI.swift in Sources */,
+				4673630EAE0FC4AAF38E088E /* Secrets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DC7B1A2A6CABF449C26D6C6D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = FieldRouteWidget;
+			target = C0BDB18C9CCA524973A8C3D8 /* FieldRouteWidget */;
+			targetProxy = 006EC14317BC9F022F504495 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
 		504EC30B1FED79650016851F /* Main.storyboard */ = {
@@ -186,6 +337,31 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
+		4BD43BD2DFC24E6BE9E42902 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 96L6YKQ6LH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FieldRouteWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.osmoticventures.fieldsalesos.FieldRouteWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
 		504EC3141FED79650016851F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 958DCC722DB07C7200EA8C5F /* debug.xcconfig */;
@@ -351,9 +527,44 @@
 			};
 			name = Release;
 		};
+		A88F39B5E12247B647AE850B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 96L6YKQ6LH;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = FieldRouteWidget/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.osmoticventures.fieldsalesos.FieldRouteWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		310D8444CD9D05180592B3B7 /* Build configuration list for PBXNativeTarget "FieldRouteWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A88F39B5E12247B647AE850B /* Release */,
+				4BD43BD2DFC24E6BE9E42902 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		504EC2FF1FED79650016851F /* Build configuration list for PBXProject "App" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
