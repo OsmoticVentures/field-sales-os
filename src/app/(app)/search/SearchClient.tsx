@@ -409,11 +409,11 @@ export function SearchClient() {
     setBusy(null);
   }
 
-  async function runEnrich() {
+  async function runEnrich(only?: string) {
     if (!rows) return;
     setBusy("enrich");
     setFailure(null);
-    const picked = rows.filter((r) => selected.has(r.key));
+    const picked = rows.filter((r) => (only ? r.key === only : selected.has(r.key)));
     const reply = await post("enrich", { candidates: picked });
     if (reply) {
       const byKey = new Map((reply.candidates ?? []).map((c) => [c.key, c]));
@@ -821,6 +821,8 @@ export function SearchClient() {
           expanded={expanded}
           onToggle={toggle}
           onToggleAll={toggleAll}
+          onReadSite={(k) => runEnrich(k)}
+          busy={busy !== null}
           onExpand={(k) =>
             setExpanded((prev) => {
               const next = new Set(prev);
@@ -841,7 +843,7 @@ export function SearchClient() {
           count={selectedUnlanded.length}
           enrichedCount={selectedEnriched}
           busy={busy}
-          onEnrich={runEnrich}
+          onEnrich={() => runEnrich()}
           onLand={runLand}
         />
       )}
@@ -1153,6 +1155,8 @@ function ResultsTable({
   onToggle,
   onToggleAll,
   onExpand,
+  onReadSite,
+  busy,
   sort,
   onSort,
   selectableCount,
@@ -1164,6 +1168,8 @@ function ResultsTable({
   onToggle: (k: string) => void;
   onToggleAll: () => void;
   onExpand: (k: string) => void;
+  onReadSite: (k: string) => void;
+  busy: boolean;
   sort: SortKey;
   onSort: (k: SortKey) => void;
   selectableCount: number;
@@ -1192,7 +1198,16 @@ function ResultsTable({
         )}
         <div className="divide-y divide-[#EDEBE3]">
           {rows.map((r) => (
-            <MobileRow key={r.key} row={r} selected={selected.has(r.key)} onToggle={() => onToggle(r.key)} />
+            <MobileRow
+              key={r.key}
+              row={r}
+              selected={selected.has(r.key)}
+              open={expanded.has(r.key)}
+              busy={busy}
+              onToggle={() => onToggle(r.key)}
+              onOpen={() => onExpand(r.key)}
+              onReadSite={() => onReadSite(r.key)}
+            />
           ))}
         </div>
       </div>
@@ -1381,71 +1396,142 @@ function ResultsTable({
   );
 }
 
-/** One result on a phone: the whole row is the 44px selection toggle, no
- *  16px checkbox to aim for. A landed row has nothing to toggle. */
+/** One result on a phone. The checkbox is its own 44px target; the rest of
+ *  the row opens the depth behind it. A landed row opens its prospect page. */
 function MobileRow({
   row: r,
   selected,
+  open,
+  busy,
   onToggle,
+  onOpen,
+  onReadSite,
 }: {
   row: Candidate;
   selected: boolean;
+  open: boolean;
+  busy: boolean;
   onToggle: () => void;
+  onOpen: () => void;
+  onReadSite: () => void;
 }) {
-  const meta = (
-    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-[#8A928C]">
-      {r.city && <span>{r.city}</span>}
-      {r.places_rating != null && (
-        <span>
-          {r.places_rating.toFixed(1)} / 5{r.places_rating_count != null ? ` (${r.places_rating_count})` : ""}
-        </span>
-      )}
-      {r.id && (
-        <span className="rounded-full bg-[#E7EDE4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#3D6B4A]">
-          Queued
-        </span>
-      )}
-    </div>
-  );
-
   const body = (
     <div className="min-w-0 flex-1">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-[#14201B]">{r.name}</span>
-        <span className="shrink-0 text-[13px] font-medium tabular-nums text-[#14201B]">
+        <span className="flex shrink-0 items-center gap-1.5 text-[13px] font-medium tabular-nums text-[#14201B]">
           {r.triage_score.toFixed(0)}
+          <span className="text-[#8A928C]">
+            <Ico name={r.id ? "external" : open ? "chevron-up" : "chevron-down"} size={12} />
+          </span>
         </span>
       </div>
-      {meta}
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[12px] text-[#8A928C]">
+        {r.city && <span>{r.city}</span>}
+        {r.places_rating != null && (
+          <span>
+            {r.places_rating.toFixed(1)} / 5{r.places_rating_count != null ? ` (${r.places_rating_count})` : ""}
+          </span>
+        )}
+        {r.id && (
+          <span className="rounded-full bg-[#E7EDE4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#3D6B4A]">
+            Queued
+          </span>
+        )}
+      </div>
       {r.address && <div className="mt-1 text-[12.5px] text-[#5B6560]">{r.address}</div>}
-      {r.about && <div className="mt-1 line-clamp-2 text-[12.5px] text-[#5B6560]">{r.about}</div>}
+      {!open && r.about && <div className="mt-1 line-clamp-2 text-[12.5px] text-[#5B6560]">{r.about}</div>}
     </div>
   );
 
+  const rowCls = `flex min-h-11 w-full items-start gap-1 py-1 pr-3 text-left ${selected ? "bg-[#F4F2EA]" : ""}`;
+
   if (r.id) {
     return (
-      <div className={`flex min-h-11 items-start gap-3 px-3 py-3 ${selected ? "bg-[#F4F2EA]" : ""}`}>
-        <span className="mt-0.5 shrink-0 text-[#3D6B4A]" title="Already added as a prospect">
+      <Link href={{ pathname: "/prospect", query: { account: r.id } }} className={rowCls}>
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center text-[#3D6B4A]" title="Added as a prospect">
           <Ico name="check" size={16} />
         </span>
-        {body}
-      </div>
+        <div className="flex-1 py-2">{body}</div>
+      </Link>
     );
   }
 
+  const site = r.website ? (r.website.startsWith("http") ? r.website : `https://${r.website}`) : null;
+  const action =
+    "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3 text-[13px] font-medium text-[#14201B] active:scale-[0.97]";
+
   return (
-    <label
-      className={`flex min-h-11 w-full cursor-pointer items-start gap-3 px-3 py-3 ${selected ? "bg-[#F4F2EA]" : ""}`}
-    >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={onToggle}
-        aria-label={`Select ${r.name ?? "this business"}`}
-        className="mt-0.5 h-5 w-5 shrink-0 accent-[#14201B]"
-      />
-      {body}
-    </label>
+    <div className={selected ? "bg-[#F4F2EA]" : ""}>
+      <div className="flex items-start gap-1 py-1 pr-3">
+        <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggle}
+            aria-label={`Select ${r.name ?? "this business"}`}
+            className="h-5 w-5 accent-[#14201B]"
+          />
+        </label>
+        <button type="button" onClick={onOpen} aria-expanded={open} className="min-w-0 flex-1 py-2 text-left">
+          {body}
+        </button>
+      </div>
+      {open && (
+        <div className="flex flex-col gap-3 px-3 pb-4 pl-[3.25rem] text-[12.5px] text-[#5B6560]">
+          {r.hours_today && <span>{r.hours_today}</span>}
+          {r.about && <p className="leading-relaxed">{r.about}</p>}
+          {r.decision_maker_candidate && (
+            <span>
+              <span className="text-[#8A928C]">Contact </span>
+              <span className="font-medium text-[#14201B]">{r.decision_maker_candidate}</span>
+              {r.decision_maker_found_by ? ` · ${r.decision_maker_found_by}` : ""}
+            </span>
+          )}
+          {r.fit_tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {r.fit_tags.map((t) => (
+                <span key={t} className="rounded-full border border-[#E2DFD5] px-1.5 py-0.5 text-[11px]">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+          {r.catalog_terms.length > 0 && <span>Site mentions: {r.catalog_terms.slice(0, 14).join(", ")}</span>}
+          {r.site_failures.length > 0 && <span className="text-[#A0762C]">{r.site_failures.join(" · ")}</span>}
+          <div className="flex flex-wrap gap-2">
+            {r.phone && (
+              <a href={`tel:${r.phone}`} className={action}>
+                <Ico name="phone" size={14} />
+                {r.phone}
+              </a>
+            )}
+            {site && (
+              <a href={site} target="_blank" rel="noopener noreferrer" className={action}>
+                <Ico name="external" size={13} />
+                {hostOf(r.website!)}
+              </a>
+            )}
+            {(r.lat != null || r.places_id) && (
+              <a
+                href={mapsUrl({ name: r.name, address: r.address, placesId: r.places_id })}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={action}
+              >
+                <Ico name="external" size={13} />
+                Maps
+              </a>
+            )}
+            {!r.enriched && site && (
+              <button type="button" onClick={onReadSite} disabled={busy} className={`${action} disabled:opacity-50`}>
+                {busy ? "Reading" : "Read the site"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
