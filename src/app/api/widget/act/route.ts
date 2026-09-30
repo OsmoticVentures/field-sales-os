@@ -31,6 +31,7 @@ export async function POST(req: Request) {
   if (body.action !== "odo" && (typeof body.id !== "string" || !body.id)) {
     return Response.json({ ok: false, error: "id is required." }, { status: 400 });
   }
+  const id = typeof body.id === "string" ? body.id : "";
 
   try {
     if (body.action === "done") {
@@ -39,8 +40,8 @@ export async function POST(req: Request) {
       }
       const state = await getRouteStateByDay();
       const current = state.done[body.day] ?? [];
-      if (!current.includes(body.id)) {
-        await setRouteDone({ ...state.done, [body.day]: [...current, body.id] });
+      if (!current.includes(id)) {
+        await setRouteDone({ ...state.done, [body.day]: [...current, id] });
       }
       return Response.json({ ok: true });
     }
