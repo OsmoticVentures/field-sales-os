@@ -360,6 +360,29 @@ export async function setRouteMileageDay(day: string, patch: Partial<RouteMileag
   return updated;
 }
 
+/**
+ * Accounts with a visit or meeting logged on `day` (Los Angeles). The widget
+ * drops these from the list: a place already logged today is not a stop left
+ * to make. Any logged visit counts, filed to HubSpot yet or not, because a
+ * stop that lingers after Juan logged it costs more than one hidden early.
+ */
+export async function listVisitedAccountIds(day: string): Promise<Set<string>> {
+  const [y, m, d] = day.split("-").map(Number);
+  const from = new Date(Date.UTC(y, m - 1, d)).toISOString();
+  const to = new Date(Date.UTC(y, m - 1, d + 2)).toISOString();
+  const rows = await raw<{ account_id: string | null; at: string | null }>(
+    "nb_activities",
+    `select=account_id,at&kind=in.(visit,meeting)&at=gte.${from}&at=lt.${to}&limit=500`,
+  );
+  const out = new Set<string>();
+  for (const r of rows) {
+    if (!r.account_id || !r.at) continue;
+    const la = new Date(r.at).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+    if (la === day) out.add(r.account_id);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Return-visit directives (Suggested returns)
 // ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import {
   getRouteStateByDay,
   isConfigured,
   listOwnerAccounts,
+  listVisitedAccountIds,
 } from "../../../lib/features/route/dal";
 import { defaultActiveDay, planningHorizonDates } from "../../../lib/features/route/field-week";
 import { likelyDriveMinutes } from "../../../lib/features/route/traffic";
@@ -103,6 +104,10 @@ export async function GET(request: Request) {
   const day = requested && days.includes(requested) ? requested : defaultActiveDay(state.draft, days);
   const draft = state.draft[day] ?? [];
   const doneIds = new Set(state.done[day] ?? []);
+  /* A visit or meeting already logged today takes the place off the list. It
+     counts as done for the day's state, it just is not drawn. */
+  const visited = await listVisitedAccountIds(day).catch(() => new Set<string>());
+  const visitedCount = draft.filter((e) => typeof e === "string" && visited.has(e)).length;
 
   const calls = (state.calls[day] ?? []).map((c) => ({
     id: c.id,
@@ -115,6 +120,7 @@ export async function GET(request: Request) {
 
   const stops: Stop[] = [];
   for (const e of draft) {
+    if (typeof e === "string" && visited.has(e)) continue;
     if (typeof e !== "string") {
       stops.push({
         n: stops.length + 1,
@@ -164,7 +170,7 @@ export async function GET(request: Request) {
       done: doneIds.has(a.id),
       maps_url: appleMapsUrl({ address: [a.street, a.city, a.state].filter(Boolean).join(", "), lat: a.lat, lng: a.lng }),
       call_url: a.phone ? `tel:${a.phone.replace(/[^\d+]/g, "")}` : null,
-      account_url: `${origin()}/nb/route?focus=${a.id}`,
+      account_url: `${origin()}/nb/account/${a.id}`,
     });
   }
 
@@ -241,7 +247,8 @@ export async function GET(request: Request) {
   }
 
   const accountStops = stops.filter((s) => s.type === "account");
-  const allAccountStopsDone = accountStops.length > 0 && accountStops.every((s) => s.done);
+  const allAccountStopsDone =
+    (accountStops.length > 0 || visitedCount > 0) && accountStops.every((s) => s.done);
   const day_state: "not_started" | "in_progress" | "ready_to_end" | "ended" = !dayMileage.start
     ? "not_started"
     : dayMileage.end
@@ -261,6 +268,7 @@ export async function GET(request: Request) {
       calls,
       schedule,
       day_state,
+      visited_count: visitedCount,
       mileage_error: dayMileage.fileError ?? null,
       total_straight_line_miles: stops.length > 1 ? Number(total.toFixed(1)) : null,
       maps_all_url: stops.length > 1 ? `https://maps.apple.com/?daddr=${stops.map((s) => `${s.lat},${s.lng}`).join("+to:")}` : null,

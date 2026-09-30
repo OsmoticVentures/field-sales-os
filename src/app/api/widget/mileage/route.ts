@@ -86,7 +86,9 @@ async function recordSide(day: string, kind: "start" | "end", side: RouteMileage
         startLink: today.start.photoLink,
         endLink: today.end.photoLink,
       });
-      await setRouteMileageDay(day, { start: undefined, end: undefined, filedSheetLink: undefined, fileError: undefined });
+      // Sides stay on record so the day reads as ended and the widget never
+      // asks for the odometer a second time.
+      await setRouteMileageDay(day, { filedSheetLink: filed.sheetLink, fileError: undefined });
       return Response.json({ ok: true, filed: true, sheetLink: filed.sheetLink, miles: filed.miles, odo: side.odo });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Filing failed.";
@@ -141,7 +143,11 @@ export async function POST(req: Request) {
 
   try {
     const bytes = await photo.arrayBuffer();
-    const mimeType = photo.type || "image/jpeg";
+    // Sniff the bytes: a widget can label a JPEG as anything, and a wrong
+    // media type makes the odometer read fail silently.
+    const head = new Uint8Array(bytes.slice(0, 4));
+    const mimeType =
+      head[0] === 0xff && head[1] === 0xd8 ? "image/jpeg" : head[0] === 0x89 && head[1] === 0x50 ? "image/png" : photo.type || "image/jpeg";
     const [odo, uploaded] = await Promise.all([
       readOdometer(bytes, mimeType),
       uploadMileagePhoto(day, kind, { bytes, mimeType, filename: photo.name || `${kind}.jpg` }),
