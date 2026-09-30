@@ -10,16 +10,23 @@ import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotenc
 import { enrichAccountQuickly } from "../../../../lib/features/prospect/quick-enrich";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+// Room for the site, its contact page, Places and one model call, see
+// QUICK_BUDGET_MS in quick-enrich.ts.
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   const key = idempotencyKey(req);
   if (!key) return Response.json({ ok: false, error: "Idempotency-Key header is required." }, { status: 400 });
 
-  const body = await req.json();
-  if (!body.account_id) return Response.json({ ok: false, error: "Missing account_id." }, { status: 400 });
+  const body = await req.json().catch(() => null);
+  if (!body?.account_id) return Response.json({ ok: false, error: "Missing account_id." }, { status: 400 });
 
-  const { result, replayed } = await withIdempotency(`prospect:enrich:${key}`, () => enrichAccountQuickly(body.account_id));
-  return Response.json({ ok: true, result, replayed });
+  try {
+    const { result, replayed } = await withIdempotency(`prospect:enrich:${key}`, () => enrichAccountQuickly(body.account_id));
+    return Response.json({ ok: true, result, replayed });
+  } catch (err) {
+    console.error("prospect enrich failed", err);
+    return Response.json({ ok: false, error: "Enrich further could not finish. Nothing was changed; try again." }, { status: 500 });
+  }
 }

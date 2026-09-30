@@ -20,6 +20,7 @@ import { AMBIGUOUS_CITIES, CATALOG_TERMS, TERRITORY_AREAS, type TerritoryArea } 
 import { insertRows, isConfigured, loadLocalAccounts, randId, type LocalAccount } from "./dal";
 import { PageText } from "./html";
 import { matchAccount, normPhone, pyFloat, pyRound } from "./match";
+import { extractJsonLd, fetchWebPage, isScriptShell } from "../../shared/web-page";
 
 type Log = (msg: string) => void;
 type Json = Record<string, unknown>;
@@ -604,61 +605,13 @@ function triageScore(place: Place): [number, Json] {
 
 const MAX_HTML_BYTES = 800_000;
 const FETCH_TIMEOUT_MS = 15_000;
-const UA = "NutriBioticFieldOS/1.0 (+sales research; contact juan@nutribiotic.com)";
 
-async function fetchPage(url: string): Promise<[string | null, string]> {
-  try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": UA, Accept: "text/html,application/xhtml+xml", "Accept-Language": "en-US,en;q=0.9" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      res.body?.cancel().catch(() => undefined);
-      return [null, `HTTP ${res.status}`];
-    }
-    const ctype = (res.headers.get("Content-Type") || "").toLowerCase();
-    if (!ctype.includes("html")) {
-      res.body?.cancel().catch(() => undefined);
-      return [null, `not html (${ctype.split(";")[0] || "no content-type"})`];
-    }
-    const bytes = await readCapped(res, MAX_HTML_BYTES);
-    const charset = /charset=([^;]+)/.exec(ctype)?.[1]?.trim().replace(/^["']|["']$/g, "") || "utf-8";
-    let decoder: TextDecoder;
-    try {
-      decoder = new TextDecoder(charset);
-    } catch {
-      decoder = new TextDecoder("utf-8");
-    }
-    return [decoder.decode(bytes), res.url || url];
-  } catch (e) {
-    const err = e as Error;
-    return [null, `${err?.name || "Error"}: ${String(err?.message ?? e).slice(0, 80)}`];
-  }
-}
-
-async function readCapped(res: Response, max: number): Promise<Uint8Array> {
-  if (!res.body) return new Uint8Array();
-  const reader = res.body.getReader();
-  const parts: Uint8Array[] = [];
-  let total = 0;
-  while (total < max) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parts.push(value);
-    total += value.length;
-  }
-  reader.cancel().catch(() => undefined);
-  const out = new Uint8Array(Math.min(total, max));
-  let off = 0;
-  for (const p of parts) {
-    const take = Math.min(p.length, out.length - off);
-    out.set(p.subarray(0, take), off);
-    off += take;
-    if (off >= out.length) break;
-  }
-  return out;
+/** [html, finalUrl] or [null, why]. The fetching itself (browser headers,
+ *  retry, host twins, charset, byte cap, challenge pages) is
+ *  lib/shared/web-page.ts, shared with Find Contacts and SDR's enrich. */
+async function fetchPage(url: string, deadline?: number): Promise<[string | null, string]> {
+  const r = await fetchWebPage(url, { timeoutMs: FETCH_TIMEOUT_MS, maxBytes: MAX_HTML_BYTES, deadline });
+  return r.ok ? [r.page.html, r.page.finalUrl] : [null, r.reason];
 }
 
 const ABOUT_HINT = /about|our[-_ ]?story|our[-_ ]?team|who[-_ ]?we[-_ ]?are|meet[-_ ]?the|staff|providers?|contact/i;
@@ -741,25 +694,33 @@ function hostOf(u: string): string | null {
   }
 }
 
-async function enrichFromSite(url: string, maxPages = 4): Promise<Json> {
+async function enrichFromSite(url: string, maxPages = 4, deadline?: number): Promise<Json> {
   const out: Json & { pages_read: string[]; failures: string[] } = { pages_read: [], failures: [] };
   const start = url.startsWith("http://") || url.startsWith("https://") ? url : "https://" + url;
-  const [homeHtml, final] = await fetchPage(start);
+  const [homeHtml, final] = await fetchPage(start, deadline);
   if (homeHtml === null) {
     out.failures.push(`${start}: ${final}`);
     return out;
   }
   const home = new PageText(homeHtml);
   out.pages_read.push(final);
+  if (isScriptShell(homeHtml)) out.failures.push(`${final}: the page builds its text in the browser, little of it could be read`);
 
   const desc = firstSelfDescription(home);
   if (desc) out.about = { text: desc[0], url: final, basis: desc[1] };
+  else {
+    // A page that says nothing in its HTML often still describes itself in
+    // its structured data, verbatim.
+    const ld = extractJsonLd(homeHtml).description;
+    if (ld) out.about = { text: trimSentences(ld), url: final, basis: "structured data description" };
+  }
 
   const host = hostOf(final);
   const texts: [string, string][] = [[final, home.text()]];
   const seen = new Set([final]);
+  const next: string[] = [];
   for (const [href, anchor] of home.links) {
-    if (out.pages_read.length >= maxPages) break;
+    if (next.length >= maxPages - 1) break;
     if (!ABOUT_HINT.test(anchor || "") && !ABOUT_HINT.test(href || "")) continue;
     let nxt: string;
     try {
@@ -770,15 +731,19 @@ async function enrichFromSite(url: string, maxPages = 4): Promise<Json> {
     const scheme = nxt.split(":")[0].toLowerCase();
     if ((scheme !== "http" && scheme !== "https") || hostOf(nxt) !== host || seen.has(nxt)) continue;
     seen.add(nxt);
-    const [subHtml, subFinal] = await fetchPage(nxt);
-    if (subHtml === null) {
-      out.failures.push(`${nxt}: ${subFinal}`);
-      continue;
-    }
-    const sub = new PageText(subHtml);
-    out.pages_read.push(subFinal);
-    texts.push([subFinal, sub.text()]);
+    next.push(nxt);
   }
+  // All at once, kept in link order, so a site costs its slowest page, not
+  // the sum of its pages.
+  const subs = await Promise.all(next.map((n) => fetchPage(n, deadline)));
+  subs.forEach(([subHtml, subFinal], i) => {
+    if (subHtml === null) {
+      out.failures.push(`${next[i]}: ${subFinal}`);
+      return;
+    }
+    out.pages_read.push(subFinal);
+    texts.push([subFinal, new PageText(subHtml).text()]);
+  });
 
   const ordered = texts.map((t, i) => [t, i] as const).sort((a, b) => {
     const ka = ABOUT_HINT.test(a[0][0]) ? 0 : 1;
@@ -1271,11 +1236,13 @@ export async function enrichCandidates(candidates: Candidate[], sitePages: numbe
   log(`\nreading ${candidates.length} candidate website(s), up to ${sitePages} page(s) each`);
 
   // One site per candidate, all read at once so the stage fits a function's
-  // time limit; results are kept in the order the candidates came in.
+  // time limit; results are kept in the order the candidates came in. The
+  // deadline keeps retries inside /api/search's maxDuration (300s).
+  const deadline = Date.now() + 240_000;
   const infos = await Promise.all(
     candidates.map((c) => {
       const url = String(c.website_raw || c.website || "").trim();
-      return url ? enrichFromSite(url, sitePages) : Promise.resolve(null);
+      return url ? enrichFromSite(url, sitePages, deadline) : Promise.resolve(null);
     }),
   );
 

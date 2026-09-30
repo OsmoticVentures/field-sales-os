@@ -38,6 +38,9 @@ import { runWebSearchPass } from "./websearch-pass";
 import { isDirectory } from "./html";
 import type { FilledField, FindContactsResult, FoundPerson, NotFoundField, Proposal, TierOutcome } from "./types";
 
+/** Kept under /api/enrich/run's maxDuration (120s) with room to write. */
+export const FIND_CONTACTS_BUDGET_MS = 95_000;
+
 function normName(name: string): string {
   return name.toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
 }
@@ -107,15 +110,25 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   let closedSignal: FindContactsResult["closed_signal"] = null;
   let differentBusiness: string | null = null;
 
-  // ---- Tier 1-2: the account's own site --------------------------------
-  let site: SitePassResult = await runSitePass(account.website, account.name);
+  // The route allows FIND_CONTACTS_BUDGET_MS; every tier below spends from
+  // this one clock, so a slow site shortens the web search rather than the
+  // whole pass dying at the limit with nothing saved.
+  const deadline = Date.now() + FIND_CONTACTS_BUDGET_MS;
+
+  // ---- Tier 1-2 and tier 3 together: the own site and Google Places ------
+  // Independent reads, so run at once; the tier order is applied when the
+  // people are merged, not by waiting.
+  const address = [account.street, account.city, account.state].filter(Boolean).join(", ");
+  const near = account.lat != null && account.lng != null ? { lat: account.lat, lng: account.lng } : undefined;
+  const [sitePass, places] = await Promise.all([
+    runSitePass(account.website, account.name, { deadline: deadline - 20_000 }),
+    runPlacesPass(account.name, address || null, near),
+  ]);
+  let site: SitePassResult = sitePass;
   tiers.push({ tier: "site_team", ran: site.ran, skipped_reason: site.skipped_reason, pages_read: site.pages_read, failures: site.failures });
   if (site.ran) peopleGroups.push(site.people);
 
   // ---- Tier 3: Google Places --------------------------------------------
-  const address = [account.street, account.city, account.state].filter(Boolean).join(", ");
-  const near = account.lat != null && account.lng != null ? { lat: account.lat, lng: account.lng } : undefined;
-  const places = await runPlacesPass(account.name, address || null, near);
   tiers.push({ tier: "places", ran: places.ran, skipped_reason: places.skipped_reason });
 
   if (places.candidate) {
@@ -174,7 +187,7 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   // Read it back to run tier 1-2 against it, the same value tier 4 would
   // otherwise be the only chance to find a person on.
   if (!account.website && places.candidate?.website && !isDirectory(places.candidate.website)) {
-    const second = await runSitePass(places.candidate.website, account.name);
+    const second = await runSitePass(places.candidate.website, account.name, { deadline: deadline - 15_000 });
     if (second.ran) {
       peopleGroups.push(second.people);
       site = { ...site, pages_read: [...site.pages_read, ...second.pages_read], failures: [...site.failures, ...second.failures] };
@@ -187,8 +200,10 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
 
   // ---- Tier 4: a general web search, only when still no decision maker --
   let webSearchRan = false;
-  if (!decisionMakerFoundSoFar) {
-    const ws = await runWebSearchPass(account.name, account.city, account.state);
+  if (!decisionMakerFoundSoFar && deadline - Date.now() < 20_000) {
+    tiers.push({ tier: "websearch", ran: false, skipped_reason: "The website read used the time a web search needs. Run it again to search." });
+  } else if (!decisionMakerFoundSoFar) {
+    const ws = await runWebSearchPass(account.name, account.city, account.state, deadline - 5_000);
     webSearchRan = ws.ran;
     tiers.push({ tier: "websearch", ran: ws.ran, skipped_reason: ws.skipped_reason });
     if (ws.ran) {

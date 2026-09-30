@@ -61,7 +61,12 @@ type ExtractOutput = {
   closed_signal: string | null;
 };
 
-export async function runWebSearchPass(accountName: string, city: string | null, state: string | null): Promise<WebSearchPassResult> {
+export async function runWebSearchPass(
+  accountName: string,
+  city: string | null,
+  state: string | null,
+  deadline = Date.now() + 45_000,
+): Promise<WebSearchPassResult> {
   if (!client) return { ran: false, skipped_reason: "ANTHROPIC_API_KEY is not configured.", people: [], query: "", closed_signal: null };
 
   const place = [accountName, city, state].filter(Boolean).join(", ");
@@ -78,13 +83,14 @@ export async function runWebSearchPass(accountName: string, city: string | null,
         "Also say if a result suggests the business has closed permanently.",
       messages: [{ role: "user", content: `Business: ${place}` }],
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
-    });
+    }, { timeout: Math.max(5_000, deadline - Date.now() - 12_000), maxRetries: 1 });
     findings = search.content
       .filter((b) => b.type === "text")
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
   } catch (err) {
-    return { ran: false, skipped_reason: err instanceof Error ? err.message : "Web search failed.", people: [], query, closed_signal: null };
+    const timedOut = err instanceof Error && /timed? ?out|timeout/i.test(err.message);
+    return { ran: false, skipped_reason: timedOut ? "The web search ran out of time." : "The web search could not run just now.", people: [], query, closed_signal: null };
   }
   if (!findings.trim()) return { ran: true, skipped_reason: "Search returned nothing usable.", people: [], query, closed_signal: null };
 
@@ -97,7 +103,7 @@ export async function runWebSearchPass(accountName: string, city: string | null,
       messages: [{ role: "user", content: findings }],
       tools: [EXTRACT_TOOL],
       tool_choice: { type: "tool", name: "extract_websearch_people" },
-    });
+    }, { timeout: Math.max(5_000, deadline - Date.now()), maxRetries: 1 });
     const toolUse = msg.content.find((b) => b.type === "tool_use");
     if (toolUse && toolUse.type === "tool_use") out = toolUse.input as ExtractOutput;
   } catch {
@@ -105,8 +111,8 @@ export async function runWebSearchPass(accountName: string, city: string | null,
   }
   if (!out) return { ran: true, skipped_reason: "Could not extract structured findings.", people: [], query, closed_signal: null };
 
-  const people: FoundPerson[] = (out.people || [])
-    .filter((p) => p.name && p.name.trim().length >= 2)
+  const people: FoundPerson[] = (Array.isArray(out.people) ? out.people : [])
+    .filter((p) => p && typeof p.name === "string" && p.name.trim().length >= 2)
     .map((p) => ({
       name: p.name.trim(),
       title: p.title && p.title.trim() ? p.title.trim() : null,

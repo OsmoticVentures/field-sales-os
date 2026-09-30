@@ -121,12 +121,14 @@ export function FindContacts({ accountId, onUpdated }: { accountId: string; onUp
         headers: { "content-type": "application/json", "Idempotency-Key": idRef.current },
         body: JSON.stringify({ account_id: accountId }),
       });
-      const j = await res.json();
+      const j = await res.json().catch(() => null);
+      if (!j) throw new Error(res.status === 504 ? "Find Contacts took too long. Try again." : "Find Contacts could not finish. Try again.");
       if (!j.ok) throw new Error(j.error || "Find Contacts failed.");
       setResult(j.result);
       onUpdated?.();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Find Contacts failed.");
+      // A dropped connection surfaces as a TypeError from fetch; say so plainly.
+      setError(e instanceof TypeError ? "No connection. Try again when you have signal." : e instanceof Error ? e.message : "Find Contacts failed.");
     } finally {
       setRunning(false);
     }

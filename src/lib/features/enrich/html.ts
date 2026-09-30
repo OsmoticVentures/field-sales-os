@@ -8,26 +8,20 @@
  * tel: link, a social profile, never guessed from prose.
  */
 import "server-only";
+import { fetchWebPage, isPlausibleEmail, isPlausiblePhone, type FetchOpts } from "../../shared/web-page";
 
 export type FetchedPage = { html: string; finalUrl: string };
 
-const UA = "Mozilla/5.0 (compatible; FieldSalesOS/1.0; +https://osmoticventures.com)";
+/** One page of the business's own site, or the plain reason it could not be
+ *  read. The fetching itself (browser headers, retry, host twins, charset,
+ *  byte cap, challenge pages) lives in lib/shared/web-page.ts. */
+export async function fetchPageOrReason(rawUrl: string, opts: FetchOpts = {}): Promise<{ page: FetchedPage | null; reason: string | null }> {
+  const r = await fetchWebPage(rawUrl, { timeoutMs: 8000, ...opts });
+  return r.ok ? { page: r.page, reason: null } : { page: null, reason: r.reason };
+}
 
 export async function fetchPage(rawUrl: string, timeoutMs = 8000): Promise<FetchedPage | null> {
-  try {
-    const href = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
-    const res = await fetch(href, {
-      signal: AbortSignal.timeout(timeoutMs),
-      redirect: "follow",
-      headers: { "User-Agent": UA },
-      cache: "no-store",
-    });
-    if (!res.ok) return null;
-    const html = await res.text();
-    return { html, finalUrl: res.url || href };
-  } catch {
-    return null;
-  }
+  return (await fetchPageOrReason(rawUrl, { timeoutMs })).page;
 }
 
 export type PageLink = { url: string; anchor: string };
@@ -77,32 +71,70 @@ export function headingMarkedText(html: string, maxLen = 6000): string {
   return text.slice(0, maxLen);
 }
 
-const MAILTO_RE = /mailto:([^"'?\s]+)/gi;
+const MAILTO_RE = /mailto:([^"'?\s>]+)/gi;
+const IMAGE_LIKE = /\.(?:png|jpe?g|gif|webp|svg)$/i;
+
+/** Cloudflare's email obfuscation: the address is on the page, XOR-encoded
+ *  with its first byte. Decoding it reads what the site printed. */
+function decodeCfEmail(hex: string): string | null {
+  if (!/^[0-9a-f]+$/i.test(hex) || hex.length < 4 || hex.length % 2) return null;
+  const key = parseInt(hex.slice(0, 2), 16);
+  let out = "";
+  for (let i = 2; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
+  return out.includes("@") ? out : null;
+}
 
 export function extractMailtos(html: string): string[] {
   const out: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = MAILTO_RE.exec(html))) {
-    const addr = m[1].trim().toLowerCase();
-    if (addr.includes("@") && !out.includes(addr)) out.push(addr);
+  const add = (raw: string) => {
+    let addr = raw.trim();
+    try {
+      addr = decodeURIComponent(addr);
+    } catch {
+      // keep it as printed
+    }
+    addr = addr.toLowerCase();
+    if (isPlausibleEmail(addr) && !IMAGE_LIKE.test(addr) && !out.includes(addr)) out.push(addr);
+  };
+  for (const m of html.matchAll(MAILTO_RE)) add(m[1]);
+  for (const m of html.matchAll(/data-cfemail\s*=\s*["']([0-9a-f]+)["']|\/cdn-cgi\/l\/email-protection#([0-9a-f]+)/gi)) {
+    const addr = decodeCfEmail(m[1] || m[2]);
+    if (addr) add(addr);
   }
   return out;
 }
 
-const TEL_RE = /href\s*=\s*["']tel:([^"']+)["']/gi;
-const PHONE_TEXT_RE = /(?:\+?1[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})\b/;
+// Only ever used through matchAll, which copies the regex, so no lastIndex
+// is carried from one page to the next (an exec() on a shared /g regex
+// did exactly that and missed the second page's tel: link).
+const TEL_RE_ALL = /href\s*=\s*["']tel:([^"']+)["']/gi;
+const PHONE_TEXT_ALL = /(?:\+?1[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})\b/g;
+
+/** Every real number a tel: link names, in page order. */
+export function extractTelLinks(html: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(TEL_RE_ALL)) {
+    const digits = m[1].replace(/\D/g, "");
+    const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+    if (isPlausiblePhone(ten) && !out.includes(ten)) out.push(ten);
+  }
+  return out;
+}
+
+/** Every real number printed in the text, in page order. */
+export function extractTextPhones(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(PHONE_TEXT_ALL)) {
+    const ten = `${m[1]}${m[2]}${m[3]}`;
+    if (isPlausiblePhone(ten) && !out.includes(ten)) out.push(ten);
+  }
+  return out;
+}
 
 /** A tel: link is trusted over a text-scanned number (headhunter.py's own
  *  rule: a footer full of unrelated 10-digit strings is common). */
 export function extractPhone(html: string, text: string): string | null {
-  let m: RegExpExecArray | null = TEL_RE.exec(html);
-  if (m) {
-    const digits = m[1].replace(/\D/g, "");
-    const ten = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
-    if (ten.length === 10) return ten;
-  }
-  m = PHONE_TEXT_RE.exec(text);
-  return m ? `${m[1]}${m[2]}${m[3]}` : null;
+  return extractTelLinks(html)[0] ?? extractTextPhones(text)[0] ?? null;
 }
 
 export function formatPhone(digits: string): string {

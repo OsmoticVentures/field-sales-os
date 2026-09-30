@@ -719,8 +719,8 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
         headers: { "content-type": "application/json", "Idempotency-Key": newId() },
         body: JSON.stringify({ account_id: item.account_id }),
       });
-      const j = await res.json();
-      const result = j.ok ? j.result : { ok: false, error: j.error };
+      const j = await res.json().catch(() => null);
+      const result = j?.ok ? j.result : { ok: false, error: j?.error ?? (res.status === 504 ? "The look-up took too long. Try again." : undefined) };
       setEnrichResult(result);
       if (result.ok && (result.wroteHours || result.wroteSummary)) {
         setPanel((p) =>
@@ -735,6 +735,8 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
             : p,
         );
       }
+    } catch {
+      setEnrichResult({ ok: false, error: "No connection. Try again when you have signal." });
     } finally {
       setEnriching(false);
     }
@@ -852,7 +854,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A6D2F]">
                     <Ico name="alert" size={13} />
-                    Enrich further failed.
+                    {enrichResult.error ?? "Enrich further failed."}
                   </span>
                 )}
               </div>

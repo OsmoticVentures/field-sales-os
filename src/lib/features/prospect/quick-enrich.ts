@@ -30,6 +30,16 @@ import {
   type PurchaseOrder,
 } from "./dal";
 import { searchPlaces, type PlaceCandidate } from "../../shared/places";
+import {
+  contactPageCandidates,
+  extractJsonLd,
+  fetchWebPage,
+  hoursSnippets,
+  isScriptShell,
+  sanitizeHours,
+  visibleText,
+  type BusinessHours,
+} from "../../shared/web-page";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
@@ -98,31 +108,50 @@ function exactDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-/** Strips a fetched page down to plain text, bounded so one slow site can't
- *  blow the 30-second budget. A blocked or slow fetch degrades to "no
- *  website evidence", never a retry loop. */
-async function fetchWebsiteText(rawUrl: string): Promise<string | null> {
-  try {
-    const href = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
-    const res = await fetch(href, {
-      signal: AbortSignal.timeout(8000),
-      redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; FieldSalesOS/1.0)" },
+/** Kept under /api/prospect/enrich's maxDuration (60s) with room to write. */
+const QUICK_BUDGET_MS = 45_000;
+
+type SiteRead = { text: string | null; ldHours: BusinessHours | null; url: string; problem: string | null };
+
+/**
+ * The homepage and, when it doesn't state hours, its contact page: the text
+ * the model reads (the top of each page plus any stretch further down that
+ * talks about hours, since footers are where small stores print them), and
+ * the hours the site states in its own structured data, which need no model
+ * at all.
+ */
+async function readWebsite(rawUrl: string, deadline: number): Promise<SiteRead> {
+  const home = await fetchWebPage(rawUrl, { deadline, timeoutMs: 8000 });
+  if (!home.ok) return { text: null, ldHours: null, url: rawUrl, problem: home.reason };
+  const { html, finalUrl } = home.page;
+  let ldHours = extractJsonLd(html).hours;
+  const homeText = visibleText(html);
+  const parts: string[] = [homeText.slice(0, 5000)];
+  const homeHours = hoursSnippets(homeText);
+  if (homeHours && homeText.length > 5000) parts.push(`From further down the homepage:\n${homeHours}`);
+
+  if (!ldHours && !homeHours) {
+    const links = [...html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"'#]+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap((m) => {
+      try {
+        return [{ url: new URL(m[1].trim(), finalUrl).toString(), anchor: m[2].replace(/<[^>]+>/g, " ").trim() }];
+      } catch {
+        return [];
+      }
     });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/\s+/g, " ")
-      .trim();
-    return text.slice(0, 6000) || null;
-  } catch {
-    return null;
+    const { urls } = contactPageCandidates(links, finalUrl, 1);
+    if (urls[0] && deadline - Date.now() > 20_000) {
+      const contact = await fetchWebPage(urls[0], { deadline: deadline - 15_000, timeoutMs: 6000, retries: 0, tryAlternates: false });
+      if (contact.ok) {
+        ldHours = extractJsonLd(contact.page.html).hours;
+        const cText = visibleText(contact.page.html);
+        const cHours = hoursSnippets(cText);
+        parts.push(`Contact page (${contact.page.finalUrl}):\n${cHours || cText.slice(0, 2000)}`);
+      }
+    }
   }
+  const text = parts.join("\n\n").trim();
+  const problem = !text && isScriptShell(html) ? "the page builds its text in the browser" : null;
+  return { text: text || null, ldHours, url: finalUrl, problem };
 }
 
 function buildPurchaseDigest(orders: PurchaseOrder[], lines: PurchaseLine[]): string {
@@ -172,17 +201,20 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
   const near = account.lat != null && account.lng != null ? { lat: account.lat, lng: account.lng } : undefined;
   const placeQuery = `${account.name}, ${[account.street, account.city, account.state].filter(Boolean).join(", ")}`;
 
-  const [placesSettled, websiteSettled] = await Promise.allSettled([
-    searchPlaces(placeQuery, 1, near),
-    account.website ? fetchWebsiteText(account.website) : Promise.resolve(null),
-  ]);
-
-  const place: PlaceCandidate | null = placesSettled.status === "fulfilled" ? (placesSettled.value[0] ?? null) : null;
-  const siteText: string | null = websiteSettled.status === "fulfilled" ? websiteSettled.value : null;
+  const deadline = Date.now() + QUICK_BUDGET_MS;
+  const placesP = searchPlaces(placeQuery, 1, near).then((r) => r[0] ?? null).catch(() => null);
+  // No website on file: the one Google Places lists for this business is
+  // read instead, once Places answers.
+  const siteP: Promise<SiteRead | null> = account.website
+    ? readWebsite(account.website, deadline - 18_000)
+    : placesP.then((pl) => (pl?.website ? readWebsite(pl.website, deadline - 18_000) : null));
+  const [place, site] = await Promise.all([placesP, siteP]) as [PlaceCandidate | null, SiteRead | null];
+  const siteText = site?.text ?? null;
+  const siteUrl = site?.url ?? account.website;
 
   if (!client) {
     const placesHours = place?.businessHours ?? null;
-    return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment.", ...EMPTY_RESULT, businessHours: placesHours, hoursSource: placesHours ? "places" : null };
+    return { ok: false, error: "Enrich further is not set up on this server yet.", ...EMPTY_RESULT, businessHours: placesHours, hoursSource: placesHours ? "places" : null };
   }
 
   const evidence = [
@@ -193,9 +225,9 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
       ? `Google Places match: status=${place.businessStatus ?? "unknown"}, hours on file at Places=${place.businessHours ? JSON.stringify(place.businessHours) : "none"}.`
       : "Google Places: no confident match found.",
     siteText
-      ? `Website text (${account.website}):\n${siteText}`
-      : account.website
-        ? `Website is on file (${account.website}) but could not be read just now (fetch failed or blocked).`
+      ? `Website text (${siteUrl}):\n${siteText}`
+      : siteUrl
+        ? `Website (${siteUrl}) could not be read just now (${site?.problem ?? "fetch failed"}).`
         : "No website on file.",
     account.current_state || account.future_state || account.impact
       ? `An executive summary already exists on file (context only, do not repeat it): current="${account.current_state ?? ""}", future="${account.future_state ?? ""}", impact="${account.impact ?? ""}".`
@@ -203,6 +235,7 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
   ].join("\n\n");
 
   let toolOut: EnrichToolOutput | null = null;
+  let modelFailed = false;
   try {
     const msg = await client.messages.create({
       model: "claude-sonnet-5",
@@ -222,22 +255,32 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
       messages: [{ role: "user", content: evidence }],
       tools: [ENRICH_TOOL],
       tool_choice: { type: "tool", name: "quick_enrich_account" },
-    });
+    }, { timeout: Math.max(8_000, deadline - Date.now()), maxRetries: 1 });
     const toolUse = msg.content.find((b) => b.type === "tool_use");
     if (toolUse && toolUse.type === "tool_use") toolOut = toolUse.input as EnrichToolOutput;
   } catch (err) {
-    const placesHours = place?.businessHours ?? null;
-    return { ok: false, error: err instanceof Error ? err.message : "Enrichment failed.", ...EMPTY_RESULT, businessHours: placesHours, hoursSource: placesHours ? "places" : null };
+    console.error("quick enrich model call failed", err);
+    modelFailed = true;
+    // The site's own structured hours and Places still stand without the
+    // model; only the angle summary needs it.
+    toolOut = null;
   }
 
-  const websiteHours = toolOut?.hours_found_on_website ? toolOut.hours : null;
+  // The site's structured hours are exact; the model's reading of its prose
+  // is next; Places last.
+  const websiteHours = site?.ldHours ?? (toolOut?.hours_found_on_website ? sanitizeHours(toolOut.hours) : null);
   const businessHours = websiteHours ?? place?.businessHours ?? null;
   const hoursSource: "website" | "places" | null = websiteHours ? "website" : place?.businessHours ? "places" : null;
 
   const report = await applyQuickEnrichment(accountId, {
     business_hours: businessHours,
     hours_source_tier: hoursSource,
-    hours_found_by: hoursSource === "website" ? `prospect_quick_enrich: ${account.website}` : hoursSource === "places" ? "prospect_quick_enrich: google_places" : null,
+    hours_found_by:
+      hoursSource === "website"
+        ? `prospect_quick_enrich: ${siteUrl}${site?.ldHours ? " (structured data)" : ""}`
+        : hoursSource === "places"
+          ? "prospect_quick_enrich: google_places"
+          : null,
     current_state: toolOut?.current_state ?? null,
     future_state: toolOut?.future_state ?? null,
     impact: toolOut?.impact ?? null,
@@ -253,8 +296,9 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
     impact: report.gap_summary ? (toolOut?.impact ?? null) : account.impact,
     wroteHours: report.business_hours?.status === "filled" || report.business_hours?.status === "updated",
     wroteSummary: report.gap_summary?.status === "filled",
-    skippedReason:
-      report.business_hours?.status === "skipped_stronger_tier"
+    skippedReason: modelFailed
+      ? "The angle could not be written just now; try again in a minute."
+      : report.business_hours?.status === "skipped_stronger_tier"
         ? "Hours already on file came from a stronger source (a logged call or the website), so the Places reading was not used."
         : undefined,
   };
