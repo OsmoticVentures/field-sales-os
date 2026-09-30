@@ -1,12 +1,15 @@
 /**
- * The one typed-note door: extract, then file or park. Ported from
+ * The one typed-note door: extract, then file. A note whose store is not
+ * named with confidence comes back asking which account, with its parse, and
+ * files when the Visit screen sends that parse back with the pick. Nothing is
+ * parked for later. Ported from
  * portfolio/src/app/nutribiotic/api/touchpoint/route.ts and lib/touchpoint.ts's
  * recordTouchpoint, converted from a Server Action to a route handler per
  * PORTING.md (no Server Actions in this repo).
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
-import { recordTouchpoint } from "../../../../lib/features/visit/touchpoint";
+import { recordTouchpoint, type ParsedTouchpoint } from "../../../../lib/features/visit/touchpoint";
 import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
 
 export const runtime = "nodejs";
@@ -32,16 +35,21 @@ export async function POST(req: Request) {
   const accountIdHint = (body?.accountIdHint as string | undefined) || null;
   const kindOverride = body?.kindOverride as "meeting" | "call" | "email" | "field_note" | undefined;
   const forceNewAccount = Boolean(body?.forceNewAccount);
+  const parsed = (body?.parsed as ParsedTouchpoint | undefined) ?? null;
 
   try {
-    const { result, replayed } = await withIdempotency(`visit:touchpoint:${key}`, () =>
-      recordTouchpoint(text, accountIdHint, { kindOverride, forceNewAccount }),
-    );
-    if (!result.ok) {
-      return Response.json({ ok: false, error: result.error }, { status: 422 });
-    }
+    // A failure is thrown, not returned, so it is never stored under the key:
+    // the one-tap retry with the same key runs again instead of replaying it.
+    const { result, replayed } = await withIdempotency(`visit:touchpoint:${key}`, async () => {
+      const r = await recordTouchpoint(text, accountIdHint, { kindOverride, forceNewAccount, parsed });
+      if (!r.ok) throw new NotFiled(r.error);
+      return r;
+    });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
-    return Response.json({ ok: false, error: err instanceof Error ? err.message : "That note did not file." }, { status: 500 });
+    const status = err instanceof NotFiled ? 422 : 500;
+    return Response.json({ ok: false, error: err instanceof Error ? err.message : "That note did not file." }, { status });
   }
 }
+
+class NotFiled extends Error {}

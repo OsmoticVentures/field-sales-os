@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Visit Logger's client UI: the capture box, the review-before-commit card,
- * and the two resolvers (needs an account, needs a next step). Ported and
- * trimmed from portfolio/src/app/nutribiotic/lib/touchpoint-ui.tsx,
- * review-ui.tsx, new-account-ui.tsx, and next-step-ui.tsx.
+ * Visit Logger's client UI: the capture box and, when the note's store is not
+ * named with confidence, the account pick right inside it. A note is either
+ * filed or still on the screen with its text; nothing is parked for later.
+ * Ported and trimmed from portfolio/src/app/nutribiotic/lib/touchpoint-ui.tsx
+ * and new-account-ui.tsx.
  *
  * The Google-Places new-business search is replaced with a search of
  * Juan's own book (see search-accounts/route.ts). Every write goes through
@@ -14,8 +15,8 @@
  */
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { apiFetch, getJson, peekJson } from "../../core/api";
-import { Ico, SkeletonBar, ghostBtn, inputCls, primaryBtn } from "../../core/ui";
+import { apiFetch } from "../../core/api";
+import { Ico, ghostBtn, inputCls, primaryBtn } from "../../core/ui";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
 function Spinner({ light = true }: { light?: boolean }) {
@@ -68,17 +69,6 @@ function FiledNote({
   );
 }
 
-/** One retry-safe id per logical write attempt, per PORTING.md. */
-function useIdempotencyKey(resetOn: unknown): string {
-  const ref = useRef<string>("");
-  if (!ref.current) ref.current = crypto.randomUUID();
-  useEffect(() => {
-    ref.current = crypto.randomUUID();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetOn]);
-  return ref.current;
-}
-
 // ---------------------------------------------------------------------------
 // types mirrored from the route handlers' JSON shapes
 // ---------------------------------------------------------------------------
@@ -88,8 +78,8 @@ type FiledResult = {
   touchpoint_id: string;
   accountName: string | null;
   accountId: string | null;
+  activityId: number | null;
   needsAccount: false;
-  needsNextStep: false;
   isFieldNote?: boolean;
   summary: string;
   peopleAdded: number;
@@ -99,28 +89,40 @@ type FiledResult = {
   hubspotError: string | null;
 };
 
+type AccountOption = { id: string; name: string; city: string | null };
+
 type NeedsAccountResult = {
   ok: true;
-  touchpoint_id: string;
   needsAccount: true;
-  needsNextStep: false;
   summary: string;
   businessNameGuess: string | null;
   matchAccountId: string | null;
   matchAccountName: string | null;
+  candidates: AccountOption[];
+  parsed: unknown;
 };
 
-type NeedsNextStepResult = {
-  ok: true;
-  touchpoint_id: string;
-  needsAccount: false;
-  needsNextStep: true;
-  accountId: string;
-  accountName: string | null;
-  summary: string;
-};
+type TouchpointApiResult = FiledResult | NeedsAccountResult;
 
-type TouchpointApiResult = FiledResult | NeedsAccountResult | NeedsNextStepResult;
+/** A HubSpot miss worth a retry: anything but the deliberate off switch. */
+const hubspotFailed = (r: FiledResult) => !r.isFieldNote && !r.hubspotFiled && r.hubspotError !== "CRM filing off";
+
+/** POST JSON, answer the parsed body, or throw a short readable reason. */
+async function postJson<T>(path: string, body: unknown, key?: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await apiFetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("No connection. Nothing was filed.");
+  }
+  const data = await res.json().catch(() => null);
+  if (!data?.ok) throw new Error(data?.error || `Server error ${res.status}. Nothing was filed.`);
+  return data.result as T;
+}
 
 const KIND_OPTIONS = [
   { value: "meeting", label: "Meeting" },
@@ -173,7 +175,7 @@ export function TouchpointCapture({
   /** The account the note is about, when the caller already knows it (the
    *  prospect view). Skips matching; the note files straight to it. */
   accountIdHint?: string | null;
-  /** Fires once, after a clean file. Never on the resolver or error paths. */
+  /** Fires once, after a clean file. Never on the pick or error paths. */
   onFiled?: (result: FiledResult) => void;
   /** Pre-selects a kind and sends it even if no pill is tapped. */
   defaultKind?: KindOption;
@@ -188,18 +190,21 @@ export function TouchpointCapture({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<FiledResult | null>(null);
-  const [needsAccount, setNeedsAccount] = useState<NeedsAccountResult | null>(null);
-  const [needsNextStep, setNeedsNextStep] = useState<NeedsNextStepResult | null>(null);
+  const [choose, setChoose] = useState<NeedsAccountResult | null>(null);
   const [grade, setGrade] = useState<VisitGrade | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [newCompany, setNewCompany] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const [photoUiState, setPhotoUiState] = useState<"idle" | "uploading" | "error">("idle");
+  const [retryHubspot, setRetryHubspot] = useState<"idle" | "working">("idle");
   const photoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const key = useIdempotencyKey(null);
-  // Held for the resolver path: the account is not known until it resolves.
-  const heldRead = useRef<{ grade: VisitGrade | null; readiness: Readiness | null }>({ grade: null, readiness: null });
+  // One key per note. A retry of the same note reuses it, so a write that
+  // did land is never made twice; a filed note gets a fresh one.
+  const key = useRef<string>("");
+  if (!key.current) key.current = crypto.randomUUID();
+  // The last thing tried, so a failure is one tap from running again.
+  const lastTry = useRef<(() => void) | null>(null);
 
   async function attachPhoto(touchpointId: string, file: File) {
     setPhotoUiState("uploading");
@@ -214,7 +219,6 @@ export function TouchpointCapture({
       setPhotoUiState("idle");
     } catch {
       setPhotoUiState("error");
-      setTimeout(() => setPhotoUiState("idle"), 2500);
     }
   }
 
@@ -230,7 +234,9 @@ export function TouchpointCapture({
   }, []);
 
   useEffect(() => {
-    if (!success) return;
+    // A clean file clears itself; a HubSpot miss stays until it is retried
+    // or dismissed, so it is never missed.
+    if (!success || hubspotFailed(success)) return;
     const t = setTimeout(() => setSuccess(null), 1200);
     return () => clearTimeout(t);
   }, [success]);
@@ -247,7 +253,7 @@ export function TouchpointCapture({
     setGrade(null);
     setReadiness(null);
     setNewCompany(false);
-    setPendingPhoto(null);
+    setChoose(null);
     requestAnimationFrame(() => {
       if (textareaRef.current) {
         autosize(textareaRef.current);
@@ -256,88 +262,143 @@ export function TouchpointCapture({
     });
   }
 
-  function submit() {
-    const value = text;
-    if (!value.trim() || pending) return;
+  function filed(result: FiledResult) {
+    if (pendingPhoto && result.touchpoint_id) void attachPhoto(result.touchpoint_id, pendingPhoto);
+    setPendingPhoto(null);
+    applyAccountRead(result.accountId, grade, readiness);
+    key.current = crypto.randomUUID();
+    lastTry.current = null;
+    setSuccess(result);
+    onFiled?.(result);
+    reset();
+  }
+
+  function run(attempt: () => Promise<void>) {
+    lastTry.current = () => run(attempt);
     startTransition(async () => {
       setError(null);
       try {
-        const res = await apiFetch("/api/visit/touchpoint", {
-          method: "POST",
-          headers: { "content-type": "application/json", "idempotency-key": key },
-          body: JSON.stringify({ text: value, accountIdHint: accountIdHint ?? undefined, kindOverride: kindTouched ? kind : undefined, forceNewAccount: newCompany }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          setError(data.error || "That note did not file.");
-          return;
-        }
-        const result = data.result as TouchpointApiResult;
-        if (pendingPhoto) void attachPhoto(result.touchpoint_id, pendingPhoto);
-        if (result.needsAccount) {
-          heldRead.current = { grade, readiness };
-          setNeedsAccount(result);
-        } else if (result.needsNextStep) {
-          applyAccountRead(result.accountId, grade, readiness);
-          setNeedsNextStep(result);
-        } else {
-          applyAccountRead(result.accountId, grade, readiness);
-          setSuccess(result);
-          onFiled?.(result);
-        }
-        reset();
-      } catch {
-        setError("That note did not reach the server. Try again.");
+        await attempt();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "That note did not file.");
       }
     });
+  }
+
+  const kindOverride = () => (kindTouched ? kind : undefined);
+
+  function submit() {
+    const value = text;
+    if (!value.trim() || pending) return;
+    run(async () => {
+      const result = await postJson<TouchpointApiResult>(
+        "/api/visit/touchpoint",
+        { text: value, accountIdHint: accountIdHint ?? undefined, kindOverride: kindOverride(), forceNewAccount: newCompany },
+        key.current,
+      );
+      if (result.needsAccount) setChoose(result);
+      else filed(result);
+    });
+  }
+
+  function fileTo(account: { id: string; name: string }) {
+    const pick = choose;
+    if (!pick || pending) return;
+    run(async () => {
+      const result = await postJson<TouchpointApiResult>(
+        "/api/visit/touchpoint",
+        { text, accountIdHint: account.id, kindOverride: kindOverride(), parsed: pick.parsed },
+        `${key.current}:${account.id}`,
+      );
+      if (result.needsAccount) throw new Error("That account did not take. Pick it again.");
+      filed(result);
+    });
+  }
+
+  function createAndFile(name: string) {
+    const pick = choose;
+    if (!pick || pending || !name.trim()) return;
+    run(async () => {
+      const made = await postJson<{ accountId: string; accountName: string }>(
+        "/api/visit/new-account",
+        { name: name.trim() },
+        `${key.current}:new:${name.trim().toLowerCase()}`,
+      );
+      const result = await postJson<TouchpointApiResult>(
+        "/api/visit/touchpoint",
+        { text, accountIdHint: made.accountId, kindOverride: kindOverride(), parsed: pick.parsed },
+        `${key.current}:${made.accountId}`,
+      );
+      if (result.needsAccount) throw new Error(`${made.accountName} was created but the note did not file to it. Pick it from the search.`);
+      filed(result);
+    });
+  }
+
+  function refileHubspot(result: FiledResult) {
+    if (!result.activityId || retryHubspot === "working") return;
+    setRetryHubspot("working");
+    postJson<{ hubspotFiled: boolean; hubspotNoteId: string | null; hubspotError: string | null }>("/api/visit/refile", {
+      activityId: result.activityId,
+    })
+      .then((r) => setSuccess({ ...result, ...r }))
+      .catch((e: unknown) => setSuccess({ ...result, hubspotError: e instanceof Error ? e.message : "Still not filed to HubSpot." }))
+      .finally(() => setRetryHubspot("idle"));
   }
 
   return (
     <div className="w-full">
       <div className="rounded-xl border border-[#E2DFD5] bg-white p-4 sm:p-5">
         {success ? (
-          <button type="button" onClick={() => setSuccess(null)} className="block w-full cursor-pointer text-left">
-            <FiledNote
-              title={`Logged${success.accountName ? `: ${success.accountName}` : ""}`}
-              detail={success.summary}
-              hubspotFiled={success.isFieldNote ? undefined : success.hubspotFiled}
-              hubspotId={success.hubspotNoteId}
-              hubspotError={success.hubspotError}
-              meta={
-                <>
-                  {(success.peopleAdded > 0 || success.peopleUpdated > 0) && (
-                    <div className="mt-1.5 text-[12px] text-[#8A928C]">
-                      {success.peopleAdded > 0 && `${success.peopleAdded} contact${success.peopleAdded === 1 ? "" : "s"} added`}
-                      {success.peopleAdded > 0 && success.peopleUpdated > 0 && ", "}
-                      {success.peopleUpdated > 0 && `${success.peopleUpdated} updated`}
-                    </div>
-                  )}
-                </>
-              }
-            />
-          </button>
-        ) : needsAccount ? (
-          <AccountMatchResolver
-            touchpointId={needsAccount.touchpoint_id}
-            nameGuess={needsAccount.businessNameGuess}
-            matchAccountId={needsAccount.matchAccountId}
-            matchAccountName={needsAccount.matchAccountName}
-            onMatched={(accountId) => {
-              applyAccountRead(accountId, heldRead.current.grade, heldRead.current.readiness);
-              heldRead.current = { grade: null, readiness: null };
-            }}
-            onResolved={() => {
-              setNeedsAccount(null);
-              reset();
-            }}
-          />
-        ) : needsNextStep ? (
-          <NextStepResolver
-            touchpointId={needsNextStep.touchpoint_id}
-            accountName={needsNextStep.accountName}
-            onResolved={() => {
-              setNeedsNextStep(null);
-              reset();
+          <div className="flex flex-col gap-2">
+            <button type="button" onClick={() => setSuccess(null)} className="block w-full cursor-pointer text-left">
+              <FiledNote
+                title={`Logged${success.accountName ? `: ${success.accountName}` : ""}`}
+                detail={success.summary}
+                hubspotFiled={success.isFieldNote ? undefined : success.hubspotFiled}
+                hubspotId={success.hubspotNoteId}
+                hubspotError={success.hubspotError}
+                meta={
+                  <>
+                    {(success.peopleAdded > 0 || success.peopleUpdated > 0) && (
+                      <div className="mt-1.5 text-[12px] text-[#8A928C]">
+                        {success.peopleAdded > 0 && `${success.peopleAdded} contact${success.peopleAdded === 1 ? "" : "s"} added`}
+                        {success.peopleAdded > 0 && success.peopleUpdated > 0 && ", "}
+                        {success.peopleUpdated > 0 && `${success.peopleUpdated} updated`}
+                      </div>
+                    )}
+                  </>
+                }
+              />
+            </button>
+            {hubspotFailed(success) && success.activityId && (
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setSuccess(null)} className={ghostBtn}>
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={() => refileHubspot(success)}
+                  disabled={retryHubspot === "working"}
+                  className={`${primaryBtn} flex items-center gap-1.5`}
+                >
+                  {retryHubspot === "working" && <Spinner />}
+                  Retry HubSpot
+                </button>
+              </div>
+            )}
+          </div>
+        ) : choose ? (
+          <AccountPicker
+            summary={choose.summary}
+            nameGuess={choose.businessNameGuess}
+            match={choose.matchAccountId && choose.matchAccountName ? { id: choose.matchAccountId, name: choose.matchAccountName } : null}
+            initialCandidates={choose.candidates}
+            busy={pending}
+            onPick={fileTo}
+            onCreate={createAndFile}
+            onBack={() => {
+              setChoose(null);
+              setError(null);
             }}
           />
         ) : (
@@ -490,73 +551,62 @@ export function TouchpointCapture({
         )}
       </div>
 
-      {error && <div className="mt-3 text-[13px] leading-relaxed text-[#8A6D2F]">{error}</div>}
+      {error && (
+        <div role="alert" className="mt-3 flex items-start justify-between gap-3 rounded-md border border-[#D9B8B3] bg-[#FBF1EF] px-3 py-2.5">
+          <div className="flex min-w-0 items-start gap-1.5 text-[13.5px] leading-relaxed font-medium text-[#8A2E2E]">
+            <Ico name="alert" size={14} />
+            <span>{error}</span>
+          </div>
+          {lastTry.current && (
+            <button
+              type="button"
+              onClick={() => lastTry.current?.()}
+              disabled={pending}
+              className="flex h-11 shrink-0 items-center gap-1.5 rounded-full bg-[#8A2E2E] px-4 text-[13px] font-medium text-white transition-transform active:scale-[0.97] disabled:opacity-50"
+            >
+              {pending && <Spinner />}
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+      {photoUiState === "error" && (
+        <div role="alert" className="mt-2 text-[13px] font-medium text-[#8A2E2E]">
+          The note filed, the photo did not attach.
+        </div>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// needs_account resolver
+// the account pick, inside the capture box
 // ---------------------------------------------------------------------------
 
-function AccountMatchResolver({
-  touchpointId,
+function AccountPicker({
+  summary,
   nameGuess,
-  matchAccountId,
-  matchAccountName,
-  onMatched,
-  onResolved,
+  match,
+  initialCandidates,
+  busy,
+  onPick,
+  onCreate,
+  onBack,
 }: {
-  touchpointId: string;
+  summary: string;
   nameGuess: string | null;
-  matchAccountId: string | null;
-  matchAccountName: string | null;
-  onMatched?: (accountId: string) => void;
-  onResolved: () => void;
+  match: { id: string; name: string } | null;
+  initialCandidates: AccountOption[];
+  busy: boolean;
+  onPick: (a: { id: string; name: string }) => void;
+  onCreate: (name: string) => void;
+  onBack: () => void;
 }) {
-  const [matching, setMatching] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [filed, setFiled] = useState<FiledResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState(nameGuess ?? "");
-  const [candidates, setCandidates] = useState<{ id: string; name: string; city: string | null }[]>([]);
+  const [candidates, setCandidates] = useState<AccountOption[]>(initialCandidates);
   const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(false);
+  const [searched, setSearched] = useState(initialCandidates.length > 0 || Boolean(nameGuess));
   const [searchError, setSearchError] = useState<string | null>(null);
-  const key = useIdempotencyKey(touchpointId);
-
-  useEffect(() => {
-    if (!filed) return;
-    const t = setTimeout(onResolved, 1200);
-    return () => clearTimeout(t);
-  }, [filed, onResolved]);
-
-  async function resolve(body: Record<string, unknown>) {
-    setError(null);
-    try {
-      const res = await apiFetch("/api/visit/resolve-account", {
-        method: "POST",
-        headers: { "content-type": "application/json", "idempotency-key": key },
-        body: JSON.stringify({ touchpointId, ...body }),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        setError(data.error || "Could not file that.");
-        return;
-      }
-      const matchedId = (data.result?.accountId as string | undefined) ?? (body.accountId as string | undefined);
-      if (matchedId) onMatched?.(matchedId);
-      setFiled({ ok: true, touchpoint_id: touchpointId, needsAccount: false, needsNextStep: false, ...data.result });
-    } catch {
-      setError("That did not reach the server. Try again.");
-    }
-  }
-
-  function confirmMatch() {
-    if (!matchAccountId || !matchAccountName || matching) return;
-    setMatching(true);
-    resolve({ accountId: matchAccountId, accountName: matchAccountName }).finally(() => setMatching(false));
-  }
 
   async function search() {
     if (!query.trim() || searching) return;
@@ -565,340 +615,85 @@ function AccountMatchResolver({
     try {
       const res = await apiFetch(`/api/visit/search-accounts?q=${encodeURIComponent(query)}`);
       const data = await res.json();
-      if (!data.ok) {
-        setCandidates([]);
-        setSearchError(data.error || "That search did not reach the server.");
-        return;
-      }
+      if (!data.ok) throw new Error(data.error || "Search failed.");
       setCandidates(data.candidates ?? []);
     } catch {
       setCandidates([]);
-      setSearchError("That search did not reach the server.");
+      setSearchError("Search failed. Check the connection and search again.");
     } finally {
       setSearching(false);
       setSearched(true);
     }
   }
 
-  function pick(c: { id: string; name: string }) {
-    if (matching) return;
-    setMatching(true);
-    resolve({ accountId: c.id, accountName: c.name }).finally(() => setMatching(false));
-  }
-
-  function createNew() {
-    if (creating || !query.trim()) return;
-    setCreating(true);
-    resolve({ mode: "create", name: query.trim() }).finally(() => setCreating(false));
-  }
-
-  if (filed?.hubspotFiled !== undefined) {
-    return (
-      <button type="button" onClick={onResolved} className="block w-full text-left">
-        <FiledNote
-          title={`Matched ${filed.accountName ?? ""}`}
-          detail={filed.summary}
-          hubspotFiled={filed.hubspotFiled}
-          hubspotId={filed.hubspotNoteId}
-          hubspotError={filed.hubspotError}
-        />
-      </button>
-    );
-  }
+  const options = match ? [match as AccountOption, ...candidates.filter((c) => c.id !== match.id)] : candidates;
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3">
-      {matchAccountId && matchAccountName && (
-        <div>
-          <div className="mb-1.5 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Client match</div>
-          <div className="flex items-center gap-2 rounded-full border border-[#E2DFD5] bg-white py-1 pl-3 pr-1.5">
-            <span className="min-w-0 flex-1 truncate text-[12.5px] text-[#14201B]">{matchAccountName}</span>
+    <div className="flex flex-col gap-3">
+      <p className="line-clamp-3 text-[13.5px] leading-relaxed text-[#3D4A44]">{summary}</p>
+
+      <div className="text-[15px] font-semibold text-[#14201B]">Which account?</div>
+
+      {options.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          {options.map((c) => (
             <button
+              key={c.id}
               type="button"
-              onClick={confirmMatch}
-              disabled={matching}
-              className={`${primaryBtn} min-h-11 shrink-0 rounded-full px-3.5 py-1.5 text-[12px]`}
+              onClick={() => onPick(c)}
+              disabled={busy}
+              className="flex min-h-12 w-full items-center justify-between gap-3 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3.5 text-left text-[14px] text-[#14201B] transition-transform active:scale-[0.99] disabled:opacity-50"
             >
-              {matching ? <Spinner /> : "Yes"}
+              <span className="min-w-0 truncate font-medium">{c.name}</span>
+              {c.city && <span className="shrink-0 text-[12.5px] text-[#8A928C]">{c.city}</span>}
             </button>
-          </div>
+          ))}
         </div>
       )}
 
-      <div>
-        <div className="mb-1.5 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Which account</div>
-        <div className="flex items-center gap-2">
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setSearched(false);
-              setSearchError(null);
-            }}
-            onKeyDown={(e) => e.key === "Enter" && search()}
-            placeholder="Business name"
-            className={`${inputCls} min-w-0 flex-1`}
-          />
-          <button
-            type="button"
-            onClick={search}
-            disabled={searching || !query.trim()}
-            aria-label="Search"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#14201B] text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40"
-          >
-            {searching ? <Spinner /> : <Ico name="search" size={16} />}
-          </button>
-        </div>
+      <div className="flex items-center gap-2">
+        <input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setSearchError(null);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+          placeholder="Business name"
+          className={`${inputCls} min-w-0 flex-1`}
+        />
+        <button
+          type="button"
+          onClick={search}
+          disabled={searching || !query.trim()}
+          aria-label="Search"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#14201B] text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:opacity-40"
+        >
+          {searching ? <Spinner /> : <Ico name="search" size={16} />}
+        </button>
+      </div>
 
-        {searchError && <div className="mt-2 text-[12px] text-[#8A6D2F]">{searchError}</div>}
+      {searchError && <div className="text-[13px] font-medium text-[#8A2E2E]">{searchError}</div>}
+      {searched && !searching && !searchError && options.length === 0 && (
+        <div className="text-[13px] text-[#5B6560]">Not in your book.</div>
+      )}
 
-        {candidates.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {candidates.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => pick(c)}
-                disabled={matching}
-                className="flex min-h-11 items-center gap-2 rounded-full border border-[#E2DFD5] bg-white py-1 pl-3 pr-1.5 text-[12.5px] text-[#14201B] transition-transform active:scale-[0.97] disabled:opacity-40"
-              >
-                {c.name}
-                {c.city && <span className="text-[#8A928C]">· {c.city}</span>}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {searched && !searching && !searchError && candidates.length === 0 && (
-          <div className="mt-2 text-[12px] text-[#8A928C]">No accounts matched.</div>
-        )}
-
+      <div className="flex items-center justify-between gap-2">
+        <button type="button" onClick={onBack} disabled={busy} className={ghostBtn}>
+          Back
+        </button>
         {query.trim() && (
           <button
             type="button"
-            onClick={createNew}
-            disabled={creating}
-            className={`${ghostBtn} mt-2 flex items-center gap-1.5`}
+            onClick={() => onCreate(query)}
+            disabled={busy}
+            className={`${primaryBtn} flex min-w-0 items-center gap-1.5`}
           >
-            <Ico name="plus" size={13} />
-            {creating ? "Creating…" : `New account: ${query.trim()}`}
+            {busy ? <Spinner /> : <Ico name="plus" size={13} />}
+            <span className="truncate">New: {query.trim()}</span>
           </button>
         )}
       </div>
-
-      {error && <div className="text-[12px] text-[#8A6D2F]">{error}</div>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// needs_next_step resolver
-// ---------------------------------------------------------------------------
-
-function NextStepResolver({
-  touchpointId,
-  accountName,
-  onResolved,
-}: {
-  touchpointId: string;
-  accountName: string | null;
-  onResolved: () => void;
-}) {
-  const [text, setText] = useState("");
-  const [pending, setPending] = useState(false);
-  const [filed, setFiled] = useState<FiledResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const key = useIdempotencyKey(touchpointId);
-
-  useEffect(() => {
-    if (!filed) return;
-    const t = setTimeout(onResolved, 1200);
-    return () => clearTimeout(t);
-  }, [filed, onResolved]);
-
-  async function submit(value: string) {
-    if (pending || !value.trim()) return;
-    setPending(true);
-    setError(null);
-    try {
-      const res = await apiFetch("/api/visit/resolve-next-step", {
-        method: "POST",
-        headers: { "content-type": "application/json", "idempotency-key": key },
-        body: JSON.stringify({ touchpointId, nextStep: value }),
-      });
-      const data = await res.json();
-      if (!data.ok) {
-        setError(data.error || "Could not save that.");
-        return;
-      }
-      setFiled({ ok: true, touchpoint_id: touchpointId, needsAccount: false, needsNextStep: false, ...data.result });
-    } catch {
-      setError("That did not reach the server. Try again.");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  if (filed) {
-    return (
-      <button type="button" onClick={onResolved} className="block w-full text-left">
-        <FiledNote
-          title={`Logged${accountName ? `: ${accountName}` : ""}`}
-          detail={filed.summary}
-          hubspotFiled={filed.hubspotFiled}
-          hubspotId={filed.hubspotNoteId}
-          hubspotError={filed.hubspotError}
-        />
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3">
-      <div className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">
-        Next step{accountName ? ` for ${accountName}` : ""}
-      </div>
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Bring a sample Thursday, call back about pricing"
-        rows={2}
-        autoFocus
-        className="min-h-[44px] w-full resize-none rounded-md border border-[#E2DFD5] bg-white p-2 text-[16px] leading-relaxed text-[#14201B] placeholder:text-[#A9AFA9] focus:outline-none"
-      />
-      {error && <div className="text-[12px] text-[#8A6D2F]">{error}</div>}
-      <div className="flex items-center justify-between gap-2">
-        <button type="button" onClick={() => submit("No follow-up needed.")} disabled={pending} className={ghostBtn}>
-          None needed
-        </button>
-        <button
-          type="button"
-          onClick={() => submit(text)}
-          disabled={pending || !text.trim()}
-          className={`${primaryBtn} flex items-center gap-1.5`}
-        >
-          {pending && <Spinner />}
-          {pending ? "Saving" : "Save"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// the review backlog, /nb/visit/review
-// ---------------------------------------------------------------------------
-
-type QueuedTouchpoint = {
-  id: string;
-  account_id: string | null;
-  raw_text: string;
-  parsed: { business_name_guess?: string | null; account_confidence?: string } | null;
-};
-
-type QueuesPayload = {
-  ok: boolean;
-  pending?: QueuedTouchpoint[];
-  pendingNextSteps?: QueuedTouchpoint[];
-  accountNames?: Record<string, string>;
-};
-
-export function ReviewQueues() {
-  const cached = peekJson<QueuesPayload>("/api/visit/queues");
-  const [pending, setPending] = useState<QueuedTouchpoint[] | null>(cached?.pending ?? null);
-  const [pendingNextSteps, setPendingNextSteps] = useState<QueuedTouchpoint[] | null>(cached?.pendingNextSteps ?? null);
-  const [accountNames, setAccountNames] = useState<Record<string, string>>(cached?.accountNames ?? {});
-  const [failed, setFailed] = useState(false);
-  const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    let live = true;
-    getJson<QueuesPayload>("/api/visit/queues")
-      .then((json) => {
-        if (!live) return;
-        if (!json.ok) {
-          setFailed(true);
-          return;
-        }
-        setPending(json.pending ?? []);
-        setPendingNextSteps(json.pendingNextSteps ?? []);
-        setAccountNames(json.accountNames ?? {});
-      })
-      .catch(() => live && setFailed(true));
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  const drop = (id: string) => setResolvedIds((prev) => new Set(prev).add(id));
-
-  if (failed) {
-    return <div className="text-[13px] text-[#8A6D2F]">Could not load the review queue.</div>;
-  }
-  if (pending === null || pendingNextSteps === null) {
-    return (
-      <div className="flex flex-col gap-3">
-        <SkeletonBar className="h-4 w-32" />
-        <SkeletonBar className="h-24 w-full" />
-        <SkeletonBar className="h-24 w-full" />
-      </div>
-    );
-  }
-
-  const matchRows = pending.filter((tp) => !resolvedIds.has(tp.id));
-  const stepRows = pendingNextSteps.filter((tp) => !resolvedIds.has(tp.id));
-
-  if (matchRows.length === 0 && stepRows.length === 0) {
-    return <div className="text-[13px] text-[#8A928C]">Nothing waiting.</div>;
-  }
-
-  return (
-    <div className="flex flex-col gap-8">
-      {matchRows.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#8A928C]">
-            Needs a match · {matchRows.length}
-          </h2>
-          <div className="flex flex-col gap-4">
-            {matchRows.map((tp) => (
-              <div key={tp.id} className="rounded-xl border border-[#E2DFD5] bg-white p-4">
-                <p className="line-clamp-3 text-[13px] leading-relaxed text-[#3D4A44]">{tp.raw_text}</p>
-                <div className="mt-3">
-                  <AccountMatchResolver
-                    touchpointId={tp.id}
-                    nameGuess={tp.parsed?.business_name_guess ?? null}
-                    matchAccountId={null}
-                    matchAccountName={null}
-                    onResolved={() => drop(tp.id)}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {stepRows.length > 0 && (
-        <section>
-          <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.14em] text-[#8A928C]">
-            Needs a next step · {stepRows.length}
-          </h2>
-          <div className="flex flex-col gap-4">
-            {stepRows.map((tp) => (
-              <div key={tp.id} className="rounded-xl border border-[#E2DFD5] bg-white p-4">
-                <p className="line-clamp-3 text-[13px] leading-relaxed text-[#3D4A44]">{tp.raw_text}</p>
-                <div className="mt-3">
-                  <NextStepResolver
-                    touchpointId={tp.id}
-                    accountName={tp.account_id ? accountNames[tp.account_id] ?? null : null}
-                    onResolved={() => drop(tp.id)}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }

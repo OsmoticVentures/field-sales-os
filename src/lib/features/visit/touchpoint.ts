@@ -29,10 +29,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   applyAccountFacts,
-  finalizeTouchpointAccount,
-  finalizeTouchpointNextStep,
   getAccount,
-  getTouchpointById,
   insertActivity,
   insertContact,
   insertFieldNote,
@@ -41,6 +38,7 @@ import {
   listAccountsForMatching,
   listContacts,
   patchContact,
+  searchAccounts,
   type AccountCandidate,
   type AccountFactsReport,
   type Contact,
@@ -362,45 +360,38 @@ RULES, all absolute:
 // the flow
 // ---------------------------------------------------------------------------
 
+/** A filed note, or a note whose store could not be named with confidence.
+ *  The second is NOT saved anywhere: the Visit screen picks the account on
+ *  the spot and sends the same parse back with it, so a note is either filed
+ *  or still on the screen, never parked. */
+export type FiledTouchpoint = {
+  ok: true;
+  needsAccount: false;
+  touchpoint_id: string;
+  accountName: string | null;
+  accountId: string | null;
+  activityId: number | null;
+  isFieldNote?: boolean;
+  summary: string;
+  peopleAdded: number;
+  peopleUpdated: number;
+  hubspotFiled: boolean;
+  hubspotNoteId: string | null;
+  hubspotError: string | null;
+  accountFacts: AccountFactsReport | null;
+};
+
 export type RecordTouchpointResult =
+  | FiledTouchpoint
   | {
       ok: true;
-      touchpoint_id: string;
-      accountName: string | null;
-      accountId: string | null;
-      activityId: number | null;
-      needsAccount: false;
-      needsNextStep: false;
-      isFieldNote?: boolean;
-      summary: string;
-      peopleAdded: number;
-      peopleUpdated: number;
-      hubspotFiled: boolean;
-      hubspotNoteId: string | null;
-      hubspotError: string | null;
-      accountFacts: AccountFactsReport | null;
-    }
-  | {
-      ok: true;
-      touchpoint_id: string;
-      accountName: null;
       needsAccount: true;
-      needsNextStep: false;
       summary: string;
       businessNameGuess: string | null;
       matchAccountId: string | null;
       matchAccountName: string | null;
-      peopleAdded: 0;
-      peopleUpdated: 0;
-    }
-  | {
-      ok: true;
-      touchpoint_id: string;
-      needsAccount: false;
-      needsNextStep: true;
-      accountId: string;
-      accountName: string | null;
-      summary: string;
+      candidates: AccountCandidate[];
+      parsed: ParsedTouchpoint;
     }
   | { ok: false; error: string };
 
@@ -432,14 +423,21 @@ export async function recordTouchpoint(
   opts: {
     kindOverride?: "meeting" | "call" | "email" | "field_note";
     forceNewAccount?: boolean;
+    /** The parse from a first attempt that stopped to ask for the account:
+     *  filing it with the picked account needs no second model call. */
+    parsed?: ParsedTouchpoint | null;
   } = {},
 ): Promise<RecordTouchpointResult> {
   const text = rawText.trim();
   if (!text) return { ok: false, error: "Nothing to record." };
-  if (!client) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
 
   const candidates = await listAccountsForMatching();
   if (candidates.length === 0) return { ok: false, error: "No accounts to match against yet." };
+
+  if (opts.parsed && accountIdHint && isParsedTouchpoint(opts.parsed)) {
+    return continueTouchpoint(text, opts.parsed, candidates, accountIdHint, opts);
+  }
+  if (!client) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
 
   const now = new Date();
   let parsed: ParsedTouchpoint;
@@ -453,12 +451,12 @@ export async function recordTouchpoint(
       tool_choice: { type: "tool", name: "extract_touchpoint" },
     });
     const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") {
-      return { ok: false, error: "Could not parse that note. Try rephrasing." };
+    if (!toolUse || toolUse.type !== "tool_use" || !isParsedTouchpoint(toolUse.input)) {
+      return { ok: false, error: "Could not read that note. Try again." };
     }
-    parsed = toolUse.input as ParsedTouchpoint;
+    parsed = toolUse.input;
   } catch (err) {
-    return { ok: false, error: `Parse failed: ${err instanceof Error ? err.message : String(err)}` };
+    return { ok: false, error: `Could not read that note: ${err instanceof Error ? err.message : String(err)}` };
   }
 
   return continueTouchpoint(text, parsed, candidates, accountIdHint, opts);
@@ -504,7 +502,6 @@ async function continueTouchpoint(
       accountId: noteAccount?.id ?? null,
       activityId: null,
       needsAccount: false,
-      needsNextStep: false,
       isFieldNote: true,
       summary: parsed.activity.detail,
       peopleAdded: 0,
@@ -519,54 +516,30 @@ async function continueTouchpoint(
   const accountId = opts.forceNewAccount ? null : accountIdHint || (parsed.account_confidence === "high" ? parsed.account_id : null);
 
   if (!accountId) {
-    const tp = await insertTouchpoint({
-      account_id: null,
-      raw_text: text,
-      status: "needs_account",
-      account_match_confidence: parsed.account_confidence,
-      parsed,
-    });
     const matchAccount =
       !opts.forceNewAccount && parsed.account_confidence === "low" && parsed.account_id
         ? candidates.find((a) => a.id === parsed.account_id)
         : null;
+    const guess = parsed.business_name_guess?.trim() || null;
+    const found = guess && !opts.forceNewAccount ? await searchAccounts(guess).catch(() => []) : [];
     return {
       ok: true,
-      touchpoint_id: tp.id,
-      accountName: null,
       needsAccount: true,
-      needsNextStep: false,
       summary: parsed.activity?.detail ?? text.slice(0, 140),
-      businessNameGuess: parsed.business_name_guess ?? null,
+      businessNameGuess: guess,
       matchAccountId: matchAccount?.id ?? null,
       matchAccountName: matchAccount?.name ?? null,
-      peopleAdded: 0,
-      peopleUpdated: 0,
-    };
-  }
-
-  const account = candidates.find((a) => a.id === accountId);
-  const accountName = account?.name ?? null;
-
-  if (!parsed.next_step || !parsed.next_step.trim()) {
-    const parked = await insertTouchpoint({
-      account_id: accountId,
-      raw_text: text,
-      status: "needs_next_step",
-      account_match_confidence: accountIdHint ? "high" : parsed.account_confidence,
+      candidates: found.filter((c) => c.id !== matchAccount?.id).slice(0, 5),
       parsed,
-    });
-    return {
-      ok: true,
-      touchpoint_id: parked.id,
-      needsAccount: false,
-      needsNextStep: true,
-      accountId,
-      accountName,
-      summary: parsed.activity.detail,
     };
   }
 
+  const account = candidates.find((a) => a.id === accountId) ?? (await getAccount(accountId).catch(() => null));
+  if (!account) return { ok: false, error: "That account is not in your book." };
+  const accountName = account.name ?? null;
+
+  // A note with no stated next step files as it is. The next step is part
+  // of the record when he said one, never a reason to hold the note back.
   return finishTouchpoint({
     accountId,
     accountName,
@@ -580,10 +553,9 @@ async function finishTouchpoint(input: {
   accountId: string;
   accountName: string | null;
   parsed: ParsedTouchpoint;
-  existingTouchpointId?: string;
   rawText: string;
   accountMatchConfidence: string | null;
-}): Promise<Extract<RecordTouchpointResult, { ok: true; needsAccount: false; needsNextStep: false }>> {
+}): Promise<FiledTouchpoint> {
   const { accountId, accountName, parsed } = input;
 
   const activity = await insertActivity({
@@ -617,16 +589,14 @@ async function finishTouchpoint(input: {
     else if (outcome === "updated") peopleUpdated += 1;
   }
 
-  const tp = input.existingTouchpointId
-    ? await finalizeTouchpointNextStep(input.existingTouchpointId, activity.id, parsed)
-    : await insertTouchpoint({
-        account_id: accountId,
-        raw_text: input.rawText,
-        status: "parsed",
-        account_match_confidence: input.accountMatchConfidence,
-        activity_id: activity.id,
-        parsed,
-      });
+  const tp = await insertTouchpoint({
+    account_id: accountId,
+    raw_text: input.rawText,
+    status: "parsed",
+    account_match_confidence: input.accountMatchConfidence,
+    activity_id: activity.id,
+    parsed,
+  });
 
   await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName));
 
@@ -636,12 +606,11 @@ async function finishTouchpoint(input: {
 
   return {
     ok: true,
-    touchpoint_id: tp?.id ?? input.existingTouchpointId ?? "",
+    touchpoint_id: tp.id,
     accountName,
     accountId,
     activityId: activity.id,
     needsAccount: false,
-    needsNextStep: false,
     summary: parsed.activity.detail,
     peopleAdded,
     peopleUpdated,
@@ -650,96 +619,16 @@ async function finishTouchpoint(input: {
   };
 }
 
-export type ResolveResult =
-  | {
-      ok: true;
-      accountId: string;
-      accountName: string;
-      summary: string;
-      peopleAdded: number;
-      peopleUpdated: number;
-      hubspotFiled: boolean;
-      hubspotNoteId: string | null;
-      hubspotError: string | null;
-    }
-  | { ok: false; error: string };
-
-/** A touchpoint that parked as needs_account, now that an account exists
- *  for it (Juan confirmed a match, or a new bare account was created). */
-export async function resolveTouchpointToAccount(touchpointId: string, accountId: string, accountName: string): Promise<ResolveResult> {
-  const tp = await getTouchpointById(touchpointId);
-  if (!tp) return { ok: false, error: "That touchpoint no longer exists." };
-  if (tp.status !== "needs_account") return { ok: false, error: `Touchpoint is already ${tp.status}, not needs_account.` };
-  const parsed = tp.parsed as ParsedTouchpoint | null;
-  if (!parsed) return { ok: false, error: "That touchpoint has no parsed data to file." };
-  if (parsed.activity.kind === "field_note") {
-    return { ok: false, error: "That is a field note. It stays in the OS and is never filed to an account." };
-  }
-
-  const activity = await insertActivity({
-    account_id: accountId,
-    kind: parsed.activity.kind,
-    direction: parsed.activity.direction,
-    outcome: parsed.activity.outcome,
-    detail: parsed.activity.detail,
-  });
-
-  const linked = await finalizeTouchpointAccount(touchpointId, accountId, activity.id);
-  if (!linked) return { ok: false, error: "Touchpoint was already resolved by another request." };
-
-  const existing = await listContacts(accountId);
-  let peopleAdded = 0;
-  let peopleUpdated = 0;
-  for (const p of parsed.people ?? []) {
-    const outcome = await reconcileContact(accountId, existing, p);
-    if (outcome === "added") peopleAdded += 1;
-    else if (outcome === "updated") peopleUpdated += 1;
-  }
-
-  // Parked as needs_account when spoken, so its "come back" waited for an
-  // account to attach to; now it has one, it goes to the route planner.
-  await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName));
-
-  const hubspot = await autoFileEngagement(activity.id);
-
-  return { ok: true, accountId, accountName, summary: parsed.activity.detail, peopleAdded, peopleUpdated, ...hubspot };
-}
-
-/** Juan answers the next-step popup. The account is already known; this
- *  only needs the one line he typed, or the explicit "no follow-up needed". */
-export async function resolveTouchpointNextStep(touchpointId: string, nextStepText: string): Promise<ResolveResult> {
-  const stated = nextStepText.trim();
-  if (!stated) return { ok: false, error: "Type the next step, or tap None needed." };
-
-  const tp = await getTouchpointById(touchpointId);
-  if (!tp) return { ok: false, error: "That touchpoint no longer exists." };
-  if (tp.status !== "needs_next_step") return { ok: false, error: `Touchpoint is already ${tp.status}, not needs_next_step.` };
-  if (!tp.account_id) return { ok: false, error: "That touchpoint has no account to file against." };
-  const parsed = tp.parsed as ParsedTouchpoint | null;
-  if (!parsed) return { ok: false, error: "That touchpoint has no parsed data to file." };
-  parsed.next_step = stated;
-
-  const account = await getAccount(tp.account_id);
-  if (!account) return { ok: false, error: "That account no longer exists." };
-
-  const filed = await finishTouchpoint({
-    accountId: tp.account_id,
-    accountName: account.name,
-    parsed,
-    existingTouchpointId: touchpointId,
-    rawText: tp.raw_text,
-    accountMatchConfidence: tp.account_match_confidence,
-  });
-
-  return {
-    ok: true,
-    accountId: tp.account_id,
-    accountName: filed.accountName ?? account.name,
-    summary: filed.summary,
-    peopleAdded: filed.peopleAdded,
-    peopleUpdated: filed.peopleUpdated,
-    hubspotFiled: filed.hubspotFiled,
-    hubspotNoteId: filed.hubspotNoteId,
-    hubspotError: filed.hubspotError,
-  };
+/** The tool output is data from a model: check the shape the flow relies on
+ *  before trusting it, and the same for a parse the Visit screen sends back. */
+export function isParsedTouchpoint(v: unknown): v is ParsedTouchpoint {
+  if (!v || typeof v !== "object") return false;
+  const p = v as Partial<ParsedTouchpoint>;
+  const a = p.activity as Partial<ParsedTouchpoint["activity"]> | undefined;
+  if (!a || typeof a !== "object") return false;
+  if (typeof a.kind !== "string" || typeof a.detail !== "string" || typeof a.hubspot_summary !== "string") return false;
+  if (typeof a.direction !== "string") return false;
+  if (p.people !== undefined && !Array.isArray(p.people)) return false;
+  if (p.calendar_actions !== undefined && !Array.isArray(p.calendar_actions)) return false;
+  return true;
 }

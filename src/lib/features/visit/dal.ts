@@ -103,15 +103,27 @@ export async function listAccountsForMatching(): Promise<AccountCandidate[]> {
  *  to search Juan's own book rather than Google Places, see the port's
  *  handback note): name contains the query, case-insensitive. */
 export async function searchAccounts(q: string): Promise<AccountCandidate[]> {
-  const term = q.trim();
+  // PostgREST reads * , ( ) as syntax inside a filter value; a store name
+  // with one of them must not break the search.
+  const term = q.replace(/[*,()]/g, " ").replace(/\s+/g, " ").trim();
   if (!term) return [];
-  return query<AccountCandidate>("nb_accounts", {
-    select: "id,name,city",
-    hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
-    closed_at: "is.null",
-    name: `ilike.*${term}*`,
-    limit: "8",
-  });
+  const byName = (t: string) =>
+    query<AccountCandidate>("nb_accounts", {
+      select: "id,name,city",
+      hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+      closed_at: "is.null",
+      name: `ilike.*${t}*`,
+      limit: "8",
+    });
+  const whole = await byName(term);
+  if (whole.length > 0) return whole;
+  // "CDM drugs" when the book says "CDM Pharmacy": fall back to the longest
+  // distinctive word, so a near miss still offers the store.
+  const words = term
+    .split(" ")
+    .filter((w) => w.length >= 3 && !/^(the|and|inc|llc|store|shop|market|drugs?|pharmacy|health|foods?)$/i.test(w))
+    .sort((a, b) => b.length - a.length);
+  return words.length > 0 && words[0] !== term ? byName(words[0]) : [];
 }
 
 export type Account = {
@@ -417,49 +429,6 @@ export async function insertTouchpoint(input: {
 }): Promise<Touchpoint> {
   const [row] = await mutate<Touchpoint>("nb_touchpoints", "POST", { id: randId("t"), origin: "manual", ...input });
   return row;
-}
-
-export async function getTouchpointById(id: string): Promise<Touchpoint | null> {
-  const rows = await query<Touchpoint>("nb_touchpoints", { select: "*", id: `eq.${id}`, limit: "1" });
-  return rows[0] ?? null;
-}
-
-export async function finalizeTouchpointAccount(id: string, accountId: string, activityId: number): Promise<Touchpoint | null> {
-  const rows = await mutate<Touchpoint>(
-    "nb_touchpoints",
-    "PATCH",
-    { account_id: accountId, status: "parsed", activity_id: activityId },
-    { id: `eq.${id}`, status: "eq.needs_account" },
-  );
-  return rows[0] ?? null;
-}
-
-export async function finalizeTouchpointNextStep(id: string, activityId: number, parsed: unknown): Promise<Touchpoint | null> {
-  const rows = await mutate<Touchpoint>(
-    "nb_touchpoints",
-    "PATCH",
-    { status: "parsed", activity_id: activityId, parsed },
-    { id: `eq.${id}`, status: "eq.needs_next_step" },
-  );
-  return rows[0] ?? null;
-}
-
-export async function listPendingAccountMatches(limit = 10): Promise<Touchpoint[]> {
-  return query<Touchpoint>("nb_touchpoints", {
-    select: "id,account_id,raw_text,status,account_match_confidence,activity_id,parsed,created_at",
-    status: "eq.needs_account",
-    order: "created_at.asc",
-    limit: String(limit),
-  });
-}
-
-export async function listPendingNextSteps(limit = 10): Promise<Touchpoint[]> {
-  return query<Touchpoint>("nb_touchpoints", {
-    select: "id,account_id,raw_text,status,account_match_confidence,activity_id,parsed,created_at",
-    status: "eq.needs_next_step",
-    order: "created_at.asc",
-    limit: String(limit),
-  });
 }
 
 export async function getAccountNames(ids: string[]): Promise<Record<string, string>> {
