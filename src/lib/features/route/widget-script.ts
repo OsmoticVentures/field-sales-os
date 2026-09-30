@@ -129,7 +129,7 @@ function stamp(w, data, extra) {
 function header(w, rows, compact) {
   const row = w.addStack();
   row.centerAlignContent();
-  txt(row, "ROUTE", { size: compact ? 9 : 10, color: FAINT, bold: true });
+  txt(row, HEADING, { size: compact ? 9 : 10, color: FAINT, bold: true });
   row.addSpacer();
   if (rows.length === 0) return;
   let right = rows.length + " stop" + (rows.length === 1 ? "" : "s");
@@ -387,7 +387,7 @@ async function handle(q, data) {
     return;
   }
   if (q.end) {
-    if (data.day_state !== "ended") await recordMileage("end", day);
+    if (data.day_state !== "ended" && data.day_state !== "ahead") await recordMileage("end", day);
     return;
   }
   if (q.go) {
@@ -397,6 +397,8 @@ async function handle(q, data) {
   }
 }
 
+/* "ROUTE", or "TOMORROW" / a weekday once today has ended and the face shows the next route. */
+let HEADING = "ROUTE";
 const family = config.widgetFamily || "medium";
 const accessory = family.indexOf("accessory") === 0;
 const widget = new ListWidget();
@@ -408,6 +410,7 @@ widget.refreshAfterDate = new Date(Date.now() + 60 * 1000);
 
 try {
   const data = await fetchRoute();
+  HEADING = (data.heading || "Route").toUpperCase();
   const q = args.queryParameters || {};
   const acted = q.go || q.done || q.sdr || q.end || q.refresh;
   if (!config.runsInWidget && acted) {

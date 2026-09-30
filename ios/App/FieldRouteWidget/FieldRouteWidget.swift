@@ -174,7 +174,7 @@ struct StopRow: View {
     }
 
     @ViewBuilder var doneControl: some View {
-        let last = remaining == 1 && data.day_state != "ended"
+        let last = remaining == 1 && data.day_state != "ended" && data.day_state != "ahead"
         Group {
             if last {
                 Link(destination: deepLink("odo", ["kind": "end", "day": data.day, "done": stop.id])) { check }
@@ -216,7 +216,7 @@ struct RouteView: View {
         let miles = rows.dropFirst().reduce(0.0) { $0 + ($1.straight_line_miles_from_prev ?? 0) }
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("ROUTE").font(.system(size: 10, weight: .semibold)).foregroundColor(Pal.faint)
+                Text((data.heading ?? "Route").uppercased()).font(.system(size: 10, weight: .semibold)).foregroundColor(Pal.faint)
                 Spacer()
                 if !rows.isEmpty {
                     Text("\(rows.count) stop\(rows.count == 1 ? "" : "s")" + (miles > 0 ? " · \(Int(miles.rounded())) mi" : ""))

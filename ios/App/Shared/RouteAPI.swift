@@ -25,6 +25,8 @@ struct RouteData: Codable {
     let count: Int
     let stops: [Stop]
     let day_state: String
+    /// "Tomorrow" or a weekday once today has ended and the widget shows the next route.
+    let heading: String?
     let visited_count: Int?
 }
 

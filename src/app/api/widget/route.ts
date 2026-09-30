@@ -57,6 +57,8 @@ function appleMapsUrl(p: { address?: string | null; lat: number; lng: number }):
   return `https://maps.apple.com/?daddr=${daddr}`;
 }
 
+type DayState = "not_started" | "in_progress" | "ready_to_end" | "ended" | "ahead";
+
 type Stop = {
   n: number;
   id: string;
@@ -102,6 +104,21 @@ export async function GET(request: Request) {
   const days = planningHorizonDates();
   const requested = new URL(request.url).searchParams.get("day");
   const day = requested && days.includes(requested) ? requested : defaultActiveDay(state.draft, days);
+
+  /* Today is over once its end odometer is taken or bypassed. Rather than an
+     empty face all evening, the widget rolls to the next day that has a
+     route (or simply the next day): day_state "ahead", no odometer prompts,
+     a heading naming the day. At midnight that day becomes today and asks
+     for its start odometer as usual. An explicit ?day= is never rolled. */
+  let payload = await snapshot(day, false);
+  if (!requested && payload.day_state === "ended") {
+    const later = days.filter((d) => d > day);
+    const next = later.find((d) => (state.draft[d]?.length ?? 0) > 0) ?? later[0];
+    if (next) payload = { ...(await snapshot(next, true)), day_state: "ahead", heading: headingFor(day, next) };
+  }
+  return Response.json(payload, { headers: { "cache-control": "no-store" } });
+
+  async function snapshot(day: string, future: boolean) {
   const draft = state.draft[day] ?? [];
   const doneIds = new Set(state.done[day] ?? []);
   /* A visit or meeting already logged today takes the place off the list. It
@@ -218,14 +235,16 @@ export async function GET(request: Request) {
     const freshLocation =
       lastLocation && Date.now() - new Date(lastLocation.at).getTime() < LOCATION_FRESH_MINUTES * 60_000 ? lastLocation : null;
 
-    const startPos = freshLocation
+    const startPos = future
+      ? { lat: home.lat, lng: home.lng }
+      : freshLocation
       ? { lat: freshLocation.lat, lng: freshLocation.lng }
       : lastDoneIdx >= 0
         ? { lat: stops[lastDoneIdx].lat, lng: stops[lastDoneIdx].lng }
         : { lat: home.lat, lng: home.lng };
-    const dayStarted = Boolean(freshLocation) || lastDoneIdx >= 0 || Boolean(dayMileage.start);
+    const dayStarted = !future && (Boolean(freshLocation) || lastDoneIdx >= 0 || Boolean(dayMileage.start));
 
-    let t = dayStarted ? nowMin : Math.max(departMin, nowMin);
+    let t = dayStarted ? nowMin : future ? departMin : Math.max(departMin, nowMin);
     let pos = startPos;
     for (const s of remaining) {
       t += leg(pos, s, t);
@@ -249,7 +268,7 @@ export async function GET(request: Request) {
   const accountStops = stops.filter((s) => s.type === "account");
   const allAccountStopsDone =
     (accountStops.length > 0 || visitedCount > 0) && accountStops.every((s) => s.done);
-  const day_state: "not_started" | "in_progress" | "ready_to_end" | "ended" = !dayMileage.start
+  const day_state: DayState = !dayMileage.start
     ? "not_started"
     : dayMileage.end
       ? "ended"
@@ -257,9 +276,9 @@ export async function GET(request: Request) {
         ? "ready_to_end"
         : "in_progress";
 
-  return Response.json(
-    {
-      ok: true,
+  return {
+      ok: true as const,
+      heading: null as string | null,
       generated_at: new Date().toISOString(),
       day,
       days,
@@ -267,13 +286,21 @@ export async function GET(request: Request) {
       stops,
       calls,
       schedule,
-      day_state,
+      day_state: day_state as DayState,
       visited_count: visitedCount,
       mileage_error: dayMileage.fileError ?? null,
       total_straight_line_miles: stops.length > 1 ? Number(total.toFixed(1)) : null,
       maps_all_url: stops.length > 1 ? `https://maps.apple.com/?daddr=${stops.map((s) => `${s.lat},${s.lng}`).join("+to:")}` : null,
       route_url: `${origin()}/nb/route`,
-    },
-    { headers: { "cache-control": "no-store" } },
-  );
+    };
+  }
+}
+
+/** "Tomorrow", or the weekday when the next route is further out. */
+function headingFor(today: string, next: string): string {
+  const [y, m, d] = today.split("-").map(Number);
+  const tomorrow = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  if (next === tomorrow) return "Tomorrow";
+  const [ny, nm, nd] = next.split("-").map(Number);
+  return new Date(Date.UTC(ny, nm - 1, nd, 12)).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
 }
