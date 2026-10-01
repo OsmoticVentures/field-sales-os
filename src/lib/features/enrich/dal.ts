@@ -81,6 +81,7 @@ export type EnrichAccount = Account & {
   owner_name: string | null;
   origin: string | null;
   closed_at: string | null;
+  chain_excluded: boolean | null;
 };
 
 export async function getEnrichAccount(id: string): Promise<EnrichAccount | null> {
@@ -94,6 +95,8 @@ export function outOfScopeReason(acc: EnrichAccount): string | null {
   if (String(acc.hubspot_owner_id || "") !== JUAN_OWNER_ID) return "This account is not in Juan's book.";
   if (acc.origin === "synthetic") return "This is a seed row, not a real account.";
   if (acc.closed_at) return "This account is closed.";
+  // Juan, 2026-09-30: a corporate chain gets no Head Hunter work on any tier.
+  if (acc.chain_excluded) return "This is a corporate chain. Its buyer is corporate's to name, so no search runs.";
   return null;
 }
 

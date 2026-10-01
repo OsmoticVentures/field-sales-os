@@ -7,6 +7,7 @@
  */
 import "server-only";
 import { searchPlaces, type PlaceCandidate } from "../../shared/places";
+import type { RawReview } from "./review-owners";
 
 export type PlacesPassResult = {
   ran: boolean;
@@ -25,5 +26,28 @@ export async function runPlacesPass(accountName: string, address: string | null,
     return { ran: true, candidate, closed };
   } catch (err) {
     return { ran: false, skipped_reason: err instanceof Error ? err.message : "Places lookup failed.", candidate: null, closed: false };
+  }
+}
+
+export type ReviewsPassResult = { ran: boolean; skipped_reason?: string; reviews: RawReview[] };
+
+/** Tier 3a: the storefront's own Google reviews, by the place id already on
+ *  the account (or the one the Places pass just matched). The sentence stays
+ *  verbatim as the claim; nothing is asked of a model. */
+export async function runReviewsPass(placeId: string | null, timeoutMs = 15_000): Promise<ReviewsPassResult> {
+  if (!placeId) return { ran: false, skipped_reason: "No Google place id on file.", reviews: [] };
+  const key = process.env.NB_PLACES_API_KEY ?? "";
+  if (!key) return { ran: false, skipped_reason: "NB_PLACES_API_KEY is not configured.", reviews: [] };
+  try {
+    const res = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`, {
+      headers: { "X-Goog-Api-Key": key, "X-Goog-FieldMask": "reviews" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) return { ran: false, skipped_reason: `Google reviews answered HTTP ${res.status}.`, reviews: [] };
+    const data = (await res.json()) as { reviews?: RawReview[] };
+    return { ran: true, reviews: data.reviews ?? [] };
+  } catch {
+    return { ran: false, skipped_reason: "Google reviews could not be read just now.", reviews: [] };
   }
 }

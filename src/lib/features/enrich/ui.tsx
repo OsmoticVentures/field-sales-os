@@ -35,7 +35,7 @@ function useCyclingLabel(active: boolean): string {
   return TIER_LABELS[i];
 }
 
-const TIER_TAG: Record<string, string> = { site_team: "Site", site_other: "Site", places: "Google", websearch: "Web search" };
+const TIER_TAG: Record<string, string> = { site_team: "Site", site_other: "Site", account_name: "Account name", places_reviews: "Google reviews", places: "Google", websearch: "Web search" };
 
 function SourceTag({ tier }: { tier: string }) {
   return <span className="rounded bg-[#ECEAE1] px-1.5 py-0.5 text-[10.5px] font-medium tracking-wide text-[#5B6560] uppercase">{TIER_TAG[tier] ?? tier}</span>;

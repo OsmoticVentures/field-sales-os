@@ -15,7 +15,8 @@
  */
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import type { FoundPerson } from "./types";
+import type { FoundPerson, Lead } from "./types";
+import { verifyCited, type Citation } from "./people-guard";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
@@ -23,6 +24,7 @@ export type WebSearchPassResult = {
   ran: boolean;
   skipped_reason?: string;
   people: FoundPerson[];
+  leads: Lead[];
   query: string;
   closed_signal: string | null;
 };
@@ -67,12 +69,13 @@ export async function runWebSearchPass(
   state: string | null,
   deadline = Date.now() + 45_000,
 ): Promise<WebSearchPassResult> {
-  if (!client) return { ran: false, skipped_reason: "ANTHROPIC_API_KEY is not configured.", people: [], query: "", closed_signal: null };
+  if (!client) return { ran: false, skipped_reason: "ANTHROPIC_API_KEY is not configured.", people: [], leads: [], query: "", closed_signal: null };
 
   const place = [accountName, city, state].filter(Boolean).join(", ");
   const query = `who owns or manages ${place}`;
 
   let findings = "";
+  const cited: Citation[] = [];
   try {
     const search = await client.messages.create({
       model: "claude-sonnet-5",
@@ -88,11 +91,20 @@ export async function runWebSearchPass(
       .filter((b) => b.type === "text")
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n");
+    // The passages the search itself cited are the evidence. The model's prose
+    // is not: a person is admitted only if one of these prints them.
+    for (const b of search.content) {
+      if (b.type !== "text" || !Array.isArray(b.citations)) continue;
+      for (const c of b.citations) {
+        const cc = c as { url?: string; cited_text?: string };
+        if (cc.url && cc.cited_text) cited.push({ url: cc.url, text: cc.cited_text });
+      }
+    }
   } catch (err) {
     const timedOut = err instanceof Error && /timed? ?out|timeout/i.test(err.message);
-    return { ran: false, skipped_reason: timedOut ? "The web search ran out of time." : "The web search could not run just now.", people: [], query, closed_signal: null };
+    return { ran: false, skipped_reason: timedOut ? "The web search ran out of time." : "The web search could not run just now.", people: [], leads: [], query, closed_signal: null };
   }
-  if (!findings.trim()) return { ran: true, skipped_reason: "Search returned nothing usable.", people: [], query, closed_signal: null };
+  if (!findings.trim()) return { ran: true, skipped_reason: "Search returned nothing usable.", people: [], leads: [], query, closed_signal: null };
 
   let out: ExtractOutput | null = null;
   try {
@@ -107,22 +119,30 @@ export async function runWebSearchPass(
     const toolUse = msg.content.find((b) => b.type === "tool_use");
     if (toolUse && toolUse.type === "tool_use") out = toolUse.input as ExtractOutput;
   } catch {
-    return { ran: true, skipped_reason: "Could not extract structured findings.", people: [], query, closed_signal: null };
+    return { ran: true, skipped_reason: "Could not extract structured findings.", people: [], leads: [], query, closed_signal: null };
   }
-  if (!out) return { ran: true, skipped_reason: "Could not extract structured findings.", people: [], query, closed_signal: null };
+  if (!out) return { ran: true, skipped_reason: "Could not extract structured findings.", people: [], leads: [], query, closed_signal: null };
 
-  const people: FoundPerson[] = (Array.isArray(out.people) ? out.people : [])
-    .filter((p) => p && typeof p.name === "string" && p.name.trim().length >= 2)
-    .map((p) => ({
-      name: p.name.trim(),
-      title: p.title && p.title.trim() ? p.title.trim() : null,
-      is_decision_maker: Boolean(p.is_decision_maker && p.title),
-      source_tier: "websearch",
-      found_by: `websearch: "${query}"`,
-      basis: `web search, "${(p.source_text || "").slice(0, 90)}"`,
-      source_text: p.source_text || null,
-      source_url: p.source_url || null,
-    }));
+  const people: FoundPerson[] = [];
+  const leads: Lead[] = [];
+  for (const p of Array.isArray(out.people) ? out.people : []) {
+    if (!p || typeof p.name !== "string" || p.name.trim().length < 2) continue;
+    const verdict = verifyCited({ name: p.name, title: p.title }, cited);
+    if (verdict.ok) {
+      people.push({
+        name: p.name.trim(),
+        title: verdict.title,
+        is_decision_maker: verdict.is_decision_maker,
+        source_tier: "websearch",
+        found_by: `websearch: "${query}"`,
+        basis: `web search, a cited passage prints the name and the title`,
+        source_text: verdict.source_text,
+        source_url: verdict.source_url,
+      });
+    } else {
+      leads.push({ name: p.name.trim().slice(0, 80), claim: (p.title || "named").slice(0, 60), basis: `search summary only. ${verdict.reason}`.slice(0, 200), confirmed: false });
+    }
+  }
 
-  return { ran: true, people, query, closed_signal: out.closed_signal || null };
+  return { ran: true, people, leads: leads.slice(0, 5), query, closed_signal: out.closed_signal || null };
 }

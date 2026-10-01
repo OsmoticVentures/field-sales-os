@@ -33,10 +33,12 @@ import {
   type EnrichAccount,
 } from "./dal";
 import { runSitePass, type SitePassResult } from "./site-pass";
-import { runPlacesPass, type PlacesPassResult } from "./places-pass";
+import { runPlacesPass, runReviewsPass, type PlacesPassResult } from "./places-pass";
+import { distillReviews } from "./review-owners";
+import { personFromAccountName } from "./named-practitioner";
 import { runWebSearchPass } from "./websearch-pass";
 import { isDirectory } from "./html";
-import type { FilledField, FindContactsResult, FoundPerson, NotFoundField, Proposal, TierOutcome } from "./types";
+import type { FilledField, FindContactsResult, FoundPerson, Lead, NotFoundField, Proposal, TierOutcome } from "./types";
 
 /** Kept under /api/enrich/run's maxDuration (120s) with room to write. */
 export const FIND_CONTACTS_BUDGET_MS = 95_000;
@@ -45,8 +47,8 @@ function normName(name: string): string {
   return name.toLowerCase().replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
 }
 
-const TIER_RANK: Record<string, number> = { site_team: 0, site_other: 1, places: 2, websearch: 3 };
-const TIER_CONFIDENCE: Record<string, "high" | "medium" | "low"> = { site_team: "high", site_other: "medium", places: "medium", websearch: "low" };
+const TIER_RANK: Record<string, number> = { site_team: 0, site_other: 1, account_name: 2, places_reviews: 3, places: 4, websearch: 5 };
+const TIER_CONFIDENCE: Record<string, "high" | "medium" | "low"> = { site_team: "high", site_other: "medium", account_name: "high", places_reviews: "medium", places: "medium", websearch: "low" };
 
 /** Every found person across every tier that ran, one entry per real human,
  *  strongest tier wins the title/decision-maker call, exactly headhunter.py's
@@ -114,6 +116,20 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   // this one clock, so a slow site shortens the web search rather than the
   // whole pass dying at the limit with nothing saved.
   const deadline = Date.now() + FIND_CONTACTS_BUDGET_MS;
+  const leads: Lead[] = [];
+
+  // A practice named for its practitioner ("BETTY CIUCHTA, D.C.") is that
+  // person. Deterministic and free, so it always runs; the claim is the
+  // stored account name itself.
+  const named = personFromAccountName(account.name);
+  if (named) {
+    peopleGroups.push([{
+      name: named.name, title: named.title, is_decision_maker: true, source_tier: "account_name",
+      found_by: "account name",
+      basis: `the business is registered under this person's own name and credential (${named.credential}), a sole practice; title is the credential spelled out`,
+      source_text: account.name, source_url: null,
+    }]);
+  }
 
   // ---- Head Hunter first: tiers 1-2, the account's own site ---------------
   // Juan, 2026-09-30: Head Hunter is the top priority in every enrichment run.
@@ -209,6 +225,25 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     }
   }
 
+  // ---- Tier 3a: Google reviews naming an owner or manager ----------------
+  if (!hasDecisionMakerOnFile && !mergePeople(peopleGroups).some((p) => p.is_decision_maker)) {
+    const rv = await runReviewsPass(places.candidate?.placeId ?? account.places_id ?? null);
+    tiers.push({ tier: "places_reviews", ran: rv.ran, skipped_reason: rv.skipped_reason });
+    if (rv.ran) {
+      const owners = distillReviews(rv.reviews);
+      peopleGroups.push(owners.map((o): FoundPerson => ({
+        name: o.name,
+        title: o.role.replace(/\b\w/g, (c) => c.toUpperCase()),
+        is_decision_maker: o.mentions >= 2,
+        source_tier: "places_reviews",
+        found_by: `google reviews: ${o.mentions} mention(s)`,
+        basis: `a customer's review names this person as the ${o.role}${o.mentions >= 2 ? ", in more than one review" : ", in a single review; decision-maker flag left to a person"}`,
+        source_text: o.sentence,
+        source_url: places.candidate?.placeId || account.places_id ? `https://www.google.com/maps/place/?q=place_id:${places.candidate?.placeId ?? account.places_id}` : null,
+      })));
+    }
+  }
+
   const mergedSoFar = mergePeople(peopleGroups);
   const decisionMakerFoundSoFar = hasDecisionMakerOnFile || mergedSoFar.some((p) => p.is_decision_maker);
 
@@ -222,6 +257,7 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     tiers.push({ tier: "websearch", ran: ws.ran, skipped_reason: ws.skipped_reason });
     if (ws.ran) {
       peopleGroups.push(ws.people);
+      leads.push(...ws.leads);
       if (ws.closed_signal) {
         closedSignal = closedSignal ?? { note: `A web search suggests this business may have closed: "${ws.closed_signal}"`, source: `websearch: "${ws.query}"` };
         await insertClosedSignalNote(accountId, closedSignal.note);
@@ -326,6 +362,7 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     found: merged.length,
     tier: merged[0]?.source_tier ?? null,
     note: "in-app pass (Find Contacts): tiers 1-4 in one run, not headhunter.py's own-site-only pass.",
+    ...(leads.length ? { leads } : {}),
     ...(site.failures.length ? { failures: site.failures.slice(0, 4) } : {}),
   });
 
@@ -350,6 +387,7 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     tiers,
     closed_signal: closedSignal,
     different_business_signal: differentBusiness,
+    leads,
   };
 }
 
@@ -368,5 +406,6 @@ function blocked(accountId: string, error: string, name = ""): FindContactsResul
     tiers: [],
     closed_signal: null,
     different_business_signal: null,
+    leads: [],
   };
 }

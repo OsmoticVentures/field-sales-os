@@ -36,3 +36,29 @@ export function verifyPerson(p: RawPerson, pageText: string): Verdict {
   if (title && !page.includes(norm(title))) return { ok: false, reason: `the title "${title}" for "${name}" is not on the page` };
   return { ok: true, title, is_decision_maker: isDecisionRole(title) };
 }
+
+export type Citation = { url: string; text: string };
+
+/** A web-search finding is kept only when a passage the search itself cited
+ *  prints the name and the title together. The model's own prose proves
+ *  nothing; the cited passage is the page speaking. Returns the passage so the
+ *  contact stores what the page printed, with the page's own address. */
+export function verifyCited(p: RawPerson, cited: Citation[]):
+  | { ok: true; title: string; is_decision_maker: boolean; source_text: string; source_url: string }
+  | { ok: false; reason: string } {
+  const name = (p.name || "").trim();
+  const title = (p.title || "").trim();
+  if (name.length < 2 || !title) return { ok: false, reason: "a name and a title are both required" };
+  if (NOT_A_PERSON.test(name)) return { ok: false, reason: `"${name}" is page furniture, not a person` };
+  const words = norm(name).split(" ").filter(Boolean);
+  const forms: Record<string, string[]> = { founder: ["founded by", "established by", "started by"], owner: ["owned by"] };
+  const t = norm(title);
+  for (const c of cited) {
+    if (!/^https:\/\//.test(c.url || "")) continue;
+    const page = ` ${norm(c.text)} `;
+    if (!words.every((w) => page.includes(` ${w} `))) continue;
+    if (!page.includes(` ${t} `) && !(forms[t] || []).some((f) => page.includes(` ${f} `))) continue;
+    return { ok: true, title, is_decision_maker: isDecisionRole(title), source_text: c.text.trim().slice(0, 400), source_url: c.url };
+  }
+  return { ok: false, reason: `no cited passage prints "${name}" with "${title}"` };
+}

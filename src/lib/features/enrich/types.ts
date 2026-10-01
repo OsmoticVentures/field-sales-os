@@ -11,7 +11,11 @@
  * own SourceTier rather than a single pass-level one.
  */
 
-export type SourceTier = "site_team" | "site_other" | "places" | "websearch";
+export type SourceTier = "site_team" | "site_other" | "account_name" | "places_reviews" | "places" | "websearch";
+
+/** A name a search pointed at that no cited passage printed with a role. Kept
+ *  beside the marker as unconfirmed, never as a contact. */
+export type Lead = { name: string; claim: string; basis: string; confirmed: false };
 
 /** The same shape the Python side writes (headhunter.py, enrich_places_db.py):
  *  a field's provenance travels with the field, never a blanket "enricher". */
@@ -86,4 +90,5 @@ export type FindContactsResult = {
   tiers: TierOutcome[];
   closed_signal: { note: string; source: string } | null;
   different_business_signal: string | null;
+  leads: Lead[];
 };
