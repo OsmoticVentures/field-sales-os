@@ -98,7 +98,7 @@ type ParsedPerson = {
 
 /** File one parsed person against an account: update the existing contact,
  *  insert a new row otherwise. Matches by email first, then by name. */
-async function reconcileContact(accountId: string, existing: Contact[], p: ParsedPerson): Promise<"added" | "updated" | "none"> {
+export async function reconcileContact(accountId: string, existing: Contact[], p: ParsedPerson): Promise<"added" | "updated" | "none"> {
   const nameKey = (s: string | null) => (s ?? "").trim().toLowerCase();
   const emailKey = (s: string | null) => (s ?? "").trim().toLowerCase();
   const pEmail = emailKey(p.email);
