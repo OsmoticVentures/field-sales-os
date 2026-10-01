@@ -60,7 +60,7 @@ function FiledNote({
         hubspotFiled === false && hubspotError === "CRM filing off" ? (
           <div className="mt-1.5 text-[12px] text-[#8A928C]">CRM filing off</div>
         ) : (
-          <div className={`mt-1.5 flex items-start gap-1.5 text-[12px] ${hubspotFiled ? "text-[#8A928C]" : "text-[#8A6D2F]"}`}>
+          <div className={`mt-1.5 flex items-start gap-1.5 text-[12px] ${hubspotFiled ? "text-[#8A928C]" : "text-[#B3261E]"}`}>
             <Ico name={hubspotFiled ? "check" : "alert"} size={11} />
             <span>{hubspotFiled ? `Filed to HubSpot${hubspotId ? ` (${hubspotId})` : ""}.` : hubspotError ?? "Not filed to HubSpot."}</span>
           </div>
@@ -354,7 +354,7 @@ export function TouchpointCapture({
       activityId: result.activityId,
     })
       .then((r) => setSuccess({ ...result, ...r }))
-      .catch((e: unknown) => setSuccess({ ...result, hubspotError: e instanceof Error ? e.message : "Still not filed to HubSpot." }))
+      .catch(() => setSuccess({ ...result, hubspotError: "Still not filed to HubSpot." }))
       .finally(() => setRetryHubspot("idle"));
   }
 

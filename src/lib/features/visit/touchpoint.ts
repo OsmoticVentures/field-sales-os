@@ -80,7 +80,7 @@ export async function autoFileEngagement(activityId: number, feature: HubspotFea
     return {
       hubspotFiled: false,
       hubspotNoteId: null,
-      hubspotError: e instanceof Blocked ? e.message : e instanceof Error ? e.message : String(e),
+      hubspotError: e instanceof Blocked ? e.message : "Not filed to HubSpot yet.",
     };
   }
 }
@@ -103,14 +103,25 @@ async function reconcileContact(accountId: string, existing: Contact[], p: Parse
   const emailKey = (s: string | null) => (s ?? "").trim().toLowerCase();
   const pEmail = emailKey(p.email);
 
+  const digits = (s: string | null) => (s ?? "").replace(/\D/g, "").slice(-10);
+  const pPhone = digits(p.phone);
+  const pFirst = nameKey(p.first_name);
+  const pLast = nameKey(p.last_name);
+  // A later visit often adds the surname to a person first logged by first
+  // name alone (or drops it); that is the same person, not a new row.
+  const sameName = (c: Contact) =>
+    nameKey(c.first_name) === pFirst &&
+    (nameKey(c.last_name) === pLast || !nameKey(c.last_name) || !pLast);
+
   const match =
     (pEmail && existing.find((c) => emailKey(c.email) === pEmail)) ||
-    existing.find(
-      (c) => nameKey(c.first_name) === nameKey(p.first_name) && nameKey(c.last_name) === nameKey(p.last_name) && (nameKey(p.first_name) || nameKey(p.last_name)) !== "",
-    );
+    (pPhone.length === 10 && existing.find((c) => digits(c.phone) === pPhone)) ||
+    (pFirst || pLast ? existing.find((c) => (pFirst ? sameName(c) : nameKey(c.last_name) === pLast && !nameKey(c.first_name))) : undefined);
 
   if (match) {
     const patch: Record<string, string | boolean> = {};
+    if (!match.first_name && p.first_name) patch.first_name = p.first_name;
+    if (!match.last_name && p.last_name) patch.last_name = p.last_name;
     if (!match.title && p.title) patch.title = p.title;
     if (!match.role_tag && p.role_tag) patch.role_tag = p.role_tag;
     if (!match.email && p.email) patch.email = p.email;

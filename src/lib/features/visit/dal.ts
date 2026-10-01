@@ -326,8 +326,19 @@ export async function getTouchpointPeople(activityId: number): Promise<
   return rows[0]?.parsed?.people ?? [];
 }
 
-export async function linkContactHubspotId(id: string, hubspotContactId: string): Promise<void> {
-  await mutate("nb_contacts", "PATCH", { hubspot_contact_id: hubspotContactId }, { id: `eq.${id}`, hubspot_contact_id: "is.null" });
+/** Idempotent: if another nb_contacts row already holds this HubSpot id, the
+ *  person is already linked there, so this is a no-op rather than a duplicate
+ *  key. Returns the id of the row that owns the HubSpot contact. */
+export async function linkContactHubspotId(id: string, hubspotContactId: string): Promise<string> {
+  const owner = await query<Contact>("nb_contacts", { select: "id", hubspot_contact_id: `eq.${hubspotContactId}`, limit: "1" });
+  if (owner[0]) return owner[0].id;
+  try {
+    await mutate("nb_contacts", "PATCH", { hubspot_contact_id: hubspotContactId }, { id: `eq.${id}`, hubspot_contact_id: "is.null" });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!msg.includes('"code":"23505"')) throw e;
+  }
+  return id;
 }
 
 // ---------------------------------------------------------------------------
