@@ -39,12 +39,11 @@ const inputCls =
   "placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none";
 const labelCls = "mb-1 block text-[11px] uppercase tracking-[0.1em] text-[#8A928C]";
 const primaryBtn =
-  "inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#14201B] px-3.5 py-2.5 text-[14px] font-medium " +
-  "text-[#F7F6F1] transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:active:scale-100 disabled:opacity-30";
+  "inline-flex min-h-11 items-center gap-1.5 glass-dark rounded-xl px-3.5 py-2.5 text-[14px] font-medium transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:active:scale-100 disabled:opacity-30";
 const secondaryBtn =
-  "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#14201B] bg-white px-3 py-2.5 text-[14px] " +
+  "inline-flex min-h-11 items-center gap-1.5 glass rounded-xl px-3 py-2.5 text-[14px] " +
   "font-medium text-[#14201B] transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:active:scale-100 " +
-  "disabled:border-[#E2DFD5] disabled:text-[#A9AFA9]";
+  "disabled:text-[#A9AFA9]";
 const panel = "rounded-lg border border-[#E2DFD5] bg-white";
 const th = "whitespace-nowrap px-3 py-2 text-left font-medium";
 const td = "px-3 py-2 align-top";
@@ -908,6 +907,9 @@ function SelectionBar({
 }
 
 type BookResult = {
+  kind?: "company" | "person";
+  /** Person rows only: the company they work at, shown as the subtext. */
+  company?: string | null;
   id: string;
   name: string;
   area: string | null;
@@ -947,7 +949,7 @@ function BookSearch() {
 
   const results = useMemo(() => {
     if (q.trim().length < 2) return [];
-    return rankMatches(q, book, (r) => ({ name: r.name || "", also: [r.city, r.state, r.area] }), BOOK_RESULT_LIMIT);
+    return rankMatches(q, book, (r) => ({ name: r.name || "", also: [r.company, r.city, r.state, r.area] }), BOOK_RESULT_LIMIT);
   }, [book, q]);
 
   return (
@@ -971,7 +973,7 @@ function BookSearch() {
           }}
           onFocus={() => setShow(true)}
           onBlur={() => setTimeout(() => setShow(false), 150)}
-          placeholder="Find a current client by name"
+          placeholder="Find a client or company"
           aria-label="Search accounts already in the book"
           enterKeyHint="search"
           className="min-h-11 w-full rounded-md border border-[#E2DFD5] bg-[#FAF9F5] py-2.5 pl-9 pr-3 text-base text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none"
@@ -989,14 +991,14 @@ function BookSearch() {
           )}
           {results.map((r) => (
             <Link
-              key={r.id}
+              key={`${r.kind}-${r.id}-${r.name}`}
               href={{ pathname: "/prospect", query: { account: r.id } }}
               onMouseDown={(e) => e.preventDefault()}
               className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[#FAF9F5]"
             >
               <span className="truncate font-medium text-[#14201B]">{r.name}</span>
               <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[#8A928C]">
-                {r.city ?? r.area}
+                {r.kind === "person" ? r.company : (r.city ?? r.area)}
                 <Ico name="external" size={12} />
               </span>
             </Link>

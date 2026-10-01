@@ -10,7 +10,9 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import {
   listAccountsForMatching,
+  listBookPeople,
   listBookPlaces,
+  type BookPerson,
   type BookAccount,
 } from "../../../../lib/features/search/dal";
 
@@ -23,6 +25,7 @@ let cache: {
   at: number;
   rows: BookAccount[];
   where: Map<string, { city: string | null; state: string | null }>;
+  people: BookPerson[];
 } | null = null;
 
 export async function GET() {
@@ -32,18 +35,22 @@ export async function GET() {
 
   try {
     if (!cache || Date.now() - cache.at >= CACHE_MS) {
-      const [rows, places] = await Promise.all([listAccountsForMatching(), listBookPlaces()]);
+      const [rows, places, people] = await Promise.all([listAccountsForMatching(), listBookPlaces(), listBookPeople()]);
+      const inBook = new Set(rows.map((r) => r.id));
       cache = {
         at: Date.now(),
         rows,
         where: new Map(places.map((p) => [p.id, { city: p.city, state: p.state }])),
+        people: people.filter((p) => inBook.has(p.account_id)),
       };
     }
   } catch {
     return Response.json({ ok: false, error: "Could not read the book." }, { status: 502 });
   }
 
-  const results = cache.rows.map((row) => ({
+  const companyName = new Map(cache.rows.map((r) => [r.id, r.name]));
+  const companies = cache.rows.map((row) => ({
+    kind: "company" as const,
     id: row.id,
     name: row.name,
     area: row.area,
@@ -51,6 +58,19 @@ export async function GET() {
     city: cache!.where.get(row.id)?.city ?? null,
     state: cache!.where.get(row.id)?.state ?? null,
   }));
+  // One master list: every company, then every named person with their
+  // company as the subtext. A person opens their company's account.
+  const people = cache.people.map((p) => ({
+    kind: "person" as const,
+    id: p.account_id,
+    name: p.name,
+    company: companyName.get(p.account_id) ?? null,
+    area: null,
+    tier: null,
+    city: null,
+    state: null,
+  }));
+  const results = [...companies, ...people];
 
   return Response.json(
     { ok: true, results },

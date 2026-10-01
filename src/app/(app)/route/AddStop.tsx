@@ -17,137 +17,17 @@
  * then a priority, queues a call on nb_sdr_schedule for the active day
  * through /api/prospect/schedule, the route Prospect already posts to.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, inputCls } from "@/lib/core/ui";
 import { dayLabel } from "@/lib/features/route/field-week";
 import { rankMatches } from "@/lib/features/route/search-match";
 import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
-import type { CallEntry, CustomStop, CustomStopKind, RouteAccount } from "@/lib/features/route/types";
+import type { CustomStop, RouteAccount } from "@/lib/features/route/types";
 
-type CallCandidate = {
-  id: string;
-  kind: "contact" | "company";
-  label: string;
-  city: string | null;
-  phone: string | null;
-  phoneVia: string | null;
-};
+type AddKind = "client" | "stop" | "sdr";
 
-/** "+17145551234" -> "(714) 555-1234"; anything else shows as stored. */
-function prettyPhone(raw: string): string {
-  const d = raw.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
-  return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : raw;
-}
-
-function CallSearchField({
-  label,
-  onChangeLabel,
-  onPick,
-  className,
-}: {
-  label: string;
-  onChangeLabel: (v: string) => void;
-  onPick: (r: CallCandidate) => void;
-  className: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [results, setResults] = useState<CallCandidate[]>([]);
-  const [searching, setSearching] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const seqRef = useRef(0);
-
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
-
-  function runSearch(q: string) {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (q.trim().length < 2) {
-      setResults([]);
-      setSearching(false);
-      return;
-    }
-    setSearching(true);
-    debounceRef.current = setTimeout(async () => {
-      const seq = ++seqRef.current;
-      try {
-        const res = await apiFetch(`/api/route/call-search?q=${encodeURIComponent(q)}`);
-        const json = (await res.json()) as { ok: boolean; results?: CallCandidate[] };
-        if (seq !== seqRef.current) return;
-        setResults(json.ok ? (json.results ?? []) : []);
-      } catch {
-        if (seq === seqRef.current) setResults([]);
-      } finally {
-        if (seq === seqRef.current) setSearching(false);
-      }
-    }, 250);
-  }
-
-  const q = label.trim();
-  const showMenu = open && q.length >= 2;
-
-  return (
-    <div className="relative">
-      <input
-        value={label}
-        onChange={(e) => {
-          onChangeLabel(e.target.value);
-          setOpen(true);
-          runSearch(e.target.value);
-        }}
-        onFocus={() => q.length >= 2 && setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
-        placeholder="Who, e.g. Alex Conrad, Vasari Plaster"
-        autoFocus
-        className={className}
-      />
-      {showMenu && (
-        <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-72 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg">
-          {searching && <div className="px-3 py-2 text-[12.5px] text-[#8A928C]">Searching HubSpot</div>}
-          {!searching && results.length === 0 && (
-            <div className="px-3 py-2 text-[12.5px] text-[#8A928C]">No HubSpot match. Type the name and phone by hand.</div>
-          )}
-          {results.map((r) => (
-            <button
-              key={`${r.kind}:${r.id}`}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onPick(r);
-                setOpen(false);
-                setResults([]);
-              }}
-              className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[#FAF9F5]"
-            >
-              <span className="min-w-0">
-                <span className="flex items-center gap-1.5">
-                  <span className="truncate text-[13.5px] font-medium text-[#14201B]">{r.label}</span>
-                  <span className="shrink-0 rounded bg-[#F0EEE4] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#8A928C]">
-                    {r.kind}
-                  </span>
-                </span>
-                {r.phoneVia && <span className="block truncate text-[11.5px] text-[#A9AFA9]">via {r.phoneVia}</span>}
-              </span>
-              <span className="shrink-0 text-[12.5px] tabular-nums text-[#5B6560]">{r.phone ? prettyPhone(r.phone) : "no phone on file"}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-type AddKind = CustomStopKind | "client" | "call" | "sdr";
-
-const KIND_HINT: Record<CustomStopKind, string> = {
-  lunch: "In-N-Out Tustin",
-  hotel: "Hampton Inn Carlsbad",
-  stop: "Any address or place name",
-};
+const STOP_HINT = "Lunch, hotel, any address or place name";
 
 const SDR_PRIORITIES: { value: "low" | "mid" | "high"; label: string; tone: string }[] = [
   { value: "low", label: "Low", tone: "bg-[#ECEAE1] text-[#5B6560]" },
@@ -161,23 +41,18 @@ export function AddStop({
   activeDay,
   onAddAccount,
   onAddCustomStop,
-  onAddCall,
 }: {
   accounts: RouteAccount[];
   inRoute: Set<string>;
   activeDay: string;
   onAddAccount: (a: RouteAccount) => void;
   onAddCustomStop: (stop: Omit<CustomStop, "id">) => void;
-  onAddCall: (call: Omit<CallEntry, "id">) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<AddKind>("client");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [label, setLabel] = useState("");
-  const [phone, setPhone] = useState("");
-  const [note, setNote] = useState("");
   const [sdrAccount, setSdrAccount] = useState<RouteAccount | null>(null);
   const [sdrQueued, setSdrQueued] = useState<string | null>(null);
 
@@ -190,9 +65,6 @@ export function AddStop({
   function reset() {
     setQuery("");
     setError(null);
-    setLabel("");
-    setPhone("");
-    setNote("");
     setSdrAccount(null);
     setSdrQueued(null);
   }
@@ -226,7 +98,7 @@ export function AddStop({
 
   async function submitStop(e: React.FormEvent) {
     e.preventDefault();
-    if (busy || kind === "client" || kind === "call" || kind === "sdr") return;
+    if (busy || kind !== "stop") return;
     setBusy(true);
     setError(null);
     let json: { ok: boolean; place?: { label: string; address: string; lat: number; lng: number }; error?: string };
@@ -247,15 +119,7 @@ export function AddStop({
       setError(json.error ?? "No match. Try the city name too.");
       return;
     }
-    onAddCustomStop({ kind: kind as CustomStopKind, label: json.place.label, address: json.place.address, lat: json.place.lat, lng: json.place.lng });
-    reset();
-    setOpen(false);
-  }
-
-  function submitCall(e: React.FormEvent) {
-    e.preventDefault();
-    if (!label.trim() || !phone.trim()) return;
-    onAddCall({ label: label.trim(), phone: phone.trim(), ...(note.trim() ? { note: note.trim() } : {}) });
+    onAddCustomStop({ kind: "stop", label: json.place.label, address: json.place.address, lat: json.place.lat, lng: json.place.lng });
     reset();
     setOpen(false);
   }
@@ -269,20 +133,17 @@ export function AddStop({
           reset();
           setOpen(true);
         }}
-        className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3.5 py-2 text-[13px] font-medium text-[#3D4A44] transition-transform active:scale-[0.97] hover:bg-[#FAF9F5]"
+        className="glass inline-flex min-h-11 items-center gap-1.5 rounded-full px-4 py-2 text-[13px] font-medium text-[#3D4A44] transition-transform active:scale-[0.97]"
       >
         <Ico name="pin" size={14} />
-        Add a stop, call, or SDR
+        Add a stop or SDR
       </button>
     );
   }
 
   const pills: { value: AddKind; label: string }[] = [
     { value: "client", label: "Client" },
-    { value: "lunch", label: CUSTOM_STOP_LABEL.lunch },
-    { value: "hotel", label: CUSTOM_STOP_LABEL.hotel },
     { value: "stop", label: CUSTOM_STOP_LABEL.stop },
-    { value: "call", label: "Call" },
     { value: "sdr", label: "SDR" },
   ];
 
@@ -297,8 +158,8 @@ export function AddStop({
               setKind(p.value);
               reset();
             }}
-            className={`min-h-11 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors ${
-              kind === p.value ? "bg-[#14201B] text-[#F7F6F1]" : "border border-[#E2DFD5] text-[#5B6560] hover:bg-[#FAF9F5]"
+            className={`min-h-11 rounded-full px-4 py-1.5 text-[13px] font-medium transition-transform active:scale-[0.97] ${
+              kind === p.value ? "glass-dark" : "glass text-[#3D4A44]"
             }`}
           >
             {p.label}
@@ -366,7 +227,7 @@ export function AddStop({
                     type="button"
                     disabled={busy}
                     onClick={() => queueSdr(p.value)}
-                    className={`min-h-11 flex-1 rounded-md px-2 text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-40 ${p.tone}`}
+                    className={`glass min-h-11 flex-1 rounded-xl px-2 text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-40 ${p.tone}`}
                   >
                     {p.label}
                   </button>
@@ -409,56 +270,22 @@ export function AddStop({
         </div>
       )}
 
-      {kind !== "client" && kind !== "call" && kind !== "sdr" && (
+      {kind === "stop" && (
         <form onSubmit={submitStop} className="mt-2.5 flex flex-col gap-2">
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={KIND_HINT[kind]} autoFocus className={inputCls} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={STOP_HINT} autoFocus className={inputCls} />
           <div className="flex items-center gap-2">
             <button
               type="submit"
               disabled={busy || query.trim().length < 3}
-              className="min-h-11 rounded-md bg-[#2C6A46] px-3.5 py-2 text-[13px] font-semibold text-white transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
+              className="min-h-11 glass-dark rounded-xl px-3.5 py-2 text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {busy ? "Finding" : "Add to route"}
             </button>
-            <button type="button" onClick={() => setOpen(false)} className="min-h-11 rounded-md border border-[#E2DFD5] px-3 py-2 text-[13px] font-medium text-[#8A928C]">
+            <button type="button" onClick={() => setOpen(false)} className="glass min-h-11 rounded-xl px-3 py-2 text-[13px] font-medium text-[#5B6560]">
               Cancel
             </button>
           </div>
           {error && <span className="text-[13px] text-[#8A2E2E]">{error}</span>}
-        </form>
-      )}
-
-      {kind === "call" && (
-        <form onSubmit={submitCall} className="mt-2.5 flex flex-col gap-2">
-          <CallSearchField
-            label={label}
-            onChangeLabel={setLabel}
-            onPick={(r) => {
-              setLabel(r.label);
-              if (r.phone) setPhone(r.phone);
-            }}
-            className={inputCls}
-          />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className={`${inputCls} tabular-nums`} />
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Why you're calling"
-            rows={2}
-            className="w-full resize-none rounded-md border border-[#E2DFD5] bg-[#FCFBF7] px-3 py-2 text-base outline-none placeholder:text-[#A9AFA9] focus:border-[#8A928C]"
-          />
-          <div className="flex items-center gap-2">
-            <button
-              type="submit"
-              disabled={!label.trim() || !phone.trim()}
-              className="min-h-11 rounded-md bg-[#2C6A46] px-3.5 py-2 text-[13px] font-semibold text-white transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Add call
-            </button>
-            <button type="button" onClick={() => setOpen(false)} className="min-h-11 rounded-md border border-[#E2DFD5] px-3 py-2 text-[13px] font-medium text-[#8A928C]">
-              Cancel
-            </button>
-          </div>
         </form>
       )}
 

@@ -25,7 +25,7 @@ import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
 
 const press = "transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
-const actionBtn = `inline-flex min-h-11 items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5] hover:text-[#14201B] ${press}`;
+const actionBtn = `inline-flex min-h-11 items-center gap-1.5 glass rounded-xl px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5] hover:text-[#14201B] ${press}`;
 const absentBtn = "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-dashed border-[#E2DFD5] px-3.5 py-2 text-[14px] text-[#A9AFA9]";
 
 async function postJson(path: string, body: unknown): Promise<void> {
@@ -281,7 +281,7 @@ function AddToSdr({ accountId }: { accountId: string }) {
           type="button"
           onClick={add}
           disabled={busy || !date}
-          className={`min-h-11 rounded-md bg-[#14201B] px-3 py-1.5 text-[13px] font-semibold text-[#F7F6F1] disabled:opacity-60 ${press}`}
+          className={`min-h-11 glass-dark rounded-xl px-3 py-1.5 text-[13px] font-semibold disabled:opacity-60 ${press}`}
         >
           {busy ? "Adding" : "Add"}
         </button>
@@ -451,7 +451,7 @@ export function AccountView({
             href={HUBSPOT_COMPANY_URL(a.hubspot_company_id)}
             target="_blank"
             rel="noopener noreferrer"
-            className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#14201B] px-3.5 py-2 text-[14px] font-semibold text-[#F7F6F1] ${press}`}
+            className={`inline-flex min-h-11 items-center gap-1.5 glass-dark rounded-xl px-3.5 py-2 text-[14px] font-semibold ${press}`}
           >
             <Ico name="hubspot" size={14} />
             Open in HubSpot

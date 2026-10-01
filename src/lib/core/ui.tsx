@@ -20,7 +20,7 @@
 import type { ReactNode } from "react";
 
 export const inputCls =
-  "w-full min-h-11 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3 py-2.5 text-[16px] text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B] focus:outline-none";
+  "w-full min-h-11 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3 py-2.5 text-[16px] text-[#14201B] placeholder:text-[#A9AFA9] focus:border-[#14201B]/60 focus:outline-none";
 /** Sentence case, no tracking: a field's own label, not a section head. Use
  *  eyebrowCls below for a card or section heading instead. */
 export const labelCls = "mb-1 block text-[13px] text-[#5B6560]";
@@ -28,9 +28,9 @@ export const labelCls = "mb-1 block text-[13px] text-[#5B6560]";
  *  label uses labelCls (sentence case) instead. */
 export const eyebrowCls = "text-[11px] uppercase tracking-[0.14em] text-[#8A928C]";
 export const primaryBtn =
-  "min-h-11 rounded-md bg-[#14201B] px-3.5 py-2.5 text-[14px] font-medium text-[#F7F6F1] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40 disabled:active:scale-100";
+  "glass-dark min-h-11 rounded-xl px-3.5 py-2.5 text-[14px] font-medium transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40 disabled:active:scale-100";
 export const ghostBtn =
-  "min-h-11 rounded-md border border-[#E2DFD5] px-3 py-2.5 text-[14px] text-[#5B6560] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40";
+  "glass min-h-11 rounded-xl px-3 py-2.5 text-[14px] text-[#3D4A44] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40";
 
 export const ICONS: Record<string, ReactNode> = {
   check: <path d="m3 8.4 3.2 3.2L13 4.8" />,

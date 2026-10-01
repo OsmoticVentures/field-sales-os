@@ -44,3 +44,58 @@ body {
   /* System stack only: fast, no webfont load, no layout shift while a
      display face streams in. See PORTING.md, Design. */
 }
+
+/* Liquid glass. A translucent, refracting layer: backdrop blur with boosted
+   saturation, a bright rim where light catches the top edge, and a soft
+   shadow that lifts it off the page. Components layer, so an explicit
+   bg-* utility (a green Done button) still wins over the glass fill. */
+@layer components {
+  .glass,
+  .glass-dark {
+    -webkit-backdrop-filter: blur(18px) saturate(190%);
+    backdrop-filter: blur(18px) saturate(190%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.85),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.25),
+      0 1px 2px rgba(20, 32, 27, 0.06),
+      0 6px 18px rgba(20, 32, 27, 0.08);
+  }
+  .glass {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42));
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    color: #14201b;
+  }
+  .glass-dark {
+    background: linear-gradient(180deg, rgba(38, 56, 48, 0.88), rgba(20, 32, 27, 0.78));
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #f7f6f1;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      0 1px 2px rgba(20, 32, 27, 0.2),
+      0 6px 18px rgba(20, 32, 27, 0.22);
+  }
+  .glass-bar {
+    -webkit-backdrop-filter: blur(28px) saturate(200%);
+    backdrop-filter: blur(28px) saturate(200%);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(250, 249, 245, 0.5));
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.9),
+      0 2px 4px rgba(20, 32, 27, 0.06),
+      0 12px 32px rgba(20, 32, 27, 0.14);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-bar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #fff;
+  }
+  .glass-dark {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: #14201b;
+  }
+}

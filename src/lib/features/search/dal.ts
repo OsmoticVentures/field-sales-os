@@ -173,6 +173,32 @@ export async function listBookPlaces(): Promise<BookPlace[]> {
   });
 }
 
+export type BookPerson = { id: string; account_id: string; name: string };
+
+/** Every named person on an account in the book, paged past PostgREST's
+ *  1000-row ceiling. The caller keeps only those whose account is in the book. */
+export async function listBookPeople(): Promise<BookPerson[]> {
+  const out: BookPerson[] = [];
+  const PAGE = 1000;
+  for (let offset = 0; offset < 20_000; offset += PAGE) {
+    const rows = await sbGet<{ id: string; account_id: string; first_name: string | null; last_name: string | null }>(
+      "nb_contacts",
+      {
+        select: "id,account_id,first_name,last_name",
+        order: "id.asc",
+        limit: String(PAGE),
+        offset: String(offset),
+      },
+    );
+    for (const r of rows) {
+      const name = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
+      if (name) out.push({ id: r.id, account_id: r.account_id, name });
+    }
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // The runner's side of the queue
 // ---------------------------------------------------------------------------

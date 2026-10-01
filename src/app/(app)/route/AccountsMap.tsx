@@ -244,7 +244,7 @@ function AddToSdr({ accountId, days }: { accountId: string; days: string[] }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white px-3 py-2 text-[13px] font-semibold text-[#3D4A44] transition-colors hover:bg-[#FAF9F5]"
+          className="flex min-h-11 w-full items-center justify-center gap-1.5 glass rounded-xl px-3 py-2 text-[13px] font-semibold text-[#3D4A44] transition-colors hover:bg-[#FAF9F5]"
         >
           <Ico name="phone" size={13} />
           Add to SDR

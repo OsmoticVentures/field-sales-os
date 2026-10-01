@@ -196,14 +196,14 @@ function buildSchedule(
 }
 
 const dayBtn = (active: boolean) =>
-  `min-h-11 shrink-0 rounded-md px-3.5 py-2 text-[13px] font-medium transition-transform active:scale-[0.97] ${
-    active ? "bg-[#14201B] text-[#F7F6F1]" : "border border-[#E2DFD5] bg-white text-[#5B6560]"
+  `min-h-11 shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-transform active:scale-[0.97] ${
+    active ? "glass-dark" : "glass text-[#3D4A44]"
   }`;
 /** ghostBtn plus the icon+label layout most row actions need; composed, not
  *  a fork, so the base still comes from lib/core/ui. */
 const iconBtn = `${ghostBtn} inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[13px] font-medium text-[#3D4A44]`;
 /** Square 44px icon-only row control. */
-const sqBtn = `${ghostBtn} inline-flex min-w-11 items-center justify-center bg-white px-0 py-0`;
+const sqBtn = `${ghostBtn} inline-flex min-w-11 items-center justify-center px-0 py-0`;
 
 export function RouteClient() {
   // Last visit's route paints at once; the fresh read replaces it. Only
@@ -584,10 +584,6 @@ function RouteDay({
     row?.animate([{ backgroundColor: "#E4EFE8" }, { backgroundColor: "transparent" }], { duration: 1600 });
     setFocus((f) => ({ id: l.stop, n: (f?.n ?? 0) + 1 }));
   }, [activeDay, days, inRoute, setActiveDay]);
-  function showInMap(id: string) {
-    setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
-    mapBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
   function clearDay() {
     const day = activeDay;
     setData((prev) => ({ ...prev, draft: { ...prev.draft, [day]: [] }, done: { ...prev.done, [day]: [] } }));
@@ -916,7 +912,7 @@ function RouteDay({
                         className={
                           isDone
                             ? "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#2C6A46] px-3 py-2 text-[13px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none"
-                            : `${iconBtn} bg-white`
+                            : iconBtn
                         }
                       >
                         <Ico name="check" size={13} />
@@ -931,9 +927,6 @@ function RouteDay({
                           className={sqBtn}
                         />
                       )}
-                      <button type="button" onClick={() => showInMap(s.id)} aria-label={`Show ${title} on the map`} className={sqBtn}>
-                        <RowIco name="locate" />
-                      </button>
                       {/* ADD TO SDR, account stops only: a custom stop (lunch, hotel)
                           has no account_id to schedule against. */}
                       {a && (
@@ -946,7 +939,7 @@ function RouteDay({
                           className={
                             sdrQueued.has(a.id)
                               ? "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-[#2C6A46] bg-[#EAF3EC] px-3 py-2 text-[13px] font-medium text-[#2C6A46]"
-                              : `${iconBtn} bg-white`
+                              : iconBtn
                           }
                         >
                           <Ico name={sdrQueued.has(a.id) ? "check" : "phone"} size={13} />
@@ -963,7 +956,7 @@ function RouteDay({
                         type="button"
                         onClick={() => removeStop(s.id)}
                         aria-label={`Remove ${title} from the route`}
-                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center glass rounded-xl text-[#8A928C] transition-colors hover:text-[#B5372A]"
                       >
                         <Ico name="close" size={14} />
                       </button>
@@ -989,7 +982,7 @@ function RouteDay({
       {stops.length > 0 && (
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           {stops.length > 1 && (
-            <a href={appleMapsRouteUrl(stops)} className={`${iconBtn} bg-white`}>
+            <a href={appleMapsRouteUrl(stops)} className={iconBtn}>
               <Ico name="pin" size={13} />
               Open all in Maps
             </a>
@@ -997,7 +990,7 @@ function RouteDay({
           <button
             type="button"
             onClick={clearDay}
-            className="inline-flex min-h-11 items-center rounded-md border border-[#E2DFD5] bg-white px-3 text-[13px] font-medium text-[#8A928C] transition-colors hover:border-[#D8B3AC] hover:text-[#B5372A]"
+            className="inline-flex min-h-11 items-center glass rounded-xl px-3 text-[13px] font-medium text-[#8A928C] transition-colors hover:text-[#B5372A]"
           >
             Clear route
           </button>
@@ -1019,10 +1012,6 @@ function RouteDay({
         onAddCustomStop={(stop) => {
           const id = `custom:${newKey()}`;
           addEntry({ ...stop, id }, stop.lat, stop.lng);
-        }}
-        onAddCall={(call) => {
-          const id = `call:${newKey()}`;
-          patchCalls(activeDay, [...calls, { ...call, id }]);
         }}
       />
     </div>
@@ -1096,7 +1085,7 @@ function EndpointField({
         }}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
         placeholder={label}
-        className="min-h-11 w-40 rounded-md border border-[#8A928C] bg-white px-2 py-1 text-base outline-none"
+        className="min-h-11 w-40 glass rounded-xl px-2.5 py-1 text-base outline-none"
       />
       {(home || results.length > 0 || searching) && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-56 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg">
@@ -1169,7 +1158,7 @@ function DayBar({
         <span className="flex items-center gap-1.5">
           Leave <EndpointField label="Start" value={start} fallback={home} home={home} onChange={onChangeStart} />
           at
-          <input type="time" value={prefs.depart} onChange={(e) => onChange({ ...prefs, depart: e.target.value })} className={inputCls} />
+          <input type="time" value={prefs.depart} onChange={(e) => onChange({ ...prefs, depart: e.target.value })} className={`${inputCls} w-auto tabular-nums font-medium`} />
         </span>
         <label className="flex items-center gap-1.5">
           <input
@@ -1178,7 +1167,7 @@ function DayBar({
             max={240}
             value={prefs.dwellMinutes}
             onChange={(e) => onChange({ ...prefs, dwellMinutes: Number(e.target.value) })}
-            className={`${inputCls} w-[4.5rem]`}
+            className={`${inputCls} w-[4.5rem] text-center tabular-nums font-medium`}
           />
           min per stop
         </label>
@@ -1189,7 +1178,7 @@ function DayBar({
             max={240}
             value={prefs.lunchMinutes}
             onChange={(e) => onChange({ ...prefs, lunchMinutes: Number(e.target.value) })}
-            className={`${inputCls} w-[4.5rem]`}
+            className={`${inputCls} w-[4.5rem] text-center tabular-nums font-medium`}
           />
           min lunch
         </label>

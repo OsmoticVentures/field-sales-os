@@ -60,8 +60,8 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
 }
 
 const tabCls = (active: boolean) =>
-  `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] transition-transform active:scale-[0.95] motion-reduce:transition-none motion-reduce:active:scale-100 ${
-    active ? "font-medium text-[#14201B]" : "text-[#3D4A44]"
+  `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 rounded-[22px] py-2 text-[11px] transition-[transform,background-color] active:scale-[0.95] motion-reduce:transition-none motion-reduce:active:scale-100 ${
+    active ? "bg-[#14201B]/10 font-semibold text-[#14201B] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" : "text-[#3D4A44]"
   }`;
 
 /**
@@ -106,7 +106,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
         aria-modal="true"
         aria-label="More screens"
         aria-hidden={!moreOpen}
-        className={`fixed inset-x-0 bottom-0 z-40 origin-bottom rounded-t-xl border-t border-[#E2DFD5] bg-[#FAF9F5]/95 backdrop-blur transition-[transform,opacity] duration-250 ease-out motion-reduce:transition-opacity md:hidden [padding-bottom:calc(4.25rem+env(safe-area-inset-bottom))] ${
+        className={`fixed inset-x-0 bottom-0 z-40 origin-bottom glass-bar rounded-t-[28px] transition-[transform,opacity] duration-250 ease-out motion-reduce:transition-opacity md:hidden [padding-bottom:calc(4.25rem+env(safe-area-inset-bottom))] ${
           moreOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0 motion-reduce:translate-y-0"
         }`}
       >
@@ -133,7 +133,7 @@ export function TabBar({ items }: { items: NavItem[] }) {
         </nav>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-[#E2DFD5] bg-[#FAF9F5]/95 backdrop-blur md:hidden [padding-bottom:env(safe-area-inset-bottom)]">
+      <nav className="glass-bar fixed inset-x-3 z-40 flex gap-1 rounded-[28px] p-1.5 md:hidden [bottom:calc(0.5rem+env(safe-area-inset-bottom))]">
         {tabs.map((n) => {
           const active = isActive(pathname, n.href);
           return (

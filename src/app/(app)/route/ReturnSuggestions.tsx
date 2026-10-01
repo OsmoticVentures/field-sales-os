@@ -205,7 +205,7 @@ export function ReturnSuggestions({
                     type="button"
                     onClick={() => generateOutbound(s)}
                     disabled={busyId === s.accountId || !why.trim()}
-                    className="min-h-9 rounded-md bg-[#14201B] px-3 py-1.5 text-[12px] font-semibold text-[#F7F6F1] disabled:cursor-not-allowed disabled:opacity-40"
+                    className="min-h-9 glass-dark rounded-xl px-3 py-1.5 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {busyId === s.accountId ? "Drafting" : "Generate"}
                   </button>
