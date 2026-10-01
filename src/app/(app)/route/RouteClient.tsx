@@ -562,6 +562,28 @@ function RouteDay({
       .then(() => postJson("/api/route/draft", { day: targetDay, entries: targetEntries }))
       .catch(() => {});
   }
+  // Deep link from the widget (?day=&stop=): land on that day, scroll to the
+  // stop's row, and mark it on the map.
+  const linkRef = useRef<{ day: string | null; stop: string } | null | undefined>(undefined);
+  if (linkRef.current === undefined) {
+    const q = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+    const stop = q?.get("stop");
+    linkRef.current = stop ? { day: q?.get("day") ?? null, stop } : null;
+  }
+  useEffect(() => {
+    const l = linkRef.current;
+    if (!l) return;
+    if (l.day && l.day !== activeDay && days.includes(l.day)) {
+      setActiveDay(l.day);
+      return;
+    }
+    if (!inRoute.has(l.stop)) return;
+    linkRef.current = null;
+    const row = listRef.current?.querySelector<HTMLLIElement>(`li[data-stop-id="${CSS.escape(l.stop)}"]`);
+    row?.scrollIntoView({ behavior: "smooth", block: "center" });
+    row?.animate([{ backgroundColor: "#E4EFE8" }, { backgroundColor: "transparent" }], { duration: 1600 });
+    setFocus((f) => ({ id: l.stop, n: (f?.n ?? 0) + 1 }));
+  }, [activeDay, days, inRoute, setActiveDay]);
   function showInMap(id: string) {
     setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 }));
     mapBoxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });

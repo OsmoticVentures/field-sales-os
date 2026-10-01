@@ -147,6 +147,8 @@ struct StopRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 7) {
+                Link(destination: deepLink("route", ["day": data.day, "stop": stop.id])) {
+                    HStack(alignment: .top, spacing: 7) {
                 Chip(stop: stop)
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
@@ -160,6 +162,8 @@ struct StopRow: View {
                     if stop.type == "account" { Text(stop.moneyLine).font(.system(size: 9.5)).foregroundColor(Pal.faint).lineLimit(1) }
                 }
                 Spacer(minLength: 0)
+                    }
+                }
                 if showMiles, let m = stop.straight_line_miles_from_prev {
                     Text("\(String(format: "%.1f", m)) mi").font(.system(size: 9.5)).foregroundColor(Pal.faint)
                 }

@@ -6,6 +6,7 @@ import WidgetKit
 ///   sdr?account=ID       the SDR page with that client loaded
 ///   call?account=ID&tel=N  the SDR page loaded for that client, then the dialer
 ///                        (no tel: red alert, nothing dials)
+///   route?day=D&stop=ID  the route view on that day, scrolled to the stop
 ///   account?id=ID        the account sheet
 ///   odo?kind=start|end   odometer prompt (photo stays on the phone), then
 ///                        &go=ID opens Maps, &done=ID marks that stop done
@@ -32,6 +33,8 @@ enum DeepLink {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { UIApplication.shared.open(dial) }
+        case "route":
+            load(webView, "/route?day=\(q["day"] ?? "")&stop=\(q["stop"] ?? "")")
         case "account":
             if let id = q["id"] { load(webView, "/account/\(id)") }
         case "odo":
