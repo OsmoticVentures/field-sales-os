@@ -29,6 +29,7 @@ import { FindContacts } from "../../../lib/features/enrich/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
+import { withinTrailing12mo } from "../../../lib/features/clients/ui";
 
 // ---------------------------------------------------------------------------
 // Types (mirror the /api/prospect/schedule and /api/prospect/account shapes)
@@ -82,7 +83,7 @@ type AccountPanelData = {
   lastOrderAt: string | null;
   lifetimeRevenue: number | null;
   expectedReorderAt: string | null;
-  purchases: { orderCount: number; topItems: { name: string; qty: number; revenueCents: number; last3Qty: number }[]; smallItemNames: string[] } | null;
+  purchases: { orderCount: number; topItems: { name: string; qty: number; revenueCents: number; last3Qty: number; last: string | null }[]; smallItems: { name: string; qty: number; revenueCents: number; last3Qty: number; last: string | null }[] } | null;
   businessHours: BusinessHours | null;
   hubspotCompanyId: string | null;
   contacts: { id: string; name: string; title: string | null; phone: string | null; email: string | null; isDecisionMaker: boolean }[];
@@ -867,16 +868,20 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
                   <span className="text-[12px] normal-case tracking-normal">{panel.purchases.orderCount} order{panel.purchases.orderCount === 1 ? "" : "s"}</span>
                 </div>
                 <ul className="flex flex-col divide-y divide-[#EDEBE3]">
-                  {panel.purchases.topItems.map((it) => (
+                  {[...panel.purchases.topItems, ...panel.purchases.smallItems].map((it) => (
                     <li key={it.name} className="flex items-baseline justify-between gap-3 py-1.5 text-[14px]">
-                      <span className="min-w-0 truncate">{it.name}</span>
+                      <span className="flex min-w-0 items-baseline gap-1.5">
+                        <span className="min-w-0 truncate">{it.name}</span>
+                        {withinTrailing12mo(it.last) && (
+                          <span className="shrink-0 rounded-full bg-[#B3452C] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wide text-white uppercase">Recent</span>
+                        )}
+                      </span>
                       <span className="shrink-0 tabular-nums text-[#5B6560]">
                         x{it.qty} <span className="text-[#8A928C]">, {money(it.revenueCents / 100)}</span>
                       </span>
                     </li>
                   ))}
                 </ul>
-                {panel.purchases.smallItemNames.length > 0 && <div className="mt-1.5 text-[13px] text-[#8A928C]">Small amounts of {panel.purchases.smallItemNames.join(", ")}.</div>}
               </div>
             )}
 

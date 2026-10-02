@@ -181,23 +181,26 @@ export async function listPurchases(accountId: string): Promise<{ orders: Purcha
   return { orders, lines: lines.filter((l) => orderIds.has(l.order_id)) };
 }
 
-export type PurchaseSummaryItem = { name: string; qty: number; revenueCents: number; last3Qty: number };
-export type PurchaseSummary = { orderCount: number; topItems: PurchaseSummaryItem[]; smallItemNames: string[] };
+export type PurchaseSummaryItem = { name: string; qty: number; revenueCents: number; last3Qty: number; last: string | null };
+export type PurchaseSummary = { orderCount: number; topItems: PurchaseSummaryItem[]; smallItems: PurchaseSummaryItem[] };
 
 export function summarizePurchases(orders: PurchaseOrder[], lines: PurchaseLine[]): PurchaseSummary | null {
   if (orders.length === 0) return null;
   const last3OrderIds = new Set(orders.slice(0, 3).map((o) => o.id));
+  const orderedAt = new Map(orders.map((o) => [o.id, o.ordered_at]));
   const totals = new Map<string, PurchaseSummaryItem>();
   for (const l of lines) {
     const name = l.product_name ?? "Item";
-    const cur = totals.get(name) ?? { name, qty: 0, revenueCents: 0, last3Qty: 0 };
+    const cur = totals.get(name) ?? { name, qty: 0, revenueCents: 0, last3Qty: 0, last: null };
     cur.qty += l.qty ?? 0;
     cur.revenueCents += l.line_revenue_cents;
     if (last3OrderIds.has(l.order_id)) cur.last3Qty += l.qty ?? 0;
+    const at = orderedAt.get(l.order_id) ?? null;
+    if (at && (!cur.last || at > cur.last)) cur.last = at;
     totals.set(name, cur);
   }
   const items = [...totals.values()].filter((t) => t.qty !== 0).sort((a, b) => b.qty - a.qty);
-  return { orderCount: orders.length, topItems: items.slice(0, 5), smallItemNames: items.slice(5).map((t) => t.name) };
+  return { orderCount: orders.length, topItems: items.slice(0, 5), smallItems: items.slice(5) };
 }
 
 // ---------------------------------------------------------------------------
