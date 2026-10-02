@@ -47,7 +47,12 @@ export async function AccountContent({ id }: { id: string }) {
         aside={
           <TierButton
             accountId={account.id}
-            initialTier={account.potential_juan ?? (account.potential_hq ? account.potential_hq.split(" ")[0] || null : null)}
+            initialTier={
+              account.potential_juan ??
+              book?.byId.get(id)?.grade ??
+              (account.potential_hq ? account.potential_hq.split(" ")[0] || null : null)
+            }
+            tierIsMine={Boolean(account.potential_juan)}
             score={book?.byId.get(id)?.score ?? null}
             warmth={prospectAccount?.readiness ?? null}
             leadStatus={prospectAccount?.lead_status ?? null}

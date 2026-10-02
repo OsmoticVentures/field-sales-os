@@ -14,6 +14,7 @@ export type SdrEntry = { kind: string; date: string; label: string };
 export function TierButton({
   accountId,
   initialTier,
+  tierIsMine = true,
   score,
   warmth,
   leadStatus,
@@ -21,12 +22,15 @@ export function TierButton({
 }: {
   accountId: string;
   initialTier: string | null;
+  /** False when the letter shown is computed, not one I picked. */
+  tierIsMine?: boolean;
   score: number | null;
   warmth: string | null;
   leadStatus: string | null;
   sdr: SdrEntry[];
 }) {
   const [tier, setTier] = useState<string | null>(initialTier);
+  const [mine, setMine] = useState(tierIsMine);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -34,7 +38,7 @@ export function TierButton({
 
   async function pick(t: string) {
     if (busy || saved) return;
-    const next = tier === t ? null : t;
+    const next = tier === t && mine ? null : t;
     setBusy(true);
     setFailed(false);
     try {
@@ -46,6 +50,7 @@ export function TierButton({
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean };
       if (!res.ok || j.ok === false) throw new Error("save");
       setTier(next);
+      setMine(next !== null);
       setSaved(true);
       setTimeout(() => {
         setSaved(false);

@@ -383,10 +383,18 @@ export async function listAreas(): Promise<TerritoryArea[]> {
 
 import {
   areaProspectCounts,
+  buildSignals,
   byOriginThenPriority,
   computePriority,
+  CORP_PREFILTER,
+  laDay,
+  NOTE_PREFILTER,
   type PriorityInput,
   type PriorityResult,
+  type RawNote,
+  type RawOrder,
+  type RawOrderEmail,
+  type RawTouch,
   type Readiness,
 } from "./priority";
 
@@ -397,10 +405,13 @@ export type PriorityBook = {
 };
 
 /**
- * The book is four reads of up to 2,000 rows each and changes on the scale
- * of visits, not seconds, yet Prospect, the Route map and every client view
- * ask for it. One copy per warm server for ten minutes, shared by concurrent
- * callers; a write that moves a score drops it (invalidatePriorityBook).
+ * The book is a handful of reads, about 515 KB together (measured
+ * 2026-10-02: accounts 198 KB, potential 35 KB, orders ~105 KB, touches 87 KB,
+ * notes prefiltered in Postgres 85 KB, corporate notes 1 KB), and it changes
+ * on the scale of visits, not seconds, yet Prospect, the Route map and every client
+ * view ask for it. One copy per warm server for ten minutes, shared by
+ * concurrent callers; a write that moves a score drops it
+ * (invalidatePriorityBook).
  */
 const BOOK_TTL_MS = 10 * 60 * 1000;
 let bookMemo: { at: number; p: Promise<PriorityBook> } | null = null;
@@ -419,12 +430,26 @@ export function getPriorityBook(): Promise<PriorityBook> {
   return memo.p;
 }
 
+/** PostgREST caps a response at 1,000 rows; page until a short page. */
+async function sbGetAll<T>(table: string, params: URLSearchParams): Promise<T[]> {
+  const out: T[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const p = new URLSearchParams(params);
+    p.set("limit", "1000");
+    p.set("offset", String(offset));
+    const page = await sbGet<T>(table, p);
+    out.push(...page);
+    if (page.length < 1000) return out;
+  }
+}
+
 async function readPriorityBook(): Promise<PriorityBook> {
   const empty: PriorityBook = { byId: new Map(), ranked: [], areaProspects: new Map() };
   if (!isConfigured()) return empty;
 
-  const [accounts, grades, drafts, touches] = await Promise.all([
-    sbGet<{
+  const since = new Date(Date.now() - 121 * 86_400_000).toISOString().slice(0, 10);
+  const [accounts, grades, drafts, orders, touches, notes, corpNotes, orderEmails] = await Promise.all([
+    sbGetAll<{
       id: string;
       name: string;
       lifecycle: string | null;
@@ -441,35 +466,48 @@ async function readPriorityBook(): Promise<PriorityBook> {
       readiness: Readiness | null;
       channel: string | null;
       origin: string | null;
+      store_type: string | null;
+      potential_juan: string | null;
+      potential_hq: string | null;
+      locations_count: number | null;
+      places_rating_count: number | null;
     }>(
       "nb_accounts",
       new URLSearchParams({
         select:
-          "id,name,lifecycle,phone,area,trailing_12m_revenue,lifetime_revenue,first_order_at,last_order_at,expected_reorder_days,places_status,closed_at,do_not_visit,readiness,channel,origin",
+          "id,name,lifecycle,phone,area,trailing_12m_revenue,lifetime_revenue,first_order_at,last_order_at,expected_reorder_days,places_status,closed_at,do_not_visit,readiness,channel,origin,store_type,potential_juan,potential_hq,locations_count,places_rating_count",
         hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
         lifecycle: "neq.waypoint",
         closed_at: "is.null",
         chain_excluded: "eq.false",
-        limit: "2000",
+        order: "id.asc",
       }),
     ),
-    sbGet<{ account_id: string; potential_grade: string | null }>(
+    sbGetAll<{ account_id: string; potential_grade: string | null }>(
       "nb_v_account_potential",
-      new URLSearchParams({ select: "account_id,potential_grade", limit: "2000" }),
+      new URLSearchParams({ select: "account_id,potential_grade", order: "account_id.asc" }),
     ),
     sbGet<{ account_id: string | null; urgency: number | null; urgency_reason: string | null }>(
       "nb_outbound_drafts",
       new URLSearchParams({ select: "account_id,urgency,urgency_reason", status: "eq.pending", limit: "500" }),
     ),
-    sbGet<{ account_id: string; at: string }>(
+    sbGetAll<RawOrder>("nb_orders", new URLSearchParams({ select: "account_id,ordered_at,revenue_cents", order: "id.asc" })),
+    sbGetAll<RawTouch>(
       "nb_v_activities_effective",
-      new URLSearchParams({ select: "account_id,at", corrected: "is.false", retracted: "is.false", order: "at.desc", limit: "2000" }),
+      new URLSearchParams({ select: "account_id,at,effective_kind,outcome", retracted: "is.false", order: "id.asc" }),
     ),
+    sbGetAll<RawNote>(
+      "nb_v_activities_effective",
+      new URLSearchParams({ select: "account_id,at,detail", retracted: "is.false", at: `gte.${since}`, detail: `imatch.${NOTE_PREFILTER}`, order: "id.asc" }),
+    ),
+    sbGetAll<RawNote>(
+      "nb_v_activities_effective",
+      new URLSearchParams({ select: "account_id,at,detail", retracted: "is.false", detail: `imatch.${CORP_PREFILTER}`, order: "id.asc" }),
+    ),
+    sbGet<RawOrderEmail>("nb_order_emails", new URLSearchParams({ select: "account_id,no_charge", limit: "1000" })),
   ]);
 
   const gradeById = new Map(grades.map((g) => [g.account_id, g.potential_grade]));
-  const lastTouch = new Map<string, string>();
-  for (const t of touches) if (!lastTouch.has(t.account_id)) lastTouch.set(t.account_id, t.at);
   const urgencyById = new Map<string, { urgency: number | null; urgency_reason: string | null }>();
   for (const d of drafts) {
     if (!d.account_id) continue;
@@ -477,21 +515,31 @@ async function readPriorityBook(): Promise<PriorityBook> {
     if (!prev || (d.urgency ?? -1) > (prev.urgency ?? -1)) urgencyById.set(d.account_id, d);
   }
 
+  const signals = buildSignals({ orders, touches, notes, corpNotes, orderEmails }, laDay(new Date()));
   const inputs: PriorityInput[] = accounts.map((a) => ({
     ...a,
     tier: gradeById.get(a.id) ?? null,
     urgency: urgencyById.get(a.id)?.urgency ?? null,
     urgency_reason: urgencyById.get(a.id)?.urgency_reason ?? null,
-    last_touch_at: lastTouch.get(a.id) ?? null,
   }));
 
-  const byId = computePriority(inputs);
+  const byId = computePriority(inputs, signals);
+  // A store whose buying is decided at corporate and that is not buying from
+  // me now is corporate work, not a field prospect, same as the action lists.
   const ranked = inputs
     .map((account) => ({ account, result: byId.get(account.id)! }))
     .filter((r) => r.result.score !== null)
+    .filter((r) => !(r.result.corporate && !isBuying(r.account, signals)))
     .sort(byOriginThenPriority);
 
   return { byId, ranked, areaProspects: areaProspectCounts(inputs, byId) };
+}
+
+/** Buying now, the action lists' test: ERP revenue in the window, an order
+ *  through me, or a last ERP order on or after 2025-07-01. */
+function isBuying(a: PriorityInput, signals: ReturnType<typeof buildSignals>): boolean {
+  const s = signals.get(a.id);
+  return Boolean((s && (s.rev12 > 0 || s.ordersMe > 0)) || (a.last_order_at && a.last_order_at.slice(0, 10) >= "2025-07-01"));
 }
 
 // ---------------------------------------------------------------------------
