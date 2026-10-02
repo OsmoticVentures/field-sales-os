@@ -1,7 +1,7 @@
 /**
- * The NutriBiotic potential grade (A to E) and SDR potential score (1 to 100),
+ * The NutriBiotic potential grade (A to E) and potential score (1 to 100),
  * ported rule for rule from bridges/nutribiotic (book_overview.py
- * potential_now, action_lists.py score). This file is byte-identical in
+ * potential_now, potential_raw, potential). This file is byte-identical in
  * ClientOS (osmotic-ventures/field-sales-os/src/lib/features/prospect/) and
  * the portfolio NutriBiotic OS (portfolio/src/app/nutribiotic/lib/), so the
  * two apps and the action lists sheet give the same answer for one account.
@@ -19,18 +19,19 @@
  *   4. Nothing known at all: HQ's old label, else the OS grade.
  *   F and G (no retail, personal use) stay as graded.
  *
- * SDR potential, how much one touch from me is worth this month:
- *   size        A 30, B 24, C 17, D 10, E 4, not graded 8
- *   my read     urgent or hot +22, normal +6; cold -12 only when the account
- *               said no, a timing miss (owner busy, nobody there) is 0
- *   they want   a note in the last 120 days says they want the line +14,
- *               +4 per named product up to +8; a "no" newer than any yes -20
- *   buying      ordered in the ERP 12 months +10, plus up to +8 by size;
- *               ordered through me +10
- *   fresh       last touch within 21 days +8, within 60 days +4
- *   fit         natural grocery, supplement specialty, clinic practice +6;
- *               clinic, grocery, pharmacy, spa +3
- * Clamped to 1..100.
+ * Potential, 1 to 100: what one more in-person visit from me is worth now.
+ * 50 is the line: 50 and up I visit, under 50 is email and phone only.
+ *   worth     from the grade: A 64, B 57, C 50, D 30, E 20, F and G 5, not
+ *             graded 26. Inside a grade, proof counts: up to +4 for the best
+ *             year of orders (peak / 750), +2 when the grade is my own field
+ *             call, up to +3 for foot traffic (Google reviews / 200).
+ *   momentum  readiness urgent +15, hot +12, normal +4, cold -10; a "no"
+ *             newer than any yes -25, else a note in the last 120 days saying
+ *             they want the line +10, +2 per named product up to +6; ordering
+ *             in the ERP 12 months +6 plus up to +6 (rev12 / 400); ordering
+ *             through me +8; a touch within 21 days +4, within 60 days +2.
+ * Under 50 the raw sum is the score, capped at 49 and floored at 1. Above 50
+ * it bends: 50 + 50 * (1 - e^(-(raw - 50) / 35)), capped at 100.
  *
  * Code, not a model: the note signals are fixed regular expressions over my
  * own capture text. Nothing here calls an LLM or stores a score.
@@ -81,7 +82,9 @@ const PRETTY: Record<string, string> = {
 };
 
 const LETTERS = "ABCDE";
-const SIZE: Record<string, number> = { A: 30, B: 24, C: 17, D: 10, E: 4 };
+const WORTH: Record<string, number> = { A: 64, B: 57, C: 50, D: 30, E: 20, F: 5, G: 5 };
+/** The visit line: 50 and up I visit, under 50 is email and phone only. */
+export const LINE = 50;
 const GRADE_TOP = new Set(["natural_grocery", "specialty_supplement", "clinic_practice", "specialty"]);
 const GRADE_MID = new Set(["clinic", "general_grocery", "spa_beauty", "grocery", "pharmacy"]);
 
@@ -230,12 +233,6 @@ export function potentialNow(a: ScoreInput, peak: number): { grade: string | nul
   return { grade: os || null, from: os ? "OS" : null };
 }
 
-function freshPoints(lastTouch: string, today: string): number {
-  if (!lastTouch) return 0;
-  const age = dayDiff(today, lastTouch);
-  return age <= 21 ? 8 : age <= 60 ? 4 : 0;
-}
-
 function usd(n: number): string {
   return `$${Math.round(n).toLocaleString("en-US")}`;
 }
@@ -245,20 +242,29 @@ function listProducts(keys: string[]): string {
   return names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-/** The raw SDR potential, before a suppressor cap. Exported for the parity check. */
-export function sdrScore(a: ScoreInput, s: Signals, grade: string | null, today: string): number {
-  const no = saidNo(s);
-  let n = grade && grade in SIZE ? SIZE[grade] : 8;
+/** The raw sum, before the bend, mirroring book_overview.potential_raw term
+ *  for term (same float order, so the rounding never differs). */
+export function potentialRaw(a: ScoreInput, s: Signals, grade: string | null, from: GradeFrom, today: string): number {
+  let n = grade && grade in WORTH ? WORTH[grade] : 26;
+  n += Math.min(4, s.peak / 750) + (from === "My grade" ? 2 : 0) + Math.min(3, (a.places_rating_count ?? 0) / 200);
   const rd = a.readiness;
-  n += rd === "urgent" || rd === "hot" ? 22 : rd === "normal" ? 6 : rd === "cold" && no ? -12 : 0;
-  if (no) n -= 20;
-  else if (s.want) n += 14 + Math.min(8, 4 * s.products.length);
-  if (s.rev12 > 0) n += 10 + Math.min(8, s.rev12 / 300);
-  if (s.ordersMe) n += 10;
-  n += freshPoints(s.lastTouch, today);
-  const t = (a.store_type || a.channel || "").replace(/_/g, " ");
-  n += GRADE_TOP.has(t.replace(/ /g, "_")) ? 6 : GRADE_MID.has(t.replace(/ /g, "_")) ? 3 : 0;
-  return Math.max(1, Math.min(100, roundHalfEven(n)));
+  n += rd === "urgent" ? 15 : rd === "hot" ? 12 : rd === "normal" ? 4 : rd === "cold" ? -10 : 0;
+  if (saidNo(s)) n -= 25;
+  else if (s.want) n += 10 + Math.min(6, 2 * s.products.length);
+  if (s.rev12 > 0) n += 6 + Math.min(6, s.rev12 / 400);
+  if (s.ordersMe) n += 8;
+  if (s.lastTouch) {
+    const age = dayDiff(today, s.lastTouch);
+    n += age <= 21 ? 4 : age <= 60 ? 2 : 0;
+  }
+  return n;
+}
+
+/** The potential, 1 to 100, before a suppressor cap. Exported for the parity check. */
+export function sdrScore(a: ScoreInput, s: Signals, grade: string | null, today: string, from: GradeFrom = null): number {
+  const raw = potentialRaw(a, s, grade, from, today);
+  if (raw < LINE) return Math.max(1, Math.min(LINE - 1, roundHalfEven(raw)));
+  return Math.min(100, roundHalfEven(LINE + 50 * (1 - Math.exp(-(raw - LINE) / 35))));
 }
 
 export const EMPTY_SIGNALS: Signals = { peak: 0, rev12: 0, ordersMe: 0, lastTouch: "", declined: false, want: "", nope: "", products: [], corp: false };

@@ -32,7 +32,7 @@ export const READINESS_COLOR: Record<ReadinessFilter, string> = {
 };
 
 /** Juan's own number: the standalone 75+ score chip, separate from
- *  priority.ts's "now" band (78) and PROSPECT_SCORE_MIN (80). */
+ *  priority.ts's "now" band (75) and PROSPECT_SCORE_MIN (80). */
 export const HOT_SCORE_MIN = 75;
 
 // --- Type ------------------------------------------------------------------

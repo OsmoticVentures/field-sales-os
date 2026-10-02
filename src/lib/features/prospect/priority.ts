@@ -5,6 +5,7 @@ import {
   potentialNow,
   sdrClauses,
   sdrScore,
+  LINE,
   type GradeFrom,
   type Readiness,
   type ScoreInput,
@@ -16,7 +17,7 @@ export { buildSignals, laDay, CORP_PREFILTER, NOTE_PREFILTER } from "./sdr-score
 export type { RawNote, RawOrder, RawOrderEmail, RawTouch, Signals } from "./sdr-score";
 
 /**
- * Account priority for ClientOS: the potential grade and SDR potential from
+ * Account priority for ClientOS: the potential grade and potential score from
  * sdr-score.ts (the rules and their reasons live there, shared byte for byte
  * with the portfolio NutriBiotic OS and matched to the action lists sheet),
  * plus the hard suppressors, the band, and the one next action. Pure, nothing
@@ -85,12 +86,12 @@ export function computePriority(
     else if (r.places_status === "CLOSED_PERMANENTLY" && !boughtRecently) suppressed = "Places says closed permanently";
 
     const { grade, from } = potentialNow(r, s.peak);
-    let score = sdrScore(r, s, grade, today);
+    let score = sdrScore(r, s, grade, today, from);
     if (suppressed) score = Math.min(score, 10);
 
     const clauses = [...(suppressed ? [suppressed] : []), ...sdrClauses(r, s, grade, from, today)];
 
-    const band: PriorityResult["band"] = suppressed ? "later" : score >= 78 ? "now" : score >= 55 ? "soon" : "later";
+    const band: PriorityResult["band"] = suppressed ? "later" : score >= 75 ? "now" : score >= LINE ? "soon" : "later";
     out.set(r.id, {
       id: r.id,
       score,
@@ -99,7 +100,7 @@ export function computePriority(
       gradeFrom: from,
       reason: clauses.join(", "),
       corporate: s.corp,
-      action: nextAction(r, { lastOrderDays, suppressed }),
+      action: nextAction(r, { lastOrderDays, suppressed, score }),
       suppressed,
     });
   }
@@ -107,7 +108,7 @@ export function computePriority(
 }
 
 /** The one prescriptive step. Every action deep-links into the Prospect screen. */
-function nextAction(r: PriorityInput, ctx: { lastOrderDays: number | null; suppressed: string | null }): NextAction {
+function nextAction(r: PriorityInput, ctx: { lastOrderDays: number | null; suppressed: string | null; score: number }): NextAction {
   if (ctx.suppressed) {
     return { kind: "open", label: "Review", href: `/prospect?account=${r.id}` };
   }
@@ -119,6 +120,12 @@ function nextAction(r: PriorityInput, ctx: { lastOrderDays: number | null; suppr
   }
   if (r.phone && (r.lifecycle === "dormant" || r.lifecycle === "lost")) {
     return { kind: "call", label: "Call to reopen", href: `/prospect?account=${r.id}` };
+  }
+  // Under the line (50) is email and phone only; 50 and up goes on a route.
+  if (ctx.score < LINE) {
+    return r.phone
+      ? { kind: "call", label: "Call or email", href: `/prospect?account=${r.id}` }
+      : { kind: "email", label: "Email", href: `/prospect?account=${r.id}` };
   }
   return { kind: "visit", label: "Put on a route", href: `/prospect?account=${r.id}` };
 }
