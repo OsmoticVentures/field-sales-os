@@ -30,6 +30,7 @@
  *             they want the line +10, +2 per named product up to +6; ordering
  *             in the ERP 12 months +6 plus up to +6 (rev12 / 400); ordering
  *             through me +8; a touch within 21 days +4, within 60 days +2.
+ * Only A to C reach 50; D, E and not graded stop at 49 however warm.
  * Under 50 the raw sum is the score, capped at 49 and floored at 1. Above 50
  * it bends: 50 + 50 * (1 - e^(-(raw - 50) / 35)), capped at 100.
  *
@@ -257,6 +258,8 @@ export function potentialRaw(a: ScoreInput, s: Signals, grade: string | null, fr
     const age = dayDiff(today, s.lastTouch);
     n += age <= 21 ? 4 : age <= 60 ? 2 : 0;
   }
+  // Only A to C reach the line; D, E and not graded stop at 49.
+  if (grade !== "A" && grade !== "B" && grade !== "C") n = Math.min(n, LINE - 1);
   return n;
 }
 
