@@ -1,24 +1,30 @@
 "use client";
 
 /**
- * Visit Logger's client UI: the capture box. When the note's store is not
- * named with confidence, or anything fails, the screen stays exactly as it
- * was (text, kind, grade, readiness) and one red line under the composer says
- * what it could not be sure of, with the closest accounts as tappable picks.
- * A note is either filed or still on the screen; nothing is parked for later.
+ * Visit Logger's client UI: the capture box and the outbox under it. Log
+ * saves the note on the phone and clears the box at once; the outbox
+ * (lib/core/outbox.ts) files it in the background, retrying until HubSpot
+ * confirms, through no signal, a closed app or a crash. Until then the note
+ * stays listed under the composer with where it stands, so nothing is ever
+ * believed filed that is not. A note whose store could not be told waits in
+ * that list with the closest accounts as one-tap picks.
  * Ported and trimmed from portfolio/src/app/nutribiotic/lib/touchpoint-ui.tsx
  * and new-account-ui.tsx.
- *
- * The Google-Places new-business search is replaced with a search of
- * Juan's own book (see search-accounts/route.ts). Every write goes through
- * apiFetch so it carries the /nb basePath, and every write that creates a
- * row carries its own Idempotency-Key, generated once per attempt and
- * reused on any retry of that same attempt, per PORTING.md.
  */
 
-import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { apiFetch } from "../../core/api";
-import { Ico, ghostBtn, primaryBtn } from "../../core/ui";
+import { useEffect, useRef, useState } from "react";
+import {
+  discard,
+  enqueue,
+  fileTo,
+  outboxLabel,
+  runOutbox,
+  takeBack,
+  useOutbox,
+  type OutboxItem,
+} from "../../core/outbox";
+import type { AccountPick, NeedsAccount } from "../../core/outbox-core";
+import { Ico, ghostBtn } from "../../core/ui";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
 function Spinner({ light = true }: { light?: boolean }) {
@@ -29,101 +35,6 @@ function Spinner({ light = true }: { light?: boolean }) {
       }`}
     />
   );
-}
-
-/** A confirmation beat that also carries the HubSpot filing line, since
- *  lib/core/ui.tsx's SuccessNote does not. Local rather than an edit to the
- *  shared file, per this port's file-scope. */
-function FiledNote({
-  title,
-  detail,
-  hubspotFiled,
-  hubspotId,
-  hubspotError,
-  meta,
-}: {
-  title: string;
-  detail?: string | null;
-  hubspotFiled?: boolean;
-  hubspotId?: string | null;
-  hubspotError?: string | null;
-  meta?: ReactNode;
-}) {
-  return (
-    <div className="rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3 py-2.5 text-[13px] leading-relaxed text-[#3D4A44]">
-      <div className="flex items-center gap-1.5 font-medium text-[#2C6A46]">
-        <Ico name="check" size={13} />
-        {title}
-      </div>
-      {detail && <div className="mt-1 text-[#5B6560]">{detail}</div>}
-      {hubspotFiled !== undefined && (
-        hubspotFiled === false && hubspotError === "CRM filing off" ? (
-          <div className="mt-1.5 text-[12px] text-[#8A928C]">CRM filing off</div>
-        ) : (
-          <div className={`mt-1.5 flex items-start gap-1.5 text-[12px] ${hubspotFiled ? "text-[#8A928C]" : "text-[#B3261E]"}`}>
-            <Ico name={hubspotFiled ? "check" : "alert"} size={11} />
-            <span>{hubspotFiled ? `Filed to HubSpot${hubspotId ? ` (${hubspotId})` : ""}.` : hubspotError ?? "Not filed to HubSpot."}</span>
-          </div>
-        )
-      )}
-      {meta}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// types mirrored from the route handlers' JSON shapes
-// ---------------------------------------------------------------------------
-
-type FiledResult = {
-  ok: true;
-  touchpoint_id: string;
-  accountName: string | null;
-  accountId: string | null;
-  activityId: number | null;
-  needsAccount: false;
-  isFieldNote?: boolean;
-  summary: string;
-  peopleAdded: number;
-  peopleUpdated: number;
-  hubspotFiled: boolean;
-  hubspotNoteId: string | null;
-  hubspotError: string | null;
-};
-
-type AccountOption = { id: string; name: string; city: string | null };
-
-type NeedsAccountResult = {
-  ok: true;
-  needsAccount: true;
-  summary: string;
-  businessNameGuess: string | null;
-  matchAccountId: string | null;
-  matchAccountName: string | null;
-  candidates: AccountOption[];
-  parsed: unknown;
-};
-
-type TouchpointApiResult = FiledResult | NeedsAccountResult;
-
-/** A HubSpot miss worth a retry: anything but the deliberate off switch. */
-const hubspotFailed = (r: FiledResult) => !r.isFieldNote && !r.hubspotFiled && r.hubspotError !== "CRM filing off";
-
-/** POST JSON, answer the parsed body, or throw a short readable reason. */
-async function postJson<T>(path: string, body: unknown, key?: string): Promise<T> {
-  let res: Response;
-  try {
-    res = await apiFetch(path, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...(key ? { "idempotency-key": key } : {}) },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new Error("No connection. Nothing was filed.");
-  }
-  const data = await res.json().catch(() => null);
-  if (!data?.ok) throw new Error(data?.error || `Server error ${res.status}. Nothing was filed.`);
-  return data.result as T;
 }
 
 const KIND_OPTIONS = [
@@ -152,33 +63,26 @@ const READINESS_OPTIONS: { value: Readiness; icon: string; title: string; active
   { value: "cold", icon: "snowflake", title: "Cold, not close, -10 to priority", activeClass: "bg-[#5C7E8C] text-[#F7F6F1]" },
 ];
 
-/** Grade and readiness land only once the note has named its account, so a
- *  failed file never leaves a read on the wrong record. Fire and forget. */
-function applyAccountRead(accountId: string | null, grade: VisitGrade | null, readiness: Readiness | null) {
-  if (!accountId || (!grade && !readiness)) return;
-  void apiFetch("/api/visit/account-read", {
-    method: "POST",
-    headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
-    body: JSON.stringify({ account_id: accountId, grade: grade ?? undefined, readiness: readiness ?? undefined }),
-  }).catch(() => {});
-}
-
 // ---------------------------------------------------------------------------
 // the capture box
 // ---------------------------------------------------------------------------
 
 export function TouchpointCapture({
   accountIdHint,
+  accountName,
   onFiled,
   defaultKind,
   initialText,
   autoFocus = true,
 }: {
   /** The account the note is about, when the caller already knows it (the
-   *  prospect view). Skips matching; the note files straight to it. */
+   *  prospect view, a client's Log a visit). Skips matching; the note files
+   *  straight to it. */
   accountIdHint?: string | null;
-  /** Fires once, after a clean file. Never on the pick or error paths. */
-  onFiled?: (result: FiledResult) => void;
+  /** That account's name, so the outbox line reads right before it files. */
+  accountName?: string | null;
+  /** Fires once the note is saved on the phone. Filing follows in the outbox. */
+  onFiled?: () => void;
   /** Pre-selects a kind and sends it even if no pill is tapped. */
   defaultKind?: KindOption;
   /** Pre-typed opening, caret at the end. Applied once, on mount. */
@@ -189,41 +93,16 @@ export function TouchpointCapture({
   const [text, setText] = useState(initialText ?? "");
   const [kind, setKind] = useState<KindOption>(defaultKind ?? "meeting");
   const [kindTouched, setKindTouched] = useState(Boolean(defaultKind));
-  const [pending, startTransition] = useTransition();
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<FiledResult | null>(null);
-  // Not sure which store: the closest accounts, offered inside the error line.
-  const [unsure, setUnsure] = useState<NeedsAccountResult | null>(null);
+  // The confirmation beat: on the disk, or only for as long as the app is open.
+  const [saved, setSaved] = useState<{ durable: boolean } | null>(null);
   const [grade, setGrade] = useState<VisitGrade | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
   const [newCompany, setNewCompany] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
-  const [photoUiState, setPhotoUiState] = useState<"idle" | "uploading" | "error">("idle");
-  const [retryHubspot, setRetryHubspot] = useState<"idle" | "working">("idle");
   const photoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // One key per note. A retry of the same note reuses it, so a write that
-  // did land is never made twice; a filed note gets a fresh one.
-  const key = useRef<string>("");
-  if (!key.current) key.current = crypto.randomUUID();
-  // The last thing tried, so a failure is one tap from running again.
-  const lastTry = useRef<(() => void) | null>(null);
-
-  async function attachPhoto(touchpointId: string, file: File) {
-    setPhotoUiState("uploading");
-    try {
-      const form = new FormData();
-      form.set("touchpoint_id", touchpointId);
-      form.set("photo", file);
-      form.set("idempotency_key", `${touchpointId}:${file.name}:${file.size}`);
-      const res = await apiFetch("/api/visit/attach", { method: "POST", body: form });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "Attach failed.");
-      setPhotoUiState("idle");
-    } catch {
-      setPhotoUiState("error");
-    }
-  }
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -237,16 +116,23 @@ export function TouchpointCapture({
   }, []);
 
   useEffect(() => {
-    // A clean file clears itself; a HubSpot miss stays until it is retried
-    // or dismissed, so it is never missed.
-    if (!success || hubspotFailed(success)) return;
-    const t = setTimeout(() => setSuccess(null), 1200);
+    if (!saved) return;
+    const t = setTimeout(() => setSaved(null), saved.durable ? 1200 : 4000);
     return () => clearTimeout(t);
-  }, [success]);
+  }, [saved]);
 
   function autosize(el: HTMLTextAreaElement) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 420)}px`;
+  }
+
+  function refocus() {
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        autosize(textareaRef.current);
+        if (autoFocus) textareaRef.current.focus({ preventScroll: true });
+      }
+    });
   }
 
   function reset() {
@@ -256,310 +142,340 @@ export function TouchpointCapture({
     setGrade(null);
     setReadiness(null);
     setNewCompany(false);
-    setUnsure(null);
-    requestAnimationFrame(() => {
-      if (textareaRef.current) {
-        autosize(textareaRef.current);
-        if (autoFocus) textareaRef.current.focus({ preventScroll: true });
-      }
-    });
-  }
-
-  function filed(result: FiledResult) {
-    if (pendingPhoto && result.touchpoint_id) void attachPhoto(result.touchpoint_id, pendingPhoto);
     setPendingPhoto(null);
-    applyAccountRead(result.accountId, grade, readiness);
-    key.current = crypto.randomUUID();
-    lastTry.current = null;
-    setSuccess(result);
-    onFiled?.(result);
-    reset();
+    refocus();
   }
 
-  function run(attempt: () => Promise<void>) {
-    lastTry.current = () => run(attempt);
-    startTransition(async () => {
-      setError(null);
-      setUnsure(null);
-      try {
-        await attempt();
-      } catch (e) {
-        // Not sure is not a failure to retry: the fix is in the note.
-        if (e instanceof Unsure) lastTry.current = null;
-        setError(e instanceof Error ? e.message : "That note did not file.");
-      }
-    });
-  }
-
-  const kindOverride = () => (kindTouched ? kind : undefined);
-
-  function submit() {
+  /** Save on the phone, clear the box, file in the background. */
+  async function submit() {
     const value = text;
-    if (!value.trim() || pending) return;
-    run(async () => {
-      const result = await postJson<TouchpointApiResult>(
-        "/api/visit/touchpoint",
-        { text: value, accountIdHint: accountIdHint ?? undefined, kindOverride: kindOverride(), forceNewAccount: newCompany },
-        key.current,
-      );
-      if (!result.needsAccount) return filed(result);
-
-      // New company: create it from the name the note gave, then file to it.
-      // No name, no guess: say so and leave everything as it was.
-      if (newCompany) {
-        const name = result.businessNameGuess?.trim();
-        if (!name) throw new Unsure("Couldn't tell the new store's name. Put it in the note and log again.");
-        const made = await postJson<{ accountId: string; accountName: string }>(
-          "/api/visit/new-account",
-          { name },
-          `${key.current}:new:${name.toLowerCase()}`,
-        );
-        const done = await postJson<TouchpointApiResult>(
-          "/api/visit/touchpoint",
-          { text: value, accountIdHint: made.accountId, kindOverride: kindOverride(), parsed: result.parsed },
-          `${key.current}:${made.accountId}`,
-        );
-        if (done.needsAccount) throw new Error(`Created ${made.accountName}, but the note did not file to it. Log again.`);
-        return filed(done);
-      }
-
-      setUnsure(result);
-      throw new Unsure(
-        result.businessNameGuess
-          ? `Couldn't tell which store "${result.businessNameGuess}" is. Put the store name in the note and log again.`
-          : "Couldn't tell which store this was. Put the store name in the note and log again.",
-      );
-    });
+    if (!value.trim() || saving) return;
+    const note = {
+      text: value,
+      accountIdHint: accountIdHint ?? null,
+      accountName: accountName ?? null,
+      kind: kindTouched ? kind : null,
+      newCompany,
+      grade,
+      readiness,
+      photoFile: pendingPhoto,
+    };
+    const was = { kind, kindTouched };
+    setSaving(true);
+    setError(null);
+    setSaved(null);
+    reset();
+    try {
+      const r = await enqueue(note);
+      setSaved({ durable: r.durable });
+      onFiled?.();
+    } catch {
+      // Nothing was kept: the note goes back on the screen, as typed.
+      setText(note.text);
+      setKind(was.kind);
+      setKindTouched(was.kindTouched);
+      setGrade(note.grade);
+      setReadiness(note.readiness);
+      setNewCompany(note.newCompany);
+      setPendingPhoto(note.photoFile);
+      setError("Couldn't save that note on the phone. Try again.");
+      refocus();
+    } finally {
+      setSaving(false);
+    }
   }
 
-  /** One of the closest accounts, tapped from the error line. */
-  function fileTo(account: { id: string; name: string }) {
-    const pick = unsure;
-    if (!pick || pending) return;
-    run(async () => {
-      const result = await postJson<TouchpointApiResult>(
-        "/api/visit/touchpoint",
-        { text, accountIdHint: account.id, kindOverride: kindOverride(), parsed: pick.parsed },
-        `${key.current}:${account.id}`,
-      );
-      if (result.needsAccount) throw new Error(`Couldn't file to ${account.name}. Log again.`);
-      filed(result);
-    });
-  }
-
-  function refileHubspot(result: FiledResult) {
-    if (!result.activityId || retryHubspot === "working") return;
-    setRetryHubspot("working");
-    postJson<{ hubspotFiled: boolean; hubspotNoteId: string | null; hubspotError: string | null }>("/api/visit/refile", {
-      activityId: result.activityId,
-    })
-      .then((r) => setSuccess({ ...result, ...r }))
-      .catch(() => setSuccess({ ...result, hubspotError: "Still not filed to HubSpot." }))
-      .finally(() => setRetryHubspot("idle"));
+  /** An unfiled note tapped back from the outbox, to fix and log again. */
+  function restore(it: OutboxItem) {
+    setText(it.text);
+    setKind(it.kind ?? defaultKind ?? "meeting");
+    setKindTouched(Boolean(it.kind ?? defaultKind));
+    setGrade((it.grade as VisitGrade | null) ?? null);
+    setReadiness((it.readiness as Readiness | null) ?? null);
+    setNewCompany(it.newCompany);
+    setPendingPhoto(it.photo ? new File([it.photo.bytes], it.photo.name || "photo.jpg", { type: it.photo.type }) : null);
+    setError(null);
+    refocus();
   }
 
   return (
     <div className="w-full">
       <div className="rounded-xl border border-[#E2DFD5] bg-white p-4 sm:p-5">
-        {success ? (
-          <div className="flex flex-col gap-2">
-            <button type="button" onClick={() => setSuccess(null)} className="block w-full cursor-pointer text-left">
-              <FiledNote
-                title={`Logged${success.accountName ? `: ${success.accountName}` : ""}`}
-                detail={success.summary}
-                hubspotFiled={success.isFieldNote ? undefined : success.hubspotFiled}
-                hubspotId={success.hubspotNoteId}
-                hubspotError={success.hubspotError}
-                meta={
-                  <>
-                    {(success.peopleAdded > 0 || success.peopleUpdated > 0) && (
-                      <div className="mt-1.5 text-[12px] text-[#8A928C]">
-                        {success.peopleAdded > 0 && `${success.peopleAdded} contact${success.peopleAdded === 1 ? "" : "s"} added`}
-                        {success.peopleAdded > 0 && success.peopleUpdated > 0 && ", "}
-                        {success.peopleUpdated > 0 && `${success.peopleUpdated} updated`}
-                      </div>
-                    )}
-                  </>
-                }
-              />
+        <div className="mb-3 flex gap-1">
+          {KIND_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => {
+                setKind(opt.value);
+                setKindTouched(true);
+              }}
+              className={`h-11 flex-1 rounded-md border px-1.5 text-[13px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
+                kindTouched && kind === opt.value
+                  ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
+                  : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
+              }`}
+            >
+              {opt.label}
             </button>
-            {hubspotFailed(success) && success.activityId && (
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setSuccess(null)} className={ghostBtn}>
-                  Close
+          ))}
+        </div>
+
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            autosize(e.target);
+            if (error) setError(null);
+          }}
+          placeholder="What just happened?"
+          rows={5}
+          autoFocus={autoFocus}
+          autoCapitalize="sentences"
+          autoCorrect="on"
+          spellCheck
+          className="min-h-[132px] w-full resize-none border-none bg-transparent p-0 text-[16px] leading-relaxed text-[#14201B] placeholder:text-[#A9AFA9] focus:outline-none"
+        />
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-[#EDEBE3] pt-3">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Potential</span>
+          <div className="flex gap-1">
+            {VISIT_GRADES.map((t) => {
+              const active = grade === t;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  aria-pressed={active}
+                  title={GRADE_TITLE[t]}
+                  onClick={() => setGrade(active ? null : t)}
+                  className={`h-11 w-11 rounded-md text-[13px] font-semibold transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 sm:w-9 ${
+                    active ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44]"
+                  }`}
+                >
+                  {t}
                 </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Lead readiness</span>
+          <div className="flex gap-1">
+            {READINESS_OPTIONS.map((opt) => {
+              const active = readiness === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  aria-pressed={active}
+                  aria-label={opt.title}
+                  title={opt.title}
+                  onClick={() => setReadiness(active ? null : opt.value)}
+                  className={`flex h-11 w-11 items-center justify-center rounded-md transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 sm:w-9 ${
+                    active ? opt.activeClass : "bg-[#ECEAE1] text-[#3D4A44]"
+                  }`}
+                >
+                  <Ico name={opt.icon} size={15} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) setPendingPhoto(file);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              aria-label={pendingPhoto ? "Photo attached, tap to replace" : "Add a photo"}
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-[transform,background-color,color] active:scale-[0.97] ${
+                pendingPhoto
+                  ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
+                  : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
+              }`}
+            >
+              <Ico name="camera" size={17} />
+            </button>
+            {!accountIdHint && <button
+              type="button"
+              aria-pressed={newCompany}
+              onClick={() => setNewCompany((v) => !v)}
+              title="Skip matching against your accounts"
+              className={`flex h-11 items-center gap-1.5 shrink-0 rounded-full border px-4 text-[12.5px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
+                newCompany
+                  ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
+                  : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
+              }`}
+            >
+              <Ico name={newCompany ? "check" : "plus"} size={13} />
+              New company
+            </button>}
+            <span className="min-h-[1em] text-[12px] leading-relaxed text-[#8A6D2F]">{pendingPhoto && "1 photo"}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void submit()}
+            disabled={saving || !text.trim()}
+            aria-label="Log this note"
+            className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-[#14201B] px-6 text-[14.5px] font-medium text-[#F7F6F1] transition-[transform,opacity] active:scale-[0.97] disabled:opacity-30"
+          >
+            <Ico name="send" size={17} />
+            Log
+          </button>
+        </div>
+
+        {saved && (
+          <div role="status" className="mt-3 flex items-center gap-1.5 text-[13px] font-medium text-[#2C6A46]">
+            <Ico name="check" size={13} />
+            {saved.durable ? "Saved" : "Saved until the app closes"}
+          </div>
+        )}
+        {error && <ErrorLine message={error} picks={[]} busy={false} onPick={() => {}} onRetry={null} />}
+      </div>
+
+      <OutboxList onTakeBack={restore} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// the outbox under the composer
+// ---------------------------------------------------------------------------
+
+/** Where an unconfirmed note stands, in one or two words. */
+function standing(it: OutboxItem, running: boolean): { word: string; alert: boolean } {
+  if (it.parked === "needs-account") return { word: "Needs a store", alert: true };
+  if (it.parked === "rejected") return { word: "Not filed", alert: true };
+  if (!it.filed) {
+    if (running || it.attempts === 0) return { word: "Saving", alert: false };
+    return { word: it.offline ? "No connection, retrying" : "Retrying", alert: false };
+  }
+  if (it.hubspot === "pending") {
+    if (it.hubspotRefused) return { word: "Filed, HubSpot refused it", alert: true };
+    if (it.offline && !running) return { word: "Filed, no connection, retrying", alert: false };
+    return { word: "Filed, waiting for HubSpot", alert: false };
+  }
+  if (!it.photoDone) return { word: "Filed, photo pending", alert: false };
+  return { word: "Filed", alert: false };
+}
+
+/** Stuck enough that letting it go is his call: parked, refused, or still
+ *  failing after a few rounds. */
+const discardable = (it: OutboxItem) => Boolean(it.parked) || Boolean(it.hubspotRefused) || it.attempts >= 3;
+
+function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
+  const { items, done, running } = useOutbox();
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [trying, setTrying] = useState(false);
+
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(null), 3000);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  if (items.length === 0 && done.length === 0) return null;
+
+  const lineCls = "flex min-h-11 items-center justify-between gap-3 text-[13px]";
+
+  return (
+    <div className="mt-3 flex flex-col divide-y divide-[#EDEBE3] rounded-xl border border-[#E2DFD5] bg-[#FAF9F5] px-4">
+      {done.map((d) => (
+        <div key={d.id} role="status" className={lineCls}>
+          <span className="min-w-0 truncate text-[#3D4A44]">{d.label}</span>
+          <span className="flex shrink-0 items-center gap-1.5 font-medium text-[#2C6A46]">
+            <Ico name="check" size={13} />
+            {d.hubspot === "done" ? "Filed to HubSpot" : d.hubspot === "off" ? "Filed, CRM filing off" : "Filed"}
+          </span>
+        </div>
+      ))}
+
+      {items.map((it) => {
+        const s = standing(it, running === it.id);
+        return (
+          <div key={it.id} className="py-1">
+            <div className={lineCls}>
+              <span className="min-w-0 truncate text-[#3D4A44]">{outboxLabel(it)}</span>
+              <span className={`flex shrink-0 items-center gap-1.5 ${s.alert ? "font-medium text-[#8A2E2E]" : "text-[#8A928C]"}`}>
+                {running === it.id && <Spinner light={false} />}
+                {s.word}
+              </span>
+            </div>
+            {it.parked && it.lastError && (
+              <ErrorLine
+                message={it.lastError}
+                picks={it.needsAccount ? pickList(it.needsAccount) : []}
+                busy={running === it.id}
+                onPick={(a) => void fileTo(it.id, a)}
+                onRetry={null}
+              />
+            )}
+            {discardable(it) && (
+              <div className="flex justify-end gap-1">
+                {!it.filed && running !== it.id && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const back = await takeBack(it.id);
+                      if (back) onTakeBack(back);
+                    }}
+                    className="inline-flex min-h-11 items-center gap-1.5 px-2 text-[13px] text-[#5B6560]"
+                  >
+                    <Ico name="edit" size={13} />
+                    Edit
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => refileHubspot(success)}
-                  disabled={retryHubspot === "working"}
-                  className={`${primaryBtn} flex items-center gap-1.5`}
+                  onClick={() => {
+                    if (confirming === it.id) {
+                      setConfirming(null);
+                      void discard(it.id);
+                    } else setConfirming(it.id);
+                  }}
+                  className={`inline-flex min-h-11 items-center gap-1.5 px-2 text-[13px] ${
+                    confirming === it.id ? "font-medium text-[#8A2E2E]" : "text-[#5B6560]"
+                  }`}
                 >
-                  {retryHubspot === "working" && <Spinner />}
-                  Retry HubSpot
+                  <Ico name="close" size={13} />
+                  {confirming === it.id ? "Confirm discard" : "Discard"}
                 </button>
               </div>
             )}
           </div>
-        ) : (
-          <>
-            <div className="mb-3 flex gap-1">
-              {KIND_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => {
-                    setKind(opt.value);
-                    setKindTouched(true);
-                  }}
-                  className={`h-11 flex-1 rounded-md border px-1.5 text-[13px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
-                    kindTouched && kind === opt.value
-                      ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
-                      : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+        );
+      })}
 
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                autosize(e.target);
-                if (error) {
-                  setError(null);
-                  setUnsure(null);
-                  lastTry.current = null;
-                }
-              }}
-              placeholder="What just happened?"
-              rows={5}
-              autoFocus={autoFocus}
-              autoCapitalize="sentences"
-              autoCorrect="on"
-              spellCheck
-              className="min-h-[132px] w-full resize-none border-none bg-transparent p-0 text-[16px] leading-relaxed text-[#14201B] placeholder:text-[#A9AFA9] focus:outline-none"
-            />
-
-            <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-[#EDEBE3] pt-3">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Potential</span>
-              <div className="flex gap-1">
-                {VISIT_GRADES.map((t) => {
-                  const active = grade === t;
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      aria-pressed={active}
-                      title={GRADE_TITLE[t]}
-                      onClick={() => setGrade(active ? null : t)}
-                      className={`h-11 w-11 rounded-md text-[13px] font-semibold transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 sm:w-9 ${
-                        active ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44]"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Lead readiness</span>
-              <div className="flex gap-1">
-                {READINESS_OPTIONS.map((opt) => {
-                  const active = readiness === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      aria-pressed={active}
-                      aria-label={opt.title}
-                      title={opt.title}
-                      onClick={() => setReadiness(active ? null : opt.value)}
-                      className={`flex h-11 w-11 items-center justify-center rounded-md transition-[transform,background-color,color] active:scale-[0.97] sm:h-9 sm:w-9 ${
-                        active ? opt.activeClass : "bg-[#ECEAE1] text-[#3D4A44]"
-                      }`}
-                    >
-                      <Ico name={opt.icon} size={15} />
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (file) setPendingPhoto(file);
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => photoInputRef.current?.click()}
-                  aria-label={pendingPhoto ? "Photo attached, tap to replace" : "Add a photo"}
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-[transform,background-color,color] active:scale-[0.97] ${
-                    pendingPhoto
-                      ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
-                      : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
-                  }`}
-                >
-                  <Ico name="camera" size={17} />
-                </button>
-                {!accountIdHint && <button
-                  type="button"
-                  aria-pressed={newCompany}
-                  onClick={() => setNewCompany((v) => !v)}
-                  title="Skip matching against your accounts"
-                  className={`flex h-11 items-center gap-1.5 shrink-0 rounded-full border px-4 text-[12.5px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
-                    newCompany
-                      ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]"
-                      : "border-[#E2DFD5] bg-transparent text-[#5B6560]"
-                  }`}
-                >
-                  <Ico name={newCompany ? "check" : "plus"} size={13} />
-                  New company
-                </button>}
-                <span className="min-h-[1em] text-[12px] leading-relaxed text-[#8A6D2F]">
-                  {photoUiState === "uploading" && "Attaching photo"}
-                  {photoUiState === "error" && "Photo failed to attach."}
-                  {photoUiState === "idle" && pendingPhoto && "1 photo"}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={submit}
-                disabled={pending || !text.trim()}
-                aria-label="Log this note"
-                className="flex h-11 shrink-0 items-center gap-2 rounded-full bg-[#14201B] px-6 text-[14.5px] font-medium text-[#F7F6F1] transition-[transform,opacity] active:scale-[0.97] disabled:opacity-30"
-              >
-                {pending ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                ) : (
-                  <Ico name="send" size={17} />
-                )}
-                {pending ? "Logging" : "Log"}
-              </button>
-            </div>
-
-            {error && <ErrorLine message={error} picks={unsure ? pickList(unsure) : []} busy={pending} onPick={fileTo} onRetry={lastTry.current} />}
-          </>
-        )}
-      </div>
-
-      {photoUiState === "error" && (
-        <div role="alert" className="mt-2 text-[13px] font-medium text-[#8A2E2E]">
-          The note filed, the photo did not attach.
+      {items.length > 0 && (
+        <div className="flex justify-end py-1">
+          <button
+            type="button"
+            disabled={trying}
+            onClick={async () => {
+              setTrying(true);
+              await runOutbox(true);
+              setTrying(false);
+            }}
+            className={`${ghostBtn} flex items-center gap-1.5`}
+          >
+            {trying && <Spinner light={false} />}
+            Try now
+          </button>
         </div>
       )}
     </div>
@@ -570,12 +486,8 @@ export function TouchpointCapture({
 // the error line under the composer
 // ---------------------------------------------------------------------------
 
-/** Thrown when the note is fine but its store can't be told with confidence.
- *  Shown like any error, never offered as a retry. */
-class Unsure extends Error {}
-
 /** The best match first, then the rest of the closest accounts, three at most. */
-function pickList(u: NeedsAccountResult): AccountOption[] {
+function pickList(u: NeedsAccount): AccountPick[] {
   const best = u.matchAccountId && u.matchAccountName ? [{ id: u.matchAccountId, name: u.matchAccountName, city: null }] : [];
   return [...best, ...u.candidates.filter((c) => c.id !== u.matchAccountId)].slice(0, 3);
 }
@@ -588,7 +500,7 @@ function ErrorLine({
   onRetry,
 }: {
   message: string;
-  picks: AccountOption[];
+  picks: AccountPick[];
   busy: boolean;
   onPick: (a: { id: string; name: string }) => void;
   onRetry: (() => void) | null;

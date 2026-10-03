@@ -4,6 +4,7 @@ import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { apiFetch } from "../../../../lib/core/api";
+import { refreshAccount } from "../../../../lib/core/phone-sync";
 import { Card, Ico, eyebrowCls } from "../../../../lib/core/ui";
 import type { ClientAccount, ClientActivity, ClientContact } from "../../../../lib/features/clients/dal";
 import {
@@ -52,6 +53,7 @@ function PotentialGrade({ accountId, hq, juan }: { accountId: string; hq: string
     setFailed(false);
     try {
       await postJson("/api/prospect/account-fact", { account_id: accountId, field: "potential_juan", value: next });
+      void refreshAccount(accountId);
     } catch {
       setValue(prev);
       setFailed(true);
@@ -117,8 +119,11 @@ function scheduledRouteDay(accountId: string, days: string[], draftByDay: Record
  * as the button it replaces.
  */
 function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: string[]; draftByDay: Record<string, RouteDraftEntry[]> }) {
+  // The draft arrives after the first paint (AccountClient reads it live),
+  // so the day already on file is derived, not frozen into state.
   const initialDay = useMemo(() => scheduledRouteDay(accountId, days, draftByDay), [accountId, days, draftByDay]);
-  const [scheduledDay, setScheduledDay] = useState<string | null>(initialDay);
+  const [addedDay, setAddedDay] = useState<string | null>(null);
+  const scheduledDay = addedDay ?? initialDay;
   const [picking, setPicking] = useState(false);
   const [date, setDate] = useState(days[0] ?? "");
   const [busy, setBusy] = useState(false);
@@ -131,7 +136,7 @@ function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: 
     try {
       const entries = draftByDay[date] ?? [];
       await postJson("/api/route/draft", { day: date, entries: [...entries, accountId] });
-      setScheduledDay(date);
+      setAddedDay(date);
       setPicking(false);
     } catch {
       setFailed(true);
@@ -487,7 +492,7 @@ export function AccountView({
         <AddToRoute accountId={a.id} days={routeDays} draftByDay={routeDraftByDay} />
         <AddToSdr accountId={a.id} />
         <DraftOutreachButton accountId={a.id} />
-        <Link href="/visit" className={actionBtn}>
+        <Link href={{ pathname: "/visit", query: { account: a.id, name: a.name } }} className={actionBtn}>
           <Ico name="plus" size={14} />
           Log a visit
         </Link>

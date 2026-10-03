@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces } from "next/font/google";
+import { OutboxRunner } from "../lib/core/outbox-runner";
 import "./globals.css";
 
 // Display-only, self-hosted at build time (next/font needs no extra
@@ -36,7 +37,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={fraunces.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <OutboxRunner />
+      </body>
     </html>
   );
 }

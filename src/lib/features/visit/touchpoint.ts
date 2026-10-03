@@ -34,6 +34,7 @@ import {
   insertContact,
   insertFieldNote,
   insertReturnDirectives,
+  findFiledTouchpoint,
   insertTouchpoint,
   listAccountsForMatching,
   listContacts,
@@ -569,6 +570,29 @@ async function finishTouchpoint(input: {
 }): Promise<FiledTouchpoint> {
   const { accountId, accountName, parsed } = input;
 
+  // A retry of a note whose first try got as far as its touchpoint row: the
+  // note is already in, so only the HubSpot filing (which dedupes its own
+  // note) is run again. Never a second activity.
+  const earlier = await findFiledTouchpoint(accountId, input.rawText).catch(() => null);
+  if (earlier?.activity_id) {
+    const hubspot = isNeverFiledKind(parsed.activity.kind)
+      ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
+      : await autoFileEngagement(earlier.activity_id);
+    return {
+      ok: true,
+      touchpoint_id: earlier.id,
+      accountName,
+      accountId,
+      activityId: earlier.activity_id,
+      needsAccount: false,
+      summary: parsed.activity.detail,
+      peopleAdded: 0,
+      peopleUpdated: 0,
+      ...hubspot,
+      accountFacts: null,
+    };
+  }
+
   const activity = await insertActivity({
     account_id: accountId,
     kind: parsed.activity.kind,
@@ -595,21 +619,26 @@ async function finishTouchpoint(input: {
   let peopleAdded = 0;
   let peopleUpdated = 0;
   for (const p of parsed.people ?? []) {
-    const outcome = await reconcileContact(accountId, existing, p);
+    // The activity is already written: a contact that fails to save must not
+    // fail the note, or its retry would write the activity twice.
+    const outcome = await reconcileContact(accountId, existing, p).catch(() => "none" as const);
     if (outcome === "added") peopleAdded += 1;
     else if (outcome === "updated") peopleUpdated += 1;
   }
 
-  const tp = await insertTouchpoint({
+  // The touchpoint row is what marks this note as filed for a retry, so one
+  // more try here before a failure is allowed to escape.
+  const touchpointRow = {
     account_id: accountId,
     raw_text: input.rawText,
     status: "parsed",
     account_match_confidence: input.accountMatchConfidence,
     activity_id: activity.id,
     parsed,
-  });
+  };
+  const tp = await insertTouchpoint(touchpointRow).catch(() => insertTouchpoint(touchpointRow));
 
-  await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName));
+  await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName)).catch(() => {});
 
   const hubspot = isNeverFiledKind(parsed.activity.kind)
     ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)

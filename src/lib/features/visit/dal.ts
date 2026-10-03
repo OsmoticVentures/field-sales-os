@@ -442,6 +442,24 @@ export async function insertTouchpoint(input: {
   return row;
 }
 
+/** A note already filed to this account with this exact text in the last day.
+ *  The phone retries a note until HubSpot confirms it, so a retry that lands
+ *  after a half-finished first try must find its own earlier row, not write a
+ *  second activity. */
+export async function findFiledTouchpoint(accountId: string, rawText: string): Promise<Touchpoint | null> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const rows = await query<Touchpoint>("nb_touchpoints", {
+    select: "*",
+    account_id: `eq.${accountId}`,
+    raw_text: `eq.${rawText}`,
+    activity_id: "not.is.null",
+    created_at: `gte.${since}`,
+    order: "created_at.asc",
+    limit: 1,
+  });
+  return rows[0] ?? null;
+}
+
 export async function getAccountNames(ids: string[]): Promise<Record<string, string>> {
   if (ids.length === 0) return {};
   const rows = await query<{ id: string; name: string }>("nb_accounts", {

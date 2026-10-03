@@ -1,3 +1,4 @@
+import { PhoneSync } from "../../lib/core/phone-sync-mount";
 import { ScrollKeeper } from "../../lib/core/scroll-keeper";
 import { SidebarNav, TabBar, type NavItem } from "./Nav";
 
@@ -53,6 +54,7 @@ export default function AppLayout({ children, modal }: { children: React.ReactNo
       </div>
 
       <ScrollKeeper />
+      <PhoneSync />
       {modal}
 
       <TabBar items={NAV} />

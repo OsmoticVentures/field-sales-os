@@ -3,25 +3,26 @@
  * that linked to it. The screen underneath stays mounted, so swiping back
  * lands on it untouched (tab, scroll, filters, map, typing).
  *
- * The sheet slides in at once with the client view's skeleton and the
- * content streams into it, rather than the tap waiting on every read.
+ * Static: no access check and no reads here. The view paints from the
+ * phone's copy of the book (phone-sync.ts); anything it fetches goes through
+ * API routes that each check access, and proxy turns away a signed-out
+ * request, same as /visit.
  */
-import { Suspense } from "react";
-import { requireAccess } from "../../../../../lib/core/devices";
-import { AccountContent } from "../../../account/[id]/AccountContent";
+import { AccountClient } from "../../../account/[id]/AccountClient";
 import { AccountSheet } from "../../../account/[id]/AccountSheet";
-import AccountSkeleton from "../../../account/[id]/loading";
 
-export const dynamic = "force-dynamic";
+export const dynamic = "force-static";
+export const dynamicParams = true;
+
+export function generateStaticParams(): { id: string }[] {
+  return [];
+}
 
 export default async function AccountModal({ params }: { params: Promise<{ id: string }> }) {
-  await requireAccess();
   const { id } = await params;
   return (
     <AccountSheet>
-      <Suspense key={id} fallback={<AccountSkeleton />}>
-        <AccountContent id={id} />
-      </Suspense>
+      <AccountClient key={id} id={id} />
     </AccountSheet>
   );
 }

@@ -19,6 +19,7 @@ export function TierButton({
   warmth,
   leadStatus,
   sdr,
+  onSaved,
 }: {
   accountId: string;
   initialTier: string | null;
@@ -28,6 +29,8 @@ export function TierButton({
   warmth: string | null;
   leadStatus: string | null;
   sdr: SdrEntry[];
+  /** After the server confirms, with the letter now stored (null when cleared). */
+  onSaved?: (tier: string | null) => void;
 }) {
   const [tier, setTier] = useState<string | null>(initialTier);
   const [mine, setMine] = useState(tierIsMine);
@@ -52,6 +55,7 @@ export function TierButton({
       setTier(next);
       setMine(next !== null);
       setSaved(true);
+      onSaved?.(next);
       setTimeout(() => {
         setSaved(false);
         setOpen(false);
