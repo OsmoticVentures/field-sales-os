@@ -13,7 +13,7 @@
 import { headers } from "next/headers";
 import { hasAccess } from "../../../../lib/core/devices";
 import { resolveDestination, type Dest } from "../../../../lib/shared/places";
-import { RATE_CHEAPEST, RATE_QUICKEST, RESERVE_MILES, TANK_GALLONS } from "../../../../lib/features/fuel/constants";
+import { RATE_CHEAPEST, RATE_QUICKEST, TANK_GALLONS } from "../../../../lib/features/fuel/constants";
 import { fuelNearby } from "../../../../lib/features/fuel/stations";
 import { detourMinutes, milesFromOrigin, route, sampleAlong, type LatLng } from "../../../../lib/features/fuel/osrm";
 import { scoreStations, type Scored, type Station } from "../../../../lib/features/fuel/score";
@@ -121,16 +121,11 @@ export async function POST(req: Request) {
 
   const milesToEmpty = Number(body.milesToEmpty);
   if (Number.isFinite(milesToEmpty) && milesToEmpty > 0) {
-    const reach = milesToEmpty - RESERVE_MILES;
-    if (reach <= 0) {
-      return Response.json({ ok: false, error: `That leaves no room past the ${RESERVE_MILES}-mile reserve.` });
-    }
     const originMiles = await milesFromOrigin(origin, stations);
     if (!originMiles) return Response.json({ ok: false, error: "Couldn't check which stations are in reach right now. Try again." });
-    stations = stations.filter((_, i) => originMiles[i] <= reach);
-    if (stations.length === 0) {
-      return Response.json({ ok: false, error: `No priced station within ${Math.round(reach)} miles.` });
-    }
+    const ranked = stations.map((s, i) => ({ s, m: originMiles[i] })).sort((x, y) => x.m - y.m);
+    const inReach = ranked.filter((r) => r.m <= milesToEmpty);
+    stations = (inReach.length > 0 ? inReach : ranked.slice(0, 3)).map((r) => r.s);
   }
 
   const detours = await detourMinutes(origin, dest, stations);

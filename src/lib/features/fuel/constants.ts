@@ -22,6 +22,3 @@ export const GALLON_STEP = 0.5;
 export const RATE_CHEAPEST = 0.01;
 export const RATE_QUICKEST = 0.03;
 
-/** Miles kept unspent when a typed miles-to-empty number filters out
- *  stations the tank can't actually reach. */
-export const RESERVE_MILES = 20;
