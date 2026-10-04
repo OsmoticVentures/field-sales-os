@@ -121,6 +121,29 @@ type StageReply = {
 type Busy = null | "search" | "enrich" | "land";
 type SortKey = "triage" | "name" | "rating" | "reviews";
 
+const PAST_CATEGORY_KEY = "search.pastExcludedCategories";
+const PAST_CHAIN_KEY = "search.pastExcludedChains";
+const PAST_LIMIT = 60;
+
+function readPast(key: string): string[] {
+  try {
+    const raw = window.localStorage.getItem(key);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberPast(key: string, value: string): string[] {
+  const cur = readPast(key).filter((x) => x.toLowerCase() !== value.toLowerCase());
+  const next = [value, ...cur].slice(0, PAST_LIMIT);
+  try {
+    window.localStorage.setItem(key, JSON.stringify(next));
+  } catch {}
+  return next;
+}
+
 type Progress = { stage: Exclude<Busy, null>; status: "pending" | "running"; elapsedMs: number };
 
 const POLL_MS = 1500;
@@ -329,9 +352,17 @@ export function SearchClient() {
     [],
   );
 
+  const [pastCategories, setPastCategories] = useState<string[]>([]);
+  const [pastChains, setPastChains] = useState<string[]>([]);
+  useEffect(() => {
+    setPastCategories(readPast(PAST_CATEGORY_KEY));
+    setPastChains(readPast(PAST_CHAIN_KEY));
+  }, []);
+
   function addExclude(raw: string) {
     const v = raw.trim();
     if (!v) return;
+    setPastCategories(rememberPast(PAST_CATEGORY_KEY, v));
     setExcludeCategories((cur) => (cur.some((c) => c.toLowerCase() === v.toLowerCase()) ? cur : [...cur, v]));
     setSuggestions((cur) => cur.filter((s) => s.category.toLowerCase() !== v.toLowerCase()));
   }
@@ -341,6 +372,7 @@ export function SearchClient() {
   function addChain(raw: string) {
     const v = raw.trim();
     if (!v) return;
+    setPastChains(rememberPast(PAST_CHAIN_KEY, v));
     setChainNames((cur) => (cur.some((c) => c.toLowerCase() === v.toLowerCase()) ? cur : [...cur, v]));
   }
   function removeChain(v: string) {
@@ -381,6 +413,8 @@ export function SearchClient() {
     setLandMeta(null);
     setEnrichMeta(null);
     const day = openDay === "" ? null : openDay === "today" ? new Date().getDay() : openDay;
+    excludeCategories.forEach((c) => rememberPast(PAST_CATEGORY_KEY, c));
+    if (chainExclude) chainNames.forEach((c) => rememberPast(PAST_CHAIN_KEY, c));
     const reply = await post("search", {
       category: query.trim(),
       polygon: pins,
@@ -657,6 +691,18 @@ export function SearchClient() {
                   ))}
                 </div>
               )}
+              {pastCategories.filter((c) => !excludeCategories.some((e) => e.toLowerCase() === c.toLowerCase())).length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {pastCategories
+                    .filter((c) => !excludeCategories.some((e) => e.toLowerCase() === c.toLowerCase()))
+                    .map((c) => (
+                      <button key={c} type="button" onClick={() => addExclude(c)} className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-dashed border-[#B9C7BC] bg-white px-2.5 py-1.5 text-[11px] text-[#3D4A44] hover:bg-[#F2F0E8]">
+                        {c}
+                        <Ico name="plus" size={10} />
+                      </button>
+                    ))}
+                </div>
+              )}
               <div className="flex gap-1.5">
                 <input
                   className={inputCls}
@@ -730,6 +776,18 @@ export function SearchClient() {
                           <Ico name="close" size={10} />
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {pastChains.filter((c) => !chainNames.some((e) => e.toLowerCase() === c.toLowerCase())).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {pastChains
+                        .filter((c) => !chainNames.some((e) => e.toLowerCase() === c.toLowerCase()))
+                        .map((c) => (
+                          <button key={c} type="button" onClick={() => addChain(c)} className="inline-flex min-h-9 items-center gap-1.5 whitespace-nowrap rounded-full border border-dashed border-[#B9C7BC] bg-white px-2.5 py-1.5 text-[11px] text-[#3D4A44] hover:bg-[#F2F0E8]">
+                            {c}
+                            <Ico name="plus" size={10} />
+                          </button>
+                        ))}
                     </div>
                   )}
                   <div className="flex gap-1.5">
