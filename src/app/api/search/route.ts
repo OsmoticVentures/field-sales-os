@@ -199,6 +199,7 @@ export async function POST(req: Request) {
       category,
       candidates: picked,
       calls_per_day: Math.round(num(body.calls_per_day, 15, 1, 50)),
+      start_date: typeof body.start_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.start_date) ? body.start_date : null,
       write: body.write === true,
     };
   }

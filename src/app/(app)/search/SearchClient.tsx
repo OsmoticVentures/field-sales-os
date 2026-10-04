@@ -82,6 +82,12 @@ export type Candidate = {
   id?: string;
 };
 
+export type SearchGroup = {
+  id: string;
+  name: string;
+  members: { places_id: string; name: string | null; candidate: Candidate; added_at: string }[];
+};
+
 type StageReply = {
   ok: boolean;
   stage?: string;
@@ -498,7 +504,7 @@ export function SearchClient() {
     setBusy(null);
   }
 
-  async function runLand() {
+  async function runLand(startDate: string) {
     if (!rows) return;
     setBusy("land");
     setFailure(null);
@@ -519,6 +525,7 @@ export function SearchClient() {
     const reply = await post("land", {
       category: query.trim(),
       candidates: picked,
+      start_date: startDate,
       write: true,
     });
     if (reply) {
@@ -534,9 +541,110 @@ export function SearchClient() {
     setBusy(null);
   }
 
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [groups, setGroups] = useState<SearchGroup[] | null>(null);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+  const [actionNote, setActionNote] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const loadGroups = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/search/groups", { cache: "no-store" });
+      const json = (await res.json()) as { ok?: boolean; groups?: SearchGroup[] };
+      if (res.ok && json.ok) {
+        setGroups(json.groups ?? []);
+        setGroupsError(null);
+      } else {
+        setGroupsError("Could not load the groups.");
+      }
+    } catch {
+      setGroupsError("Could not load the groups.");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadGroups();
+    (async () => {
+      try {
+        const res = await apiFetch("/api/search/hidden", { cache: "no-store" });
+        const json = (await res.json()) as { ok?: boolean; ids?: string[] };
+        if (res.ok && json.ok) setHidden(new Set(json.ids ?? []));
+      } catch {}
+    })();
+  }, [loadGroups]);
+
+  async function hideRow(r: Candidate) {
+    if (!r.places_id) {
+      setActionError("That business has no Google id, so it can't be excluded for good.");
+      return;
+    }
+    const id = r.places_id;
+    setActionError(null);
+    setHidden((prev) => new Set(prev).add(id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(r.key);
+      return next;
+    });
+    try {
+      const res = await apiFetch("/api/search/hidden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ places_id: id, name: r.name }),
+      });
+      if (!res.ok) throw new Error("hide failed");
+    } catch {
+      setHidden((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      setActionError(`Could not exclude ${r.name ?? "that business"}. It is back in the list.`);
+    }
+  }
+
+  /** Reads any un-read site first, then files the ticked rows into one group. */
+  async function runAddToGroup(groupId: string) {
+    if (!rows) return;
+    setBusy("land");
+    setFailure(null);
+    setActionNote(null);
+    setActionError(null);
+    let working = rows;
+    const toEnrich = working.filter((r) => selected.has(r.key) && !r.enriched);
+    if (toEnrich.length > 0) {
+      const enrichReply = await post("enrich", { candidates: toEnrich });
+      if (!enrichReply) {
+        setBusy(null);
+        return;
+      }
+      const byKey = new Map((enrichReply.candidates ?? []).map((c) => [c.key, c]));
+      working = working.map((r) => byKey.get(r.key) ?? r);
+      setRows(working);
+      setEnrichMeta(enrichReply.stages ?? null);
+    }
+    const picked = working.filter((r) => selected.has(r.key));
+    try {
+      const res = await apiFetch("/api/search/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add", group_id: groupId, candidates: picked }),
+      });
+      const json = (await res.json()) as { ok?: boolean; added?: number; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error || "add failed");
+      const name = groups?.find((g) => g.id === groupId)?.name ?? "the group";
+      setActionNote(`${json.added ?? picked.length} added to ${name}`);
+      setSelected(new Set());
+      loadGroups();
+    } catch {
+      setActionError("Could not add them to the group. Nothing was saved.");
+    }
+    setBusy(null);
+  }
+
   const sorted = useMemo(() => {
     if (!rows) return [];
-    const copy = [...rows];
+    const copy = rows.filter((r) => !r.places_id || !hidden.has(r.places_id));
     copy.sort((a, b) => {
       if (sort === "name") return (a.name ?? "").localeCompare(b.name ?? "");
       if (sort === "rating") return (b.places_rating ?? 0) - (a.places_rating ?? 0);
@@ -544,12 +652,11 @@ export function SearchClient() {
       return b.triage_score - a.triage_score;
     });
     return copy;
-  }, [rows, sort]);
+  }, [rows, sort, hidden]);
 
   const selectable = sorted.filter((r) => !r.id);
   const selectedRows = sorted.filter((r) => selected.has(r.key));
   const selectedUnlanded = selectedRows.filter((r) => !r.id);
-  const selectedEnriched = selectedUnlanded.filter((r) => r.enriched).length;
   const anyEnriched = sorted.some((r) => r.enriched);
 
   function toggle(key: string) {
@@ -921,6 +1028,7 @@ export function SearchClient() {
           onToggle={toggle}
           onToggleAll={toggleAll}
           onReadSite={(k) => runEnrich(k)}
+          onHide={hideRow}
           busy={busy !== null}
           onExpand={(k) =>
             setExpanded((prev) => {
@@ -937,40 +1045,55 @@ export function SearchClient() {
         />
       )}
 
-      {selectedUnlanded.length > 0 && (
+      {actionNote && <SuccessNote title={actionNote} />}
+      {actionError && <div className={`${panel} p-3 text-[12.5px] text-[#A0762C]`}>{actionError}</div>}
+
+      {selectedRows.length > 0 && (
         <SelectionBar
-          count={selectedUnlanded.length}
-          enrichedCount={selectedEnriched}
+          count={selectedRows.length}
+          unlandedCount={selectedUnlanded.length}
           busy={busy}
-          onEnrich={() => runEnrich()}
+          groups={groups ?? []}
+          onGroup={runAddToGroup}
           onLand={runLand}
         />
       )}
+
+      <GroupsSection groups={groups} error={groupsError} onChanged={loadGroups} />
 
     </div>
   );
 }
 
 /** The selection action bar. Rises into place with a spring-like ease rather
- *  than popping in, and clears the tab bar and its safe area. */
+ *  than popping in, and clears the tab bar and its safe area. Two actions:
+ *  Add to Group (pick a group) and Add to SDR (pick the first call day). Both
+ *  read any un-read website first. */
 function SelectionBar({
   count,
-  enrichedCount,
+  unlandedCount,
   busy,
-  onEnrich,
+  groups,
+  onGroup,
   onLand,
 }: {
   count: number;
-  enrichedCount: number;
+  unlandedCount: number;
   busy: Busy;
-  onEnrich: () => void;
-  onLand: () => void;
+  groups: SearchGroup[];
+  onGroup: (groupId: string) => void;
+  onLand: (startDate: string) => void;
 }) {
   const [risen, setRisen] = useState(false);
+  const [menu, setMenu] = useState<null | "group" | "sdr">(null);
+  const [day, setDay] = useState(() => defaultSdrDay());
   useEffect(() => {
     const id = requestAnimationFrame(() => setRisen(true));
     return () => cancelAnimationFrame(id);
   }, []);
+
+  const pop =
+    "absolute bottom-full right-0 mb-2 flex min-w-[240px] flex-col gap-1 rounded-lg border border-[#E2DFD5] bg-white p-2 shadow-[0_8px_24px_rgba(20,32,27,0.12)]";
 
   return (
     <div
@@ -979,30 +1102,214 @@ function SelectionBar({
       }`}
     >
       <span className="text-[13px] font-medium tabular-nums text-[#14201B]">{count} selected</span>
-      <span className="text-[12px] text-[#8A928C]">{enrichedCount} already looked into</span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={onEnrich}
-          disabled={busy !== null}
-          className={secondaryBtn}
-          title="Read these businesses' own websites for an about line, a named decision maker and category fit"
-        >
-          <Ico name="globe" size={13} />
-          {busy === "enrich" ? "Reading their sites..." : `Look further into ${count}`}
-        </button>
-        <button
-          type="button"
-          onClick={onLand}
-          disabled={busy !== null}
-          className={primaryBtn}
-          title="Reads any un-enriched site first, then adds these as prospects and queues a call for each"
-        >
-          <Ico name="phone-arrow" size={13} />
-          {busy === "land" ? "Adding..." : `Queue ${count} for calls`}
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenu(menu === "group" ? null : "group")}
+            disabled={busy !== null}
+            aria-expanded={menu === "group"}
+            className={secondaryBtn}
+          >
+            <Ico name="plus" size={13} />
+            {busy === "land" && menu === "group" ? "Adding..." : "Add to Group"}
+          </button>
+          {menu === "group" && (
+            <div className={pop}>
+              {groups.length === 0 && <span className="px-2 py-1.5 text-[12.5px] text-[#8A928C]">No groups yet</span>}
+              {groups.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => {
+                    setMenu(null);
+                    onGroup(g.id);
+                  }}
+                  className="flex min-h-11 items-center justify-between gap-3 rounded-md px-2 text-left text-[13px] text-[#14201B] hover:bg-[#F2F0E8]"
+                >
+                  {g.name}
+                  <span className="text-[11.5px] tabular-nums text-[#8A928C]">{g.members.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenu(menu === "sdr" ? null : "sdr")}
+            disabled={busy !== null || unlandedCount === 0}
+            aria-expanded={menu === "sdr"}
+            className={primaryBtn}
+          >
+            <Ico name="phone-arrow" size={13} />
+            {busy === "land" && menu === "sdr" ? "Adding..." : "Add to SDR"}
+          </button>
+          {menu === "sdr" && (
+            <div className={pop}>
+              <label className="px-2 pt-1 text-[12px] text-[#5B6560]" htmlFor="sdr-day">
+                First call day
+              </label>
+              <input
+                id="sdr-day"
+                type="date"
+                value={day}
+                min={defaultSdrDay()}
+                onChange={(e) => setDay(e.target.value)}
+                className="min-h-11 rounded-md border border-[#E2DFD5] bg-white px-2 text-[16px] text-[#14201B]"
+              />
+              <button
+                type="button"
+                disabled={!day}
+                onClick={() => {
+                  setMenu(null);
+                  onLand(day);
+                }}
+                className={`${primaryBtn} justify-center`}
+              >
+                Add {unlandedCount} to SDR
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+/** Tomorrow in the territory's own time zone, as YYYY-MM-DD. */
+function defaultSdrDay(): string {
+  const la = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const [y, m, d] = la.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/** The saved groups, below everything on Search, with a way to start a new one. */
+function GroupsSection({
+  groups,
+  error,
+  onChanged,
+}: {
+  groups: SearchGroup[] | null;
+  error: string | null;
+  onChanged: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const [err, setErr] = useState<string | null>(null);
+
+  async function post(body: Record<string, unknown>): Promise<boolean> {
+    setErr(null);
+    try {
+      const res = await apiFetch("/api/search/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as { ok?: boolean };
+      if (!res.ok || !json.ok) throw new Error("failed");
+      onChanged();
+      return true;
+    } catch {
+      setErr("Could not save that.");
+      return false;
+    }
+  }
+
+  async function addGroup() {
+    const v = name.trim();
+    if (!v) return;
+    if (await post({ action: "create", name: v })) setName("");
+  }
+
+  return (
+    <section className={`${panel} flex flex-col gap-3 p-3`} aria-label="Groups">
+      <h2 className="text-[15px] font-semibold text-[#14201B]">Groups</h2>
+      {error && <span className="text-[12.5px] text-[#A0762C]">{error}</span>}
+      {groups?.map((g) => {
+        const isOpen = open.has(g.id);
+        return (
+          <div key={g.id} className="border-t border-[#EFEDE5] pt-2">
+            <button
+              type="button"
+              onClick={() =>
+                setOpen((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(g.id)) next.delete(g.id);
+                  else next.add(g.id);
+                  return next;
+                })
+              }
+              aria-expanded={isOpen}
+              className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
+            >
+              <span className="text-[14px] font-medium text-[#14201B]">{g.name}</span>
+              <span className="flex items-center gap-2 text-[12.5px] tabular-nums text-[#8A928C]">
+                {g.members.length}
+                <Ico name={isOpen ? "chevron-up" : "chevron-down"} size={12} />
+              </span>
+            </button>
+            {isOpen && (
+              <ul className="flex flex-col divide-y divide-[#EDEBE3]">
+                {g.members.map((m) => {
+                  const c = m.candidate;
+                  const site = c.website ? (c.website.startsWith("http") ? c.website : `https://${c.website}`) : null;
+                  return (
+                    <li key={m.places_id} className="flex items-start gap-2 py-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13.5px] font-medium text-[#14201B]">{m.name ?? c.name}</div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-[#8A928C]">
+                          {c.city && <span>{c.city}</span>}
+                          {c.places_rating != null && <span>{c.places_rating.toFixed(1)} / 5</span>}
+                          {site && (
+                            <a href={site} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                              {hostOf(c.website!)}
+                            </a>
+                          )}
+                          {c.decision_maker_candidate && <span>{c.decision_maker_candidate}</span>}
+                        </div>
+                        {c.about && <p className="mt-1 text-[12.5px] leading-relaxed text-[#5B6560]">{c.about}</p>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => post({ action: "remove", group_id: g.id, places_id: m.places_id })}
+                        aria-label={`Remove ${m.name ?? "this business"} from ${g.name}`}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center text-[#8A928C] hover:text-[#14201B]"
+                      >
+                        <Ico name="close" size={14} />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+      {err && <span className="text-[12.5px] text-[#A0762C]">{err}</span>}
+      <div className="flex gap-1.5 border-t border-[#EFEDE5] pt-3">
+        <input
+          className={inputCls}
+          placeholder="New group name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addGroup();
+            }
+          }}
+        />
+        <button type="button" onClick={addGroup} className={`${secondaryBtn} px-2.5`} aria-label="Add group">
+          <Ico name="plus" size={13} />
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -1257,6 +1564,7 @@ function ResultsTable({
   onToggleAll,
   onExpand,
   onReadSite,
+  onHide,
   busy,
   sort,
   onSort,
@@ -1270,6 +1578,7 @@ function ResultsTable({
   onToggleAll: () => void;
   onExpand: (k: string) => void;
   onReadSite: (k: string) => void;
+  onHide: (r: Candidate) => void;
   busy: boolean;
   sort: SortKey;
   onSort: (k: SortKey) => void;
@@ -1308,6 +1617,7 @@ function ResultsTable({
               onToggle={() => onToggle(r.key)}
               onOpen={() => onExpand(r.key)}
               onReadSite={() => onReadSite(r.key)}
+              onHide={() => onHide(r)}
             />
           ))}
         </div>
@@ -1317,6 +1627,7 @@ function ResultsTable({
         <table className="w-full min-w-[1080px] text-[13px]">
           <thead>
             <tr className="border-b border-[#E2DFD5] bg-[#FAF9F5] text-[11px] uppercase tracking-[0.1em] text-[#8A928C]">
+              <th className="w-12 px-2 py-2" aria-label="Exclude for good" />
               <th className="w-9 px-3 py-2">
                 <input
                   type="checkbox"
@@ -1327,8 +1638,6 @@ function ResultsTable({
                 />
               </th>
               <SortTh label="Business" k="name" sort={sort} onSort={onSort} />
-              <th className={th}>Address</th>
-              <th className={th}>Phone</th>
               <SortTh label="Rating" k="rating" sort={sort} onSort={onSort} align="right" />
               <SortTh label="Reviews" k="reviews" sort={sort} onSort={onSort} align="right" />
               <th className={th}>Website</th>
@@ -1341,7 +1650,7 @@ function ResultsTable({
           <tbody className="divide-y divide-[#EDEBE3]">
             {rows.map((r) => {
               const isOpen = expanded.has(r.key);
-              const cols = 8 + (anyEnriched ? 3 : 0);
+              const cols = 7 + (anyEnriched ? 3 : 0);
               return (
                 <Fragment key={r.key}>
                   <tr
@@ -1349,6 +1658,17 @@ function ResultsTable({
                       selected.has(r.key) ? "bg-[#F4F2EA]" : ""
                     }`}
                   >
+                    <td className="px-2 py-1.5 align-top">
+                      <button
+                        type="button"
+                        onClick={() => onHide(r)}
+                        aria-label={`Exclude ${r.name ?? "this business"} from all future searches`}
+                        title="Exclude for good"
+                        className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E2DFD5] bg-white text-[#5B6560] transition-colors hover:border-[#14201B] hover:bg-[#14201B] hover:text-white active:scale-[0.96]"
+                      >
+                        <Ico name="close" size={16} />
+                      </button>
+                    </td>
                     <td className="px-3 py-2 align-top">
                       {r.id ? (
                         <span title="Already added as a prospect" className="text-[#3D6B4A]">
@@ -1368,36 +1688,24 @@ function ResultsTable({
                       <div className="font-medium text-[#14201B]">{r.name}</div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[#8A928C]">
                         {r.city}
-                        {r.id && (
-                          <span className="rounded-full bg-[#E7EDE4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#3D6B4A]">
-                            Queued
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className={`${td} max-w-[230px] text-[12.5px] text-[#5B6560]`}>
-                      <div className="flex items-start justify-between gap-1.5">
-                        <span>{r.address}</span>
                         {(r.lat != null || r.places_id) && (
                           <a
                             href={mapsUrl({ name: r.name, address: r.address, placesId: r.places_id })}
                             target="_blank"
                             rel="noopener noreferrer"
                             title="Open in Google Maps"
-                            className="shrink-0 text-[#8A928C] hover:text-[#14201B]"
+                            className="text-[#8A928C] hover:text-[#14201B]"
                           >
                             <Ico name="external" size={11} />
                           </a>
                         )}
+                        {r.id && (
+                          <span className="rounded-full bg-[#E7EDE4] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#3D6B4A]">
+                            Queued
+                          </span>
+                        )}
                       </div>
                       {r.hours_today && <div className="mt-0.5 text-[11.5px] text-[#8A928C]">{r.hours_today}</div>}
-                    </td>
-                    <td className={`${td} whitespace-nowrap text-[12.5px]`}>
-                      {r.phone && (
-                        <a href={`tel:${r.phone}`} className="text-[#3D4A44] hover:underline">
-                          {r.phone}
-                        </a>
-                      )}
                     </td>
                     <td className={`${td} text-right tabular-nums`}>
                       {r.places_rating != null && (
@@ -1507,6 +1815,7 @@ function MobileRow({
   onToggle,
   onOpen,
   onReadSite,
+  onHide,
 }: {
   row: Candidate;
   selected: boolean;
@@ -1515,6 +1824,7 @@ function MobileRow({
   onToggle: () => void;
   onOpen: () => void;
   onReadSite: () => void;
+  onHide: () => void;
 }) {
   const body = (
     <div className="min-w-0 flex-1">
@@ -1540,7 +1850,6 @@ function MobileRow({
           </span>
         )}
       </div>
-      {r.address && <div className="mt-1 text-[12.5px] text-[#5B6560]">{r.address}</div>}
       {!open && r.about && <div className="mt-1 line-clamp-2 text-[12.5px] text-[#5B6560]">{r.about}</div>}
     </div>
   );
@@ -1565,6 +1874,16 @@ function MobileRow({
   return (
     <div className={selected ? "bg-[#F4F2EA]" : ""}>
       <div className="flex items-start gap-1 py-1 pr-3">
+        <button
+          type="button"
+          onClick={onHide}
+          aria-label={`Exclude ${r.name ?? "this business"} from all future searches`}
+          className="flex h-11 w-11 shrink-0 items-center justify-center text-[#5B6560] active:scale-[0.94]"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-md border border-[#E2DFD5] bg-white">
+            <Ico name="close" size={16} />
+          </span>
+        </button>
         <label className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center">
           <input
             type="checkbox"
@@ -1601,12 +1920,6 @@ function MobileRow({
           {r.catalog_terms.length > 0 && <span>Site mentions: {r.catalog_terms.slice(0, 14).join(", ")}</span>}
           {r.site_failures.length > 0 && <span className="text-[#A0762C]">{r.site_failures.join(" · ")}</span>}
           <div className="flex flex-wrap gap-2">
-            {r.phone && (
-              <a href={`tel:${r.phone}`} className={action}>
-                <Ico name="phone" size={14} />
-                {r.phone}
-              </a>
-            )}
             {site && (
               <a href={site} target="_blank" rel="noopener noreferrer" className={action}>
                 <Ico name="external" size={13} />

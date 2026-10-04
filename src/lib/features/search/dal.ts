@@ -336,3 +336,74 @@ export async function rememberExclusions(kind: ExclusionKind, values: string[]):
   });
   for (const r of keep) await sbDelete(EXCLUSIONS, { kind: `eq.${kind}`, norm: `eq.${r.norm}` });
 }
+
+// ---- Hidden businesses (nb_search_hidden) ----
+
+/** Places ids Juan has X'd out of Search. Ids only, a few bytes each. */
+export async function listHiddenPlaceIds(): Promise<string[]> {
+  const rows = await sbGet<{ places_id: string }>("nb_search_hidden", { select: "places_id", limit: "10000" });
+  return rows.map((r) => r.places_id);
+}
+
+export async function hidePlace(placesId: string, name: string | null): Promise<void> {
+  const res = await fetch(`${SB_URL}/rest/v1/nb_search_hidden?on_conflict=places_id`, {
+    method: "POST",
+    headers: sbHeaders({ "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify([{ places_id: placesId, name: name ? name.slice(0, 160) : null }]),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Supabase nb_search_hidden upsert -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+}
+
+// ---- Groups (nb_search_groups, nb_search_group_members) ----
+
+export type GroupMember = { places_id: string; name: string | null; candidate: Record<string, unknown>; added_at: string };
+export type SearchGroup = { id: string; name: string; members: GroupMember[] };
+
+export async function listGroups(): Promise<SearchGroup[]> {
+  const [groups, members] = await Promise.all([
+    sbGet<{ id: string; name: string }>("nb_search_groups", { select: "id,name", order: "created_at.asc" }),
+    sbGet<GroupMember & { group_id: string }>("nb_search_group_members", {
+      select: "group_id,places_id,name,candidate,added_at",
+      order: "added_at.desc",
+      limit: "5000",
+    }),
+  ]);
+  return groups.map((g) => ({ ...g, members: members.filter((m) => m.group_id === g.id) }));
+}
+
+export async function createGroup(name: string): Promise<SearchGroup> {
+  const clean = name.trim().slice(0, 80);
+  const id =
+    clean
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60) || `group-${Date.now()}`;
+  const res = await fetch(`${SB_URL}/rest/v1/nb_search_groups?on_conflict=id`, {
+    method: "POST",
+    headers: sbHeaders({ "Content-Type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" }),
+    body: JSON.stringify([{ id, name: clean }]),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Supabase nb_search_groups insert -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { id, name: clean, members: [] };
+}
+
+export async function addGroupMembers(
+  groupId: string,
+  members: { places_id: string; name: string | null; candidate: Record<string, unknown> }[],
+): Promise<void> {
+  if (!members.length) return;
+  const res = await fetch(`${SB_URL}/rest/v1/nb_search_group_members?on_conflict=group_id,places_id`, {
+    method: "POST",
+    headers: sbHeaders({ "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify(members.map((m) => ({ ...m, group_id: groupId, added_at: new Date().toISOString() }))),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Supabase nb_search_group_members upsert -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+}
+
+export async function removeGroupMember(groupId: string, placesId: string): Promise<void> {
+  await sbDelete("nb_search_group_members", { group_id: `eq.${groupId}`, places_id: `eq.${placesId}` });
+}
