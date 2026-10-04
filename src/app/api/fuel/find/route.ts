@@ -65,6 +65,16 @@ async function resolveDest(input: DestInput, origin: LatLng): Promise<Dest | { e
   return found;
 }
 
+/** Road miles from the search origin to each shown station, one OSRM table
+ *  call. A failed lookup leaves the line off rather than guessing. */
+async function withMilesAway<T extends LatLng>(origin: LatLng, shown: T[]): Promise<(T & { milesAway: number | null })[]> {
+  const miles = await milesFromOrigin(origin, shown);
+  return shown.map((s, i) => {
+    const m = miles?.[i];
+    return { ...s, milesAway: typeof m === "number" && Number.isFinite(m) ? m : null };
+  });
+}
+
 async function planRoute(origin: LatLng, dest: LatLng) {
   const shape = await route(origin, dest);
   if (!shape) return null;
@@ -133,5 +143,6 @@ export async function POST(req: Request) {
 
   const rate = body.quickest ? RATE_QUICKEST : RATE_CHEAPEST;
   const scored: Scored[] = scoreStations(stations, detours, gallons, rate);
-  return Response.json({ ok: true, dest, directMinutes: shape.minutes, considered: scored.length, gallons, best: scored.slice(0, 3) });
+  const best = await withMilesAway(origin, scored.slice(0, 3));
+  return Response.json({ ok: true, dest, directMinutes: shape.minutes, considered: scored.length, gallons, best });
 }

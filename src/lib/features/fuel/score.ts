@@ -20,6 +20,8 @@ export type Scored = Station & {
   total: number;
   priceAgeHours: number | null;
   stale: boolean;
+  /** Road miles from where the search started, set on the shown few only. */
+  milesAway?: number | null;
 };
 
 /* A price this old has already moved. Past 12h it loses 2c/gal per extra

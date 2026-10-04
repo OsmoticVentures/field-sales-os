@@ -5,9 +5,8 @@
  * by all-in cost: the real posted price plus the true OSRM detour, not a
  * radius search around where the rep is standing. Ported from
  * portfolio/src/app/gas/GasApp.tsx, minus the car-wash mode and the
- * affiliate links (out of scope for this port, see PORTING.md
- * m8f); the routing and ranking math is unchanged, see
- * lib/features/fuel/{osrm,score}.ts.
+ * GasBuddy link (out of scope for this port, see PORTING.md m8f); the
+ * routing and ranking math is unchanged, see lib/features/fuel/{osrm,score}.ts.
  *
  * The write path is now a route handler (api/fuel/find), not the old Server
  * Action, called through apiFetch so the /nb basePath resolves.
@@ -35,6 +34,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const snap = (v: number) => Math.round(v / GALLON_STEP) * GALLON_STEP;
 const gal = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
 const usd = (v: number) => `$${v.toFixed(2)}`;
+const milesAway = (v: number) => `${v.toFixed(1)} mi away`;
 
 function ago(iso: string): string {
   const t = Date.parse(iso);
@@ -45,6 +45,15 @@ function ago(iso: string): string {
   if (h < 36) return `${h} h ago`;
   return `${Math.round(h / 24)} d ago`;
 }
+
+/* upside.com publishes /mobile/app/* as a universal link for its iOS app
+   (apple-app-site-association, re-checked 2026-10-03), so this opens the
+   installed app on its gas tab. Neither Upside nor ARCO publishes a
+   per-station link: Upside's sitemap has no station pages and ARCO's
+   locator is one generic page with no universal links, so the gas tab is
+   the closest real door. Shown on ARCO only, the brand Juan uses it for. */
+const UPSIDE_URL = "https://www.upside.com/mobile/app/gas";
+const isArco = (name: string) => /\barco\b/i.test(name);
 
 function appleMapsTwoStops(stop: { name: string; address: string }, destAddress: string): string {
   const s = encodeURIComponent(`${stop.name}, ${stop.address}`);
@@ -261,7 +270,10 @@ function StationCard({ s, gallons, destAddress }: { s: Scored; rank: number; gal
           <div className="truncate text-[16px] font-semibold">{s.name}</div>
           {s.address && <div className="truncate text-[13px] text-[#5B6560]">{s.address}</div>}
         </div>
-        <div className="shrink-0 text-right text-[15px] font-semibold">{minutes <= 0 ? "on the way" : `+${minutes} min`}</div>
+        <div className="shrink-0 text-right">
+          <div className="text-[15px] font-semibold">{minutes <= 0 ? "on the way" : `+${minutes} min`}</div>
+          {s.milesAway != null && <div className="text-[13px] text-[#5B6560]">{milesAway(s.milesAway)}</div>}
+        </div>
       </div>
       <div className="mt-3 flex items-baseline gap-2">
         <span className="text-[34px] font-semibold leading-none tracking-tight">{usd(s.regular)}</span>
@@ -271,12 +283,24 @@ function StationCard({ s, gallons, destAddress }: { s: Scored; rank: number; gal
         {usd(s.total)} for {gal(gallons)} gal
         {s.updatedAt && <span className="text-[#8A928C]"> · price {ago(s.updatedAt)}</span>}
       </div>
-      <a
-        href={appleMapsTwoStops(s, destAddress)}
-        className="mt-3 flex h-11 items-center justify-center rounded-md bg-[#14201B] text-[15px] font-medium text-white transition-transform active:scale-[0.97]"
-      >
-        Apple Maps
-      </a>
+      <div className={`mt-3 ${isArco(s.name) ? "grid grid-cols-2 gap-2" : ""}`}>
+        {isArco(s.name) && (
+          <a
+            href={UPSIDE_URL}
+            target="_blank"
+            rel="noopener"
+            className="flex h-11 items-center justify-center rounded-md border border-[#E2DFD5] text-[15px] font-medium transition-transform active:scale-[0.97]"
+          >
+            Upside
+          </a>
+        )}
+        <a
+          href={appleMapsTwoStops(s, destAddress)}
+          className="flex h-11 items-center justify-center rounded-md bg-[#14201B] text-[15px] font-medium text-white transition-transform active:scale-[0.97]"
+        >
+          Apple Maps
+        </a>
+      </div>
     </li>
   );
 }
