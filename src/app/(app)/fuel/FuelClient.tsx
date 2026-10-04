@@ -5,7 +5,7 @@
  * by all-in cost: the real posted price plus the true OSRM detour, not a
  * radius search around where the rep is standing. Ported from
  * portfolio/src/app/gas/GasApp.tsx, minus the car-wash mode and the
- * Upside/GasBuddy affiliate links (out of scope for this port, see PORTING.md
+ * affiliate links (out of scope for this port, see PORTING.md
  * m8f); the routing and ranking math is unchanged, see
  * lib/features/fuel/{osrm,score}.ts.
  *
@@ -267,14 +267,9 @@ function StationCard({ s, gallons, destAddress }: { s: Scored; rank: number; gal
         <span className="text-[34px] font-semibold leading-none tracking-tight">{usd(s.regular)}</span>
         <span className="text-[13px] text-[#5B6560]">per gallon</span>
       </div>
-      {s.stale && (
-        <div className="mt-2">
-          <span className="rounded-full bg-[#8A6D2F]/10 px-2.5 py-1 text-[12px] font-medium text-[#8A6D2F]">Price may be outdated</span>
-        </div>
-      )}
       <div className="mt-2 text-[13px] text-[#3D4A44]">
         {usd(s.total)} for {gal(gallons)} gal
-        {s.updatedAt && <span className={s.stale ? "font-medium text-[#8A6D2F]" : "text-[#8A928C]"}> · price {ago(s.updatedAt)}</span>}
+        {s.updatedAt && <span className="text-[#8A928C]"> · price {ago(s.updatedAt)}</span>}
       </div>
       <a
         href={appleMapsTwoStops(s, destAddress)}
