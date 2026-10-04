@@ -135,6 +135,21 @@ function readPast(key: string): string[] {
   }
 }
 
+function writePast(key: string, list: string[]) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(list));
+  } catch {}
+}
+
+/** Fire and forget: the shared list catches up on the next open if this fails. */
+function shareExclusions(chains: string[], categories: string[]) {
+  apiFetch("/api/search/exclusions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chains, categories }),
+  }).catch(() => {});
+}
+
 function rememberPast(key: string, value: string): string[] {
   const cur = readPast(key).filter((x) => x.toLowerCase() !== value.toLowerCase());
   const next = [value, ...cur].slice(0, PAST_LIMIT);
@@ -355,14 +370,39 @@ export function SearchClient() {
   const [pastCategories, setPastCategories] = useState<string[]>([]);
   const [pastChains, setPastChains] = useState<string[]>([]);
   useEffect(() => {
-    setPastCategories(readPast(PAST_CATEGORY_KEY));
-    setPastChains(readPast(PAST_CHAIN_KEY));
+    const localCats = readPast(PAST_CATEGORY_KEY);
+    const localChains = readPast(PAST_CHAIN_KEY);
+    setPastCategories(localCats);
+    setPastChains(localChains);
+    // The shared list is the truth; this device's copy is a cache that also
+    // pushes up anything the server has not seen yet.
+    (async () => {
+      try {
+        const res = await apiFetch("/api/search/exclusions", { cache: "no-store" });
+        const json = (await res.json()) as { ok?: boolean; chains?: string[]; categories?: string[] };
+        if (!res.ok || !json.ok) return;
+        const merge = (server: string[], local: string[]) => {
+          const seen = new Set(server.map((x) => x.toLowerCase()));
+          return [...server, ...local.filter((x) => !seen.has(x.toLowerCase()))].slice(0, PAST_LIMIT);
+        };
+        const cats = merge(json.categories ?? [], localCats);
+        const chains = merge(json.chains ?? [], localChains);
+        setPastCategories(cats);
+        setPastChains(chains);
+        writePast(PAST_CATEGORY_KEY, cats);
+        writePast(PAST_CHAIN_KEY, chains);
+        const upCats = localCats.filter((x) => !(json.categories ?? []).some((y) => y.toLowerCase() === x.toLowerCase()));
+        const upChains = localChains.filter((x) => !(json.chains ?? []).some((y) => y.toLowerCase() === x.toLowerCase()));
+        if (upCats.length || upChains.length) shareExclusions(upChains, upCats);
+      } catch {}
+    })();
   }, []);
 
   function addExclude(raw: string) {
     const v = raw.trim();
     if (!v) return;
     setPastCategories(rememberPast(PAST_CATEGORY_KEY, v));
+    shareExclusions([], [v]);
     setExcludeCategories((cur) => (cur.some((c) => c.toLowerCase() === v.toLowerCase()) ? cur : [...cur, v]));
     setSuggestions((cur) => cur.filter((s) => s.category.toLowerCase() !== v.toLowerCase()));
   }
@@ -373,6 +413,7 @@ export function SearchClient() {
     const v = raw.trim();
     if (!v) return;
     setPastChains(rememberPast(PAST_CHAIN_KEY, v));
+    shareExclusions([v], []);
     setChainNames((cur) => (cur.some((c) => c.toLowerCase() === v.toLowerCase()) ? cur : [...cur, v]));
   }
   function removeChain(v: string) {
@@ -415,6 +456,7 @@ export function SearchClient() {
     const day = openDay === "" ? null : openDay === "today" ? new Date().getDay() : openDay;
     excludeCategories.forEach((c) => rememberPast(PAST_CATEGORY_KEY, c));
     if (chainExclude) chainNames.forEach((c) => rememberPast(PAST_CHAIN_KEY, c));
+    shareExclusions(chainExclude ? chainNames : [], excludeCategories);
     const reply = await post("search", {
       category: query.trim(),
       polygon: pins,

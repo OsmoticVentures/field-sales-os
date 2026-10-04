@@ -291,3 +291,48 @@ export async function insertRows(table: "nb_accounts" | "nb_sdr_schedule", rows:
 }
 
 export { randId };
+
+// ---- Search exclusions shortlist (nb_search_exclusions) ----
+
+export type ExclusionKind = "chain" | "category";
+const EXCLUSIONS = "nb_search_exclusions";
+const EXCLUSIONS_CAP = 60;
+
+/** Newest first, at most EXCLUSIONS_CAP per kind. One small read on mount. */
+export async function listExclusions(kind: ExclusionKind): Promise<string[]> {
+  const rows = await sbGet<{ value: string }>(EXCLUSIONS, {
+    select: "value",
+    kind: `eq.${kind}`,
+    order: "last_used.desc",
+    limit: String(EXCLUSIONS_CAP),
+  });
+  return rows.map((r) => r.value);
+}
+
+/** Upsert by (kind, lowercase value), then prune past the cap. */
+export async function rememberExclusions(kind: ExclusionKind, values: string[]): Promise<void> {
+  const now = new Date().toISOString();
+  const byNorm = new Map<string, { kind: ExclusionKind; norm: string; value: string; last_used: string }>();
+  for (const raw of values) {
+    const value = raw.trim().slice(0, 80);
+    if (value) byNorm.set(value.toLowerCase(), { kind, norm: value.toLowerCase(), value, last_used: now });
+  }
+  if (byNorm.size === 0) return;
+  const res = await fetch(`${SB_URL}/rest/v1/${EXCLUSIONS}?on_conflict=kind,norm`, {
+    method: "POST",
+    headers: sbHeaders({ "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" }),
+    body: JSON.stringify([...byNorm.values()]),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase ${EXCLUSIONS} upsert -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  const keep = await sbGet<{ norm: string }>(EXCLUSIONS, {
+    select: "norm",
+    kind: `eq.${kind}`,
+    order: "last_used.desc",
+    offset: String(EXCLUSIONS_CAP),
+    limit: "200",
+  });
+  for (const r of keep) await sbDelete(EXCLUSIONS, { kind: `eq.${kind}`, norm: `eq.${r.norm}` });
+}
