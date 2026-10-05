@@ -12,12 +12,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
-        if let url = connectionOptions.urlContexts.first?.url { DeepLink.handle(url, from: window) }
+        if let url = connectionOptions.urlContexts.first?.url { DeepLink.receive(url, from: window) }
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
-        if let url = URLContexts.first?.url, url.scheme == "fieldsalesos" { DeepLink.handle(url, from: window); return }
+        if let url = URLContexts.first?.url, url.scheme == "fieldsalesos" { DeepLink.receive(url, from: window); return }
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        DeepLink.drain()
+        Task { await Outbox.flush() }
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {

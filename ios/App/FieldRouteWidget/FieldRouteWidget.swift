@@ -109,9 +109,12 @@ struct PillLink: View {
             Text(label)
                 .font(.system(size: 10.5, weight: .semibold))
                 .foregroundColor(filled ? .white : Pal.ink)
-                .padding(.horizontal, 8).padding(.vertical, 5)
+                .padding(.horizontal, filled ? 12 : 8).padding(.vertical, 5)
                 .background(filled ? Pal.green : Pal.pill)
                 .clipShape(RoundedRectangle(cornerRadius: 7))
+                // A near miss lands on the pill, not on the bare widget.
+                .padding(.vertical, 4).padding(.horizontal, 2)
+                .contentShape(Rectangle())
         }
     }
 }
@@ -134,18 +137,18 @@ struct StopRow: View {
     let remaining: Int
     let showMiles: Bool
 
+    // Every tap goes through the app: a widget hands any URL to its own app,
+    // so the app is what opens the dialer and Maps, every time.
     var callURL: URL {
         let tel = (stop.call_url ?? "").replacingOccurrences(of: "tel:", with: "")
-        if stop.type == "account" { return deepLink("call", ["account": stop.id, "tel": tel]) }
-        return URL(string: stop.call_url ?? "tel:")!
+        return deepLink("call", stop.type == "account" ? ["account": stop.id, "tel": tel] : ["tel": tel])
     }
     var goURL: URL {
-        if data.day_state == "not_started" { return deepLink("odo", ["kind": "start", "day": data.day, "go": stop.id]) }
-        return stop.mapsURL ?? URL(string: "maps://")!
+        deepLink("go", ["day": data.day, "stop": stop.id, "maps": stop.maps_url, "state": data.day_state])
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 7) {
                 Link(destination: deepLink("route", ["day": data.day, "stop": stop.id])) {
                     HStack(alignment: .top, spacing: 7) {
@@ -168,7 +171,7 @@ struct StopRow: View {
                     Text("\(String(format: "%.1f", m)) mi").font(.system(size: 9.5)).foregroundColor(Pal.faint)
                 }
             }
-            HStack(spacing: 5) {
+            HStack(spacing: 1) {
                 PillLink(label: "GO", url: goURL, filled: true)
                 if stop.type == "account" || stop.call_url != nil {
                     PillLink(label: stop.call_url == nil ? "No phone" : "Call", url: callURL)
@@ -251,7 +254,7 @@ struct RouteView: View {
                 let shown = Array(rows.prefix(4))
                 ForEach(Array(shown.enumerated()), id: \.element.id) { i, s in
                     if i > 0 {
-                        Divider().overlay(Pal.rule).padding(.vertical, 5)
+                        Divider().overlay(Pal.rule).padding(.vertical, 2)
                     }
                     StopRow(stop: s, data: data, remaining: rows.count, showMiles: i > 0)
                 }
