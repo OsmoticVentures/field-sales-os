@@ -288,9 +288,13 @@ function RouteDay({
 
   const dayIndex = days.indexOf(activeDay);
   const prevDay = dayIndex > 0 ? days[dayIndex - 1] : null;
-  const startFallback = (prevDay ? data.endByDay[prevDay] : null) ?? data.home;
+  const [myLoc, setMyLoc] = useState<RouteEndpoint | null>(null);
+  useEffect(() => {
+    locateMe().then(setMyLoc);
+  }, []);
+  const startFallback = myLoc ?? (prevDay ? data.endByDay[prevDay] : null) ?? data.home;
   const start = data.startByDay[activeDay] ?? startFallback;
-  const end = data.endByDay[activeDay] ?? data.home;
+  const end = data.endByDay[activeDay] ?? myLoc ?? data.home;
 
   const [prefs, setPrefsLocal] = useState<RouteSchedulePrefs>(data.prefs);
   useEffect(() => setPrefsLocal(data.prefs), [data.prefs]);
@@ -649,6 +653,7 @@ function RouteDay({
         start={start}
         end={end}
         home={data.home}
+        myLoc={myLoc}
         onChangeStart={(ep) => patchEndpoint(activeDay, "start", ep)}
         onChangeEnd={(ep) => patchEndpoint(activeDay, "end", ep)}
         finish={schedule?.finish ?? null}
@@ -702,6 +707,17 @@ function RouteDay({
           ))}
         </ul>
       )}
+
+      <AddStop
+        accounts={data.accounts}
+        inRoute={inRoute}
+        activeDay={activeDay}
+        onAddAccount={(a) => addEntry(a.id, a.lat, a.lng)}
+        onAddCustomStop={(stop) => {
+          const id = `custom:${newKey()}`;
+          addEntry({ ...stop, id }, stop.lat, stop.lng);
+        }}
+      />
 
       {stops.length > 0 && (
         <div className="flex items-center gap-2">
@@ -1003,19 +1019,19 @@ function RouteDay({
         inRoute={inRoute}
         onAddToDay={(a) => addEntry(a.id, a.lat, a.lng)}
       />
-
-      <AddStop
-        accounts={data.accounts}
-        inRoute={inRoute}
-        activeDay={activeDay}
-        onAddAccount={(a) => addEntry(a.id, a.lat, a.lng)}
-        onAddCustomStop={(stop) => {
-          const id = `custom:${newKey()}`;
-          addEntry({ ...stop, id }, stop.lat, stop.lng);
-        }}
-      />
     </div>
   );
+}
+
+function locateMe(): Promise<RouteEndpoint | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ label: "My location", address: "Current location", lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 },
+    );
+  });
 }
 
 function EndpointField({
@@ -1023,12 +1039,14 @@ function EndpointField({
   value,
   fallback,
   home,
+  myLoc,
   onChange,
 }: {
   label: string;
   value: RouteEndpoint | null;
   fallback: RouteEndpoint | null;
   home: RouteEndpoint | null;
+  myLoc: RouteEndpoint | null;
   onChange: (ep: RouteEndpoint | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -1087,13 +1105,25 @@ function EndpointField({
         placeholder={label}
         className="min-h-11 w-40 glass rounded-xl px-2.5 py-1 text-base outline-none"
       />
-      {(home || results.length > 0 || searching) && (
+      {(home || myLoc || results.length > 0 || searching) && (
         <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-56 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg">
+          <button
+            type="button"
+            onMouseDown={async () => {
+              const here = myLoc ?? (await locateMe());
+              if (here) onChange(here);
+              setOpen(false);
+              setQuery("");
+            }}
+            className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-1.5 text-left text-[13px] hover:bg-[#FAF9F5]"
+          >
+            <span className="font-medium">My location</span>
+          </button>
           {home && (
             <button
               type="button"
               onMouseDown={() => {
-                onChange(null);
+                onChange(home);
                 setOpen(false);
                 setQuery("");
               }}
@@ -1131,6 +1161,7 @@ function DayBar({
   start,
   end,
   home,
+  myLoc,
   onChangeStart,
   onChangeEnd,
   finish,
@@ -1144,6 +1175,7 @@ function DayBar({
   start: RouteEndpoint | null;
   end: RouteEndpoint | null;
   home: RouteEndpoint | null;
+  myLoc: RouteEndpoint | null;
   onChangeStart: (ep: RouteEndpoint | null) => void;
   onChangeEnd: (ep: RouteEndpoint | null) => void;
   finish: number | null;
@@ -1156,7 +1188,7 @@ function DayBar({
     <div className="rounded-lg border border-[#E2DFD5] bg-white p-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-[#5B6560]">
         <span className="flex items-center gap-1.5">
-          Leave <EndpointField label="Start" value={start} fallback={home} home={home} onChange={onChangeStart} />
+          Leave <EndpointField label="Start" value={start} fallback={home} home={home} myLoc={myLoc} onChange={onChangeStart} />
           at
           <input type="time" value={prefs.depart} onChange={(e) => onChange({ ...prefs, depart: e.target.value })} className={`${inputCls} w-auto tabular-nums font-medium`} />
         </span>
@@ -1183,7 +1215,7 @@ function DayBar({
           min lunch
         </label>
         <span className="flex items-center gap-1.5">
-          Arrive <EndpointField label="End" value={end} fallback={home} home={home} onChange={onChangeEnd} />
+          Arrive <EndpointField label="End" value={end} fallback={home} home={home} myLoc={myLoc} onChange={onChangeEnd} />
         </span>
       </div>
 
