@@ -18,6 +18,8 @@
  *                as done: there is nothing to confirm.
  *   read         grade and readiness, POST /api/visit/account-read.
  *   photo        POST /api/visit/attach.
+ *   type         a store New company just created: its type is his pick,
+ *                asked once the note is filed, POST /api/visit/account-type.
  *
  * After the note is filed, hubspot, read and photo are independent: one
  * failing does not hold the others in the same pass.
@@ -30,6 +32,10 @@
 export type KindOverride = "meeting" | "call" | "email" | "field_note";
 
 export type AccountPick = { id: string; name: string; city: string | null };
+
+/** A store New company created: the type Places suggested, the one he
+ *  picked, and whether it is on the account. */
+export type StoreType = { suggested: string | null; picked: string | null; done: boolean };
 
 export type NeedsAccount = {
   candidates: AccountPick[];
@@ -49,6 +55,8 @@ export type OutboxItem = {
   readiness: string | null;
   /** Bytes, not a Blob: an ArrayBuffer survives every WebKit IndexedDB. */
   photo: { bytes: ArrayBuffer; type: string; name: string } | null;
+  /** Where the phone was when Log was tapped, for finding a new store. */
+  near?: { lat: number; lng: number } | null;
   createdAt: number;
 
   // step state, written after every stage
@@ -68,6 +76,8 @@ export type OutboxItem = {
   hubspotRefused: string | null;
   readDone: boolean;
   photoDone: boolean;
+  /** Null unless New company created the store. */
+  storeType?: StoreType | null;
 
   attempts: number;
   nextAt: number;
@@ -90,6 +100,7 @@ export type EnqueueInput = {
   grade?: string | null;
   readiness?: string | null;
   photo?: OutboxItem["photo"];
+  near?: { lat: number; lng: number } | null;
   now: number;
 };
 
@@ -103,6 +114,7 @@ export function newItem(i: EnqueueInput): OutboxItem {
     grade: i.grade ?? null,
     readiness: i.readiness ?? null,
     photo: i.photo ?? null,
+    near: i.near ?? null,
     createdAt: i.now,
     accountName: i.accountName ?? null,
     pickedAccountId: null,
@@ -117,6 +129,7 @@ export function newItem(i: EnqueueInput): OutboxItem {
     hubspotRefused: null,
     readDone: !i.grade && !i.readiness,
     photoDone: !i.photo,
+    storeType: null,
     attempts: 0,
     nextAt: i.now,
     holdUntil: 0,
@@ -131,7 +144,7 @@ export function newItem(i: EnqueueInput): OutboxItem {
 // stages
 // ---------------------------------------------------------------------------
 
-export type Stage = "touchpoint" | "new-account" | "hubspot" | "read" | "photo";
+export type Stage = "touchpoint" | "new-account" | "hubspot" | "read" | "photo" | "type";
 
 export type Req = {
   path: string;
@@ -151,7 +164,11 @@ export type Outcome =
   | { type: "http"; status: number; error: string | null };
 
 export const isComplete = (it: OutboxItem): boolean =>
-  it.filed && it.hubspot !== "pending" && it.readDone && it.photoDone;
+  it.filed && it.hubspot !== "pending" && it.readDone && it.photoDone && (!it.storeType || it.storeType.done);
+
+/** Filed, and nothing left but his pick of the new store's type. */
+export const waitsForType = (it: OutboxItem): boolean =>
+  it.filed && it.hubspot !== "pending" && it.readDone && it.photoDone && Boolean(it.storeType && !it.storeType.done && !it.storeType.picked);
 
 /** The next stage to run, skipping the ones that already failed this pass.
  *  Null when the item is complete, parked, or waiting on a filed note. */
@@ -163,7 +180,10 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
     if (skip.has("touchpoint") || skip.has("new-account")) return null;
     if (it.newCompany && it.newCompanyName && !it.pickedAccountId) {
       const name = it.newCompanyName;
-      return { stage: "new-account", req: { path: "/api/visit/new-account", key: `${it.id}:new:${name.toLowerCase()}`, json: { name } } };
+      return {
+        stage: "new-account",
+        req: { path: "/api/visit/new-account", key: `${it.id}:new:${name.toLowerCase()}`, json: { name, near: it.near ?? undefined } },
+      };
     }
     if (it.pickedAccountId) {
       return {
@@ -207,6 +227,10 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
         form: { touchpoint_id: it.touchpointId, idempotency_key: `${it.id}:photo`, photo: it.photo },
       },
     };
+  }
+  const st = it.storeType;
+  if (st && !st.done && st.picked && !skip.has("type") && it.accountId) {
+    return { stage: "type", req: { path: "/api/visit/account-type", key: `${it.id}:type:${st.picked}`, json: { account_id: it.accountId, channel: st.picked } } };
   }
   return null;
 }
@@ -266,8 +290,16 @@ export function applyOutcome(it: OutboxItem, step: Step, out: Outcome, ctx: Appl
 
   switch (step.stage) {
     case "new-account": {
-      const r = out.result as { accountId: string; accountName: string };
-      return { item: { ...base, pickedAccountId: r.accountId, accountName: r.accountName }, ok: true };
+      const r = out.result as { accountId: string; accountName: string; channel?: string | null };
+      return {
+        item: {
+          ...base,
+          pickedAccountId: r.accountId,
+          accountName: r.accountName,
+          storeType: { suggested: r.channel ?? null, picked: null, done: false },
+        },
+        ok: true,
+      };
     }
     case "touchpoint": {
       const r = out.result as FiledShape | NeedsShape;
@@ -323,6 +355,8 @@ export function applyOutcome(it: OutboxItem, step: Step, out: Outcome, ctx: Appl
       return { item: { ...base, readDone: true }, ok: true };
     case "photo":
       return { item: { ...base, photoDone: true }, ok: true };
+    case "type":
+      return { item: { ...base, storeType: it.storeType ? { ...it.storeType, done: true } : null }, ok: true };
   }
 }
 
@@ -365,7 +399,8 @@ export type Deps = {
   online: () => boolean;
 };
 
-export const isDue = (it: OutboxItem, now: number): boolean => !it.parked && it.nextAt <= now && it.holdUntil <= now;
+export const isDue = (it: OutboxItem, now: number): boolean =>
+  !it.parked && !waitsForType(it) && it.nextAt <= now && it.holdUntil <= now;
 
 /**
  * Run every stage the item can run now, saving after each. A failure stops
@@ -426,6 +461,14 @@ export function pickAccount(it: OutboxItem, a: { id: string; name: string }, now
     attempts: 0,
     nextAt: now,
   };
+}
+
+/** The new store's type, tapped once its note is filed. Null skips it and
+ *  leaves the type Places gave, if any. */
+export function pickType(it: OutboxItem, channel: string | null, now: number): OutboxItem {
+  const st = it.storeType ?? { suggested: null, picked: null, done: false };
+  if (!channel) return { ...it, storeType: { ...st, done: true } };
+  return { ...it, storeType: { ...st, picked: channel, done: false }, attempts: 0, nextAt: now };
 }
 
 /** "Try now": due at once, but never before a held write has finished. */

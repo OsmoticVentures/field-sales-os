@@ -573,6 +573,21 @@ export async function setAccountReadiness(accountId: string, readiness: Readines
   );
 }
 
+/** The store types the Visit screen offers for a store New company created. */
+export const STORE_TYPES = ["grocery", "specialty", "pharmacy", "clinic", "spa_beauty", "gym", "pet_specialty"] as const;
+export type StoreTypeValue = (typeof STORE_TYPES)[number];
+
+/** His pick of a store's type, on his own account only. */
+export async function setAccountChannel(accountId: string, channel: StoreTypeValue): Promise<void> {
+  const rows = await mutate<{ id: string }>(
+    "nb_accounts",
+    "PATCH",
+    { channel },
+    { id: `eq.${accountId}`, hubspot_owner_id: `eq.${JUAN_OWNER_ID}`, select: "id" },
+  );
+  if (rows.length === 0) throw new Error("That account is not in your book.");
+}
+
 export type TouchpointAttachment = { name: string; url: string; uploaded_at: string };
 
 /** Uploads to Drive (same folder tree as the source app), then appends the

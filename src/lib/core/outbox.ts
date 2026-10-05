@@ -25,7 +25,9 @@ import {
   isDue,
   newItem,
   pickAccount,
+  pickType,
   wake,
+  waitsForType,
   type Deps,
   type EnqueueInput,
   type OutboxItem,
@@ -227,7 +229,7 @@ export function runOutbox(force = false): Promise<void> {
 function schedule() {
   if (timer) clearTimeout(timer);
   timer = null;
-  const waiting = [...cache.values()].filter((it) => !it.parked);
+  const waiting = [...cache.values()].filter((it) => !it.parked && !waitsForType(it));
   if (waiting.length === 0) return;
   const soonest = Math.min(...waiting.map((it) => Math.max(it.nextAt, it.holdUntil)));
   const wait = Math.min(Math.max(soonest - Date.now(), 1000), TICK_MS);
@@ -294,6 +296,20 @@ export async function fileTo(id: string, account: { id: string; name: string }):
   const it = cache.get(id);
   if (!it) return;
   await save(pickAccount(it, account, Date.now()));
+  void runOutbox();
+}
+
+/** The type of a store New company created, or null to leave it as is. */
+export async function chooseType(id: string, channel: string | null): Promise<void> {
+  const it = cache.get(id);
+  if (!it) return;
+  const next = pickType(it, channel, Date.now());
+  if (isComplete(next)) {
+    await remove(id);
+    beat(next);
+    return;
+  }
+  await save(next);
   void runOutbox();
 }
 

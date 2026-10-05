@@ -7,13 +7,16 @@
  * confirms, through no signal, a closed app or a crash. Until then the note
  * stays listed under the composer with where it stands, so nothing is ever
  * believed filed that is not. A note whose store could not be told waits in
- * that list with the closest accounts as one-tap picks.
+ * that list with the closest accounts as one-tap picks. A store New company
+ * created waits there, filed, for its type.
  * Ported and trimmed from portfolio/src/app/nutribiotic/lib/touchpoint-ui.tsx
  * and new-account-ui.tsx.
  */
 
 import { useEffect, useRef, useState } from "react";
+import { Geolocation } from "@capacitor/geolocation";
 import {
+  chooseType,
   discard,
   enqueue,
   fileTo,
@@ -23,7 +26,7 @@ import {
   useOutbox,
   type OutboxItem,
 } from "../../core/outbox";
-import type { AccountPick, NeedsAccount } from "../../core/outbox-core";
+import { waitsForType, type AccountPick, type NeedsAccount } from "../../core/outbox-core";
 import { Ico, ghostBtn } from "../../core/ui";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
@@ -54,6 +57,16 @@ const GRADE_TITLE: Record<VisitGrade, string> = {
   D: "D, small",
   E: "E, very small",
 };
+
+const STORE_TYPE_OPTIONS = [
+  { value: "grocery", label: "Grocery" },
+  { value: "specialty", label: "Specialty" },
+  { value: "pharmacy", label: "Pharmacy" },
+  { value: "clinic", label: "Clinic" },
+  { value: "spa_beauty", label: "Spa and beauty" },
+  { value: "gym", label: "Gym" },
+  { value: "pet_specialty", label: "Pet" },
+] as const;
 
 type Readiness = "urgent" | "hot" | "normal" | "cold";
 const READINESS_OPTIONS: { value: Readiness; icon: string; title: string; activeClass: string }[] = [
@@ -103,6 +116,20 @@ export function TouchpointCapture({
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Where the phone is, so a new store is found at this door, not across town.
+  const nearRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  function locate() {
+    Geolocation.getCurrentPosition({ timeout: 8000, maximumAge: 300_000 })
+      .then((pos) => {
+        nearRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      })
+      .catch(() => {});
+  }
+
+  useEffect(() => {
+    if (!accountIdHint) locate();
+  }, [accountIdHint]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -159,6 +186,7 @@ export function TouchpointCapture({
       grade,
       readiness,
       photoFile: pendingPhoto,
+      near: newCompany ? nearRef.current : null,
     };
     const was = { kind, kindTouched };
     setSaving(true);
@@ -314,7 +342,10 @@ export function TouchpointCapture({
             {!accountIdHint && <button
               type="button"
               aria-pressed={newCompany}
-              onClick={() => setNewCompany((v) => !v)}
+              onClick={() => {
+                if (!newCompany) locate();
+                setNewCompany((v) => !v);
+              }}
               title="Skip matching against your accounts"
               className={`flex h-11 items-center gap-1.5 shrink-0 rounded-full border px-4 text-[12.5px] font-medium transition-[transform,background-color,color] active:scale-[0.97] ${
                 newCompany
@@ -359,6 +390,7 @@ export function TouchpointCapture({
 
 /** Where an unconfirmed note stands, in one or two words. */
 function standing(it: OutboxItem, running: boolean): { word: string; alert: boolean } {
+  if (waitsForType(it)) return { word: "Filed, pick its type", alert: false };
   if (it.parked === "needs-account") return { word: "Needs a store", alert: true };
   if (it.parked === "rejected") return { word: "Not filed", alert: true };
   if (!it.filed) {
@@ -424,6 +456,29 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
                 onPick={(a) => void fileTo(it.id, a)}
                 onRetry={null}
               />
+            )}
+            {waitsForType(it) && (
+              <div className="flex flex-wrap gap-1.5 pb-2">
+                {STORE_TYPE_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => void chooseType(it.id, o.value)}
+                    className={`inline-flex min-h-11 items-center rounded-full border px-3.5 text-[13px] font-medium transition-transform active:scale-[0.97] ${
+                      it.storeType?.suggested === o.value ? "border-[#14201B] text-[#14201B]" : "border-[#E2DFD5] text-[#5B6560]"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => void chooseType(it.id, null)}
+                  className="inline-flex min-h-11 items-center rounded-full border border-[#E2DFD5] px-3.5 text-[13px] font-medium text-[#5B6560] transition-transform active:scale-[0.97]"
+                >
+                  Other
+                </button>
+              </div>
             )}
             {discardable(it) && (
               <div className="flex justify-end gap-1">

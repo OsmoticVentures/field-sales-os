@@ -7,6 +7,8 @@ import {
   newItem,
   nextStep,
   pickAccount,
+  pickType,
+  waitsForType,
   wake,
   type Deps,
   type OutboxItem,
@@ -178,7 +180,7 @@ function enqueue(world: ReturnType<typeof fakeWorld>, over: Partial<Parameters<t
   const r = await advance(it, w.deps);
   t("5 new-account keyed item:new:<name>", w.sent[1].key === "item-1:new:leaf & root");
   t("5 then filed to the new account with the parse", w.sent[2].key === "item-1:acc-new" && (w.sent[2].json as { parsed: { q: number } }).parsed.q === 2);
-  t("5 complete", r.removed);
+  t("5 filed, then waits for the new store's type", !r.removed && r.item.filed && waitsForType(r.item));
 
   const w2 = fakeWorld(() => ok({ ok: true, needsAccount: true, summary: "s", businessNameGuess: null, matchAccountId: null, matchAccountName: null, candidates: [], parsed: {} }));
   const it2 = enqueue(w2, { newCompany: true });
@@ -243,6 +245,33 @@ function enqueue(world: ReturnType<typeof fakeWorld>, over: Partial<Parameters<t
   const d = w.disk.get(it.id)!;
   t("8 400 parks as rejected with the reason, kept", !r.removed && d.parked === "rejected" && d.lastError === "Nothing to record.");
   t("8 Try now un-parks a rejected item", isDue(wake(d, w.now()), w.now()));
+}
+
+// 9. New company: the store is found near the phone, then waits, filed, for its type.
+{
+  const w = fakeWorld((req, n) => {
+    if (n === 1) return ok({ ok: true, needsAccount: true, summary: "s", businessNameGuess: "JONS Torrance", matchAccountId: null, matchAccountName: null, candidates: [], parsed: {} });
+    if (req.path === "/api/visit/new-account") return ok({ accountId: "acc-j", accountName: "JONS Torrance", channel: "grocery" });
+    if (req.path === "/api/visit/account-type") return ok({ channel: "specialty" });
+    return filed({ accountId: "acc-j", accountName: "JONS Torrance" });
+  });
+  const it = enqueue(w, { newCompany: true, near: { lat: 33.85, lng: -118.36 } });
+  const r = await advance(it, w.deps);
+  const d = w.disk.get(it.id)!;
+  t("9 new-account carries where the phone was", (w.sent[1].json as { near: { lat: number } }).near.lat === 33.85);
+  t("9 filed, kept, waiting for its type with Places' suggestion", !r.removed && d.filed && waitsForType(d) && d.storeType?.suggested === "grocery", d.storeType);
+  t("9 waiting for a type is never due and sends nothing", !isDue(d, w.now() + 1e9) && nextStep(d) === null);
+  const r2 = await advance(pickType(w.reload(it.id), "specialty", w.now()), w.deps);
+  const last = w.sent[w.sent.length - 1];
+  t("9 the pick posts the type to the new account", last.path === "/api/visit/account-type" && (last.json as { channel: string; account_id: string }).channel === "specialty" && (last.json as { account_id: string }).account_id === "acc-j");
+  t("9 complete once the type is on", r2.removed && !w.disk.has(it.id));
+
+  const other = pickType(d, null, w.now());
+  t("9 Other completes with nothing sent", other.storeType?.done === true && nextStep(other) === null);
+
+  const w2 = fakeWorld(() => filed());
+  const r3 = await advance(enqueue(w2), w2.deps);
+  t("9 a store already in the book is never asked its type", r3.removed && !r3.item.storeType);
 }
 
 if (failures) {
