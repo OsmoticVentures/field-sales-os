@@ -232,6 +232,17 @@ export async function applyAccountFacts(
  *  (a human links one, or a future graduation path does). This substitutes
  *  for the source's Google-Places-driven createBusinessFromPlace, which
  *  this port does not carry (see handback). */
+/** Account ids already carrying these Google Places ids (placeId -> account id). */
+export async function findAccountIdsByPlaceIds(placeIds: string[]): Promise<Map<string, string>> {
+  const ids = placeIds.filter(Boolean);
+  if (ids.length === 0) return new Map();
+  const rows = await query<{ id: string; places_id: string }>("nb_accounts", {
+    select: "id,places_id",
+    places_id: `in.(${ids.map((i) => `"${i}"`).join(",")})`,
+  });
+  return new Map(rows.map((r) => [r.places_id, r.id]));
+}
+
 export async function insertBareAccount(input: {
   name: string;
   city?: string | null;

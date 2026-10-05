@@ -25,6 +25,7 @@
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
@@ -1327,6 +1328,89 @@ type BookResult = {
 
 const BOOK_RESULT_LIMIT = 5;
 
+type PlaceHit = {
+  placeId: string;
+  name: string;
+  formattedAddress: string | null;
+  accountId: string | null;
+  [k: string]: unknown;
+};
+
+/** Nothing in the book matches: look the typed name and region up in Google
+ *  Places, and let one tap add the result as a prospect and open it. */
+function PlaceFallback({ q }: { q: string }) {
+  const router = useRouter();
+  const [hits, setHits] = useState<PlaceHit[] | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHits(null);
+    setErr(null);
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiFetch("/api/search/place", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q }),
+        });
+        const json = (await res.json()) as { ok: boolean; results?: PlaceHit[]; error?: string };
+        if (json.ok) setHits(json.results ?? []);
+        else setErr(json.error || "Could not look that up.");
+      } catch {
+        setErr("Could not look that up.");
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  async function add(h: PlaceHit) {
+    if (h.accountId) return router.push(`/prospect?account=${h.accountId}`);
+    setAdding(h.placeId);
+    setErr(null);
+    try {
+      const res = await apiFetch("/api/visit/new-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ name: h.name, place: h }),
+      });
+      const json = (await res.json()) as { ok: boolean; result?: { accountId: string }; error?: string };
+      if (!json.ok || !json.result) throw new Error(json.error || "Could not add it.");
+      router.push(`/prospect?account=${json.result.accountId}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not add it.");
+      setAdding(null);
+    }
+  }
+
+  return (
+    <div>
+      {hits === null && !err && <div className="px-3 py-2.5 text-[12.5px] text-[#8A928C]">Looking it up</div>}
+      {hits?.length === 0 && <div className="px-3 py-2.5 text-[12.5px] text-[#8A928C]">No place found. Add the city to the name.</div>}
+      {err && <div className="px-3 py-2.5 text-[12.5px] text-[#8A928C]">{err}</div>}
+      {hits?.map((h) => (
+        <button
+          key={h.placeId}
+          type="button"
+          disabled={adding !== null}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => add(h)}
+          className="flex min-h-11 w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[#FAF9F5]"
+        >
+          <span className="min-w-0">
+            <span className="block truncate font-medium text-[#14201B]">{h.name}</span>
+            <span className="block truncate text-[11.5px] text-[#8A928C]">{h.formattedAddress}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[#14201B]">
+            {adding === h.placeId ? "Adding" : h.accountId ? "Open" : "Add as prospect"}
+            <Ico name="plus" size={12} />
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
  * "Search our book": find an account already in the book, by name, without
  * needing an exact spelling. Read-only.
@@ -1394,7 +1478,7 @@ function BookSearch() {
       {show && q.trim().length >= 2 && (
         <div className="absolute inset-x-3 top-full z-20 mt-1 overflow-hidden rounded-md border border-[#E2DFD5] bg-white shadow-lg">
           {results.length === 0 && (
-            <div className="px-3 py-2.5 text-[12.5px] text-[#8A928C]">Nothing in the book matches.</div>
+            <PlaceFallback q={q.trim()} />
           )}
           {results.map((r) => (
             <Link

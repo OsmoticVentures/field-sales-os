@@ -49,6 +49,17 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "A business name is required." }, { status: 400 });
   }
   const city = (body?.city as string | undefined) || null;
+  // Search picked one exact Places result: use it as is, no re-guessing.
+  const p = body?.place as Record<string, unknown> | undefined;
+  const chosen: Record<string, unknown> | null = p?.placeId
+    ? Object.fromEntries(
+        Object.entries({
+          street: p.street, city: p.city, state: p.state, postal: p.postal, lat: p.lat, lng: p.lng,
+          phone: p.phone, website: p.website, business_hours: p.businessHours,
+          places_id: p.placeId, places_rating: p.rating, places_rating_count: p.ratingCount, places_primary_type: p.primaryType,
+        }).filter(([, v]) => v != null),
+      )
+    : null;
 
   try {
     const { result, replayed } = await withIdempotency(`visit:new-account:${key}`, async () => {
@@ -56,7 +67,7 @@ export async function POST(req: Request) {
       // HubSpot company exists, so the company is born with its address,
       // phone and website. Accepted only when exactly one result carries the
       // typed name; anything ambiguous stays a bare account (never a guess).
-      const enriched = await enrichFromPlaces(name, city);
+      const enriched = chosen ?? (await enrichFromPlaces(name, city));
       const site = enriched?.website as string | undefined;
       // The portal-wide duplicate check runs first; any hit blocks the
       // create, since a second company for a store the other rep already
