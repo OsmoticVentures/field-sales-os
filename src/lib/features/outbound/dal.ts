@@ -8,7 +8,7 @@
  * as lib/features/prospect/dal.ts.
  */
 import "server-only";
-import { ASK_COMPOSED_PLAY, ASK_UNWRITTEN_PLAY, normalizeAsk, unwrittenBody, type ComposedAsk } from "./compose";
+import { ASK_COMPOSED_PLAY, normalizeAsk, type ComposedAsk } from "./compose";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -149,19 +149,21 @@ export async function getVoiceContext(accountId: string): Promise<{
  * the row, in the composed form when it was written, or in the source's own
  * unwritten form (the ask, then the reason) when it was refused.
  */
-export async function insertAskDraft(input: { account_id: string; ask: string; composed: ComposedAsk }): Promise<Draft> {
+export async function insertAskDraft(input: { account_id: string; ask: string; composed: ComposedAsk }): Promise<Draft | null> {
   const c = input.composed;
+  // An ask that could not be written as an email is not an outbound item.
+  if (!c.written) return null;
   const [row] = await sbWrite<Draft>("nb_outbound_drafts", "POST", {
     id: randId("draft"),
     account_id: input.account_id,
-    contact_id: c.written ? c.contactId : null,
+    contact_id: c.contactId,
     channel: "email",
-    subject: c.written ? c.subject : null,
-    body_md: c.written ? c.body : unwrittenBody(input.ask, c.reason),
-    to_email: c.written ? c.toEmail : null,
-    to_name: c.written ? c.toName : null,
+    subject: c.subject,
+    body_md: c.body,
+    to_email: c.toEmail,
+    to_name: c.toName,
     bcc_email: null,
-    play_key: c.written ? ASK_COMPOSED_PLAY : ASK_UNWRITTEN_PLAY,
+    play_key: ASK_COMPOSED_PLAY,
     source_ask: normalizeAsk(input.ask),
     campaign_id: null,
     status: "pending",
