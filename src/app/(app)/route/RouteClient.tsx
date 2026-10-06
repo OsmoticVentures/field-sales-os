@@ -1071,6 +1071,7 @@ function EndpointField({
   home,
   myLoc,
   onChange,
+  up,
 }: {
   label: string;
   value: RouteEndpoint | null;
@@ -1078,7 +1079,7 @@ function EndpointField({
   home: RouteEndpoint | null;
   myLoc: RouteEndpoint | null;
   onChange: (ep: RouteEndpoint | null) => void;
-  up,
+  up?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1086,7 +1087,6 @@ function EndpointField({
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const current = value ?? fallback;
-  up?: boolean;
 
   function runSearch(q: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
