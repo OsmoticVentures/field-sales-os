@@ -982,14 +982,44 @@ function RouteDay({
               );
             })}
           </ul>
-          {end && schedule?.end && (
-            <div className="flex items-center justify-between border-t border-[#EEECE3] bg-[#FAF9F5] px-4 py-2 text-[12.5px] text-[#5B6560]">
-              <span>
-                {end.label} <span className="font-medium tabular-nums text-[#3D4A44]">{clock(schedule.finish)}</span>
-              </span>
-              <span className="tabular-nums text-[#8A928C]">
-                {duration(schedule.end.minutes)} · {schedule.end.miles.toFixed(1)} mi
-              </span>
+          {end && (
+            <div className="flex flex-col gap-2 border-t border-[#EEECE3] px-4 py-3">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-[#14201B] text-white">
+                  <Ico name="pin" size={13} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[14.5px] font-medium">
+                    <EndpointField label="End" value={end} fallback={null} home={data.home} myLoc={myLoc} onChange={(ep) => patchEndpoint(activeDay, "end", ep)} up />
+                    <span className="rounded bg-[#F6EEDD] px-1.5 py-0.5 text-[10.5px] font-medium uppercase tracking-wide text-[#7A5A1E]">End</span>
+                    {schedule?.end && (
+                      <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.finish)}</span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 truncate text-[13px] text-[#5B6560]">{end.address}</div>
+                  {schedule?.end && (
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[#8A928C]">
+                      <span
+                        aria-hidden
+                        className="inline-block h-2 w-2 shrink-0 rounded-full ring-1 ring-[#14201B]/40"
+                        style={{ backgroundColor: BAND_STYLE[driveBand(schedule.end.minutes)].color }}
+                      />
+                      <span className="text-[16px] font-bold tabular-nums text-[#14201B]">{duration(schedule.end.minutes)}</span>
+                      <span>
+                        drive · <span className="tabular-nums">{schedule.end.miles.toFixed(1)} mi</span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <a
+                  href={appleMapsUrl({ address: end.address, lat: end.lat, lng: end.lng })}
+                  className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+                >
+                  GO
+                </a>
+              </div>
             </div>
           )}
         </div>
@@ -1048,6 +1078,7 @@ function EndpointField({
   home: RouteEndpoint | null;
   myLoc: RouteEndpoint | null;
   onChange: (ep: RouteEndpoint | null) => void;
+  up,
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1055,6 +1086,7 @@ function EndpointField({
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const current = value ?? fallback;
+  up?: boolean;
 
   function runSearch(q: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -1106,7 +1138,7 @@ function EndpointField({
         className="min-h-11 w-40 glass rounded-xl px-2.5 py-1 text-base outline-none"
       />
       {(home || myLoc || results.length > 0 || searching) && (
-        <div className="absolute left-0 top-full z-20 mt-1 max-h-56 w-56 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg">
+        <div className={`absolute left-0 z-20 max-h-56 ${up ? "bottom-full mb-1" : "top-full mt-1"} w-56 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg`}>
           <button
             type="button"
             onMouseDown={async () => {
