@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     await setMetric(body.accountId, field, value);
     return Response.json({ ok: true });
   } catch (err) {
+    console.error("clients/metric", body.accountId, field, err);
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not save." }, { status: 500 });
   }
 }
