@@ -6,9 +6,8 @@
  * the Mac unchanged; this screen only lists and serves what they produced.
  *
  * LEFT OUT, DECK ONLY (research/feature-inventory.md, m1): cross-rep
- * benchmarking and market intelligence. Every metric below is scoped to
- * Juan's own owner id, the only book this app has, so there is nothing to
- * compare against and nothing shown in that shape.
+ * benchmarking and market intelligence. Every metric, draft and PDF below is
+ * the signed-in rep's own (migration 0090); nothing here compares reps.
  *
  * ALSO LEFT OUT OF THIS PORT, not deck-only, just not this feature's files:
  * the book-standing tiles (active clients, book prospects, orders placed)
@@ -18,6 +17,7 @@
  */
 import { PageHead, Card, eyebrowCls } from "../../../lib/core/ui";
 import { requireAccess } from "../../../lib/core/devices";
+import { currentUser } from "../../../lib/core/user";
 import {
   getAllTimeMetrics,
   getReportDraft,
@@ -54,18 +54,19 @@ export default async function ReportsPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   await requireAccess();
+  const me = await currentUser();
   const today = reportDateLA();
   const sp = await searchParams;
   const selectedDate = sp.date && /^\d{4}-\d{2}-\d{2}$/.test(sp.date) && sp.date <= today ? sp.date : today;
   const week = weekWindowFor(selectedDate);
 
   const [allTime, daily, weekly, archive, dailyArchivedUrl, weeklyArchivedUrl] = await Promise.all([
-    getAllTimeMetrics(),
-    getReportDraft(selectedDate, "daily"),
-    week ? getReportDraft(week.end, "weekly") : Promise.resolve(null),
-    listPlaybookReportArchive(),
-    reportPreviewHref(`daily-${selectedDate}.pdf`),
-    week ? reportPreviewHref(`weekly-${week.start}_to_${week.end}.pdf`) : null,
+    getAllTimeMetrics(me.id),
+    getReportDraft(me.id, selectedDate, "daily"),
+    week ? getReportDraft(me.id, week.end, "weekly") : Promise.resolve(null),
+    listPlaybookReportArchive(me.id),
+    reportPreviewHref(me.id, `daily-${selectedDate}.pdf`),
+    week ? reportPreviewHref(me.id, `weekly-${week.start}_to_${week.end}.pdf`) : null,
   ]);
 
   // through_date is a max() over metric rows and has read as a day past
@@ -74,8 +75,8 @@ export default async function ReportsPage({
   const throughDate = allTime?.throughDate && allTime.throughDate <= today ? allTime.throughDate : allTime?.throughDate ? today : null;
 
   const [dailyPreviewUrl, weeklyPreviewUrl] = await Promise.all([
-    daily?.preview_path && !daily.dirty ? reportPreviewHref(daily.preview_path) : null,
-    weekly?.preview_path && !weekly.dirty ? reportPreviewHref(weekly.preview_path) : null,
+    daily?.preview_path && !daily.dirty ? reportPreviewHref(me.id, daily.preview_path) : null,
+    weekly?.preview_path && !weekly.dirty ? reportPreviewHref(me.id, weekly.preview_path) : null,
   ]);
 
   return (
@@ -113,6 +114,7 @@ export default async function ReportsPage({
         initialWeekly={weekly}
         initialWeeklyPreviewUrl={weeklyPreviewUrl}
         initialWeeklyArchivedUrl={weeklyArchivedUrl}
+        repName={me.name}
       />
 
       <section className="mb-7">

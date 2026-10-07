@@ -11,6 +11,13 @@
  * nb_report_drafts and the nb-reports Storage bucket, and records a rebuild
  * or an edit as a row for the Mac-side poller to pick up.
  *
+ * PER REP (migration 0090). Every draft, metric row and PDF belongs to one
+ * nb_users.id, and every function here takes the signed-in rep's id and reads
+ * or writes only that rep's rows. PDFs: the first rep's objects sit at the
+ * bucket root under the names they always had; every other rep's sit under
+ * "<id>/". Callers pass and receive bare names ("daily-2026-10-07.pdf"); the
+ * folder is applied here, so no request can name another rep's object.
+ *
  * DECK-ONLY, NOT BUILT HERE. Cross-rep benchmarking and market intelligence
  * are deck claims with no code behind them anywhere in the source app
  * (research/feature-inventory.md, m1): a single shared PIN and no rep_id
@@ -25,6 +32,16 @@ const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 const REPORTS_BUCKET = "nb-reports";
 
 const configured = (): boolean => Boolean(SB_URL && SB_KEY);
+
+/** The rep whose reports predate 0090 and keep their root-level object names. */
+const ROOT_REP = "juan";
+
+/** Where a bare report name lives in the bucket for this rep. */
+export function reportObjectPath(userId: string, name: string): string {
+  return userId === ROOT_REP ? name : `${userId}/${name}`;
+}
+
+const enc = encodeURIComponent;
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000): Promise<Response> {
   const controller = new AbortController();
@@ -83,10 +100,10 @@ export type AllTimeMetrics = {
   throughDate: string | null;
 };
 
-export async function getAllTimeMetrics(): Promise<AllTimeMetrics | null> {
+export async function getAllTimeMetrics(userId: string): Promise<AllTimeMetrics | null> {
   try {
     const rows = await raw<{ metric: string; total: number; through_date: string | null }>(
-      "nb_v_report_metrics_alltime?select=metric,total,through_date",
+      `nb_v_report_metrics_alltime?select=metric,total,through_date&user_id=eq.${enc(userId)}`,
     );
     const byMetric = Object.fromEntries(rows.map((r) => [r.metric, Number(r.total)]));
     const throughDate = rows.reduce<string | null>(
@@ -157,6 +174,10 @@ export type ReportStop = {
 export type ReportPayload = {
   date_label?: string;
   date_iso?: string;
+  /** Whose report this is (0090). Absent on reports built before it: Juan's. */
+  rep?: { id?: string; name?: string; owner_name?: string; region?: string | null };
+  /** False on a report whose rep has no mileage source on the Mac (0090). */
+  miles_tracked?: boolean;
   miles?: number | null;
   miles_override?: number | null;
   hq_notes?: ReportHqNote[];
@@ -192,27 +213,41 @@ export type ReportDraft = {
   updated_at: string;
 };
 
-export async function getReportDraft(dateISO: string, kind: "daily" | "weekly" = "daily"): Promise<ReportDraft | null> {
+export async function getReportDraft(
+  userId: string,
+  dateISO: string,
+  kind: "daily" | "weekly" = "daily",
+): Promise<ReportDraft | null> {
   const rows = await raw<ReportDraft>(
-    `nb_report_drafts?select=*&report_date=eq.${encodeURIComponent(dateISO)}&kind=eq.${kind}&limit=1`,
+    `nb_report_drafts?select=*&report_date=eq.${enc(dateISO)}&kind=eq.${kind}&user_id=eq.${enc(userId)}&limit=1`,
   );
   return rows[0] ?? null;
 }
 
 /** Ask the Mac for a fresh build. Creates the row if today has none yet. */
-export async function requestReportRebuild(dateISO: string): Promise<void> {
-  await mutate("nb_report_drafts", "POST", { report_date: dateISO, kind: "daily", rebuild_requested: true, status: "pending" });
+export async function requestReportRebuild(userId: string, dateISO: string): Promise<void> {
+  await mutate("nb_report_drafts", "POST", {
+    report_date: dateISO,
+    kind: "daily",
+    user_id: userId,
+    rebuild_requested: true,
+    status: "pending",
+  });
 }
 
 /** Re-render the preview PDF from whatever payload is already stored, no
  *  HubSpot pull, no status change. `dirty` is what tells field_report.py's
  *  poller to pick this row up. */
-export async function requestPreviewRender(dateISO: string, kind: "daily" | "weekly" = "daily"): Promise<void> {
+export async function requestPreviewRender(
+  userId: string,
+  dateISO: string,
+  kind: "daily" | "weekly" = "daily",
+): Promise<void> {
   await mutate(
     "nb_report_drafts",
     "PATCH",
     { dirty: true, updated_at: new Date().toISOString() },
-    { report_date: `eq.${dateISO}`, kind: `eq.${kind}` },
+    { report_date: `eq.${dateISO}`, kind: `eq.${kind}`, user_id: `eq.${userId}` },
   );
 }
 
@@ -235,15 +270,17 @@ export type ReportEdits = {
  * is ported yet on this feature's own files; both stay on the old app until
  * those features land here, rather than this port depending on their files.
  */
-export async function saveReportDraftPayload(dateISO: string, edits: ReportEdits): Promise<void> {
-  const draft = await getReportDraft(dateISO, "daily");
+export async function saveReportDraftPayload(userId: string, dateISO: string, edits: ReportEdits): Promise<void> {
+  const draft = await getReportDraft(userId, dateISO, "daily");
   if (!draft?.payload) throw new Error("No report to save edits to.");
 
   const payload: ReportPayload = { ...draft.payload };
   payload.hq_notes = edits.hqNotes
-    .map((n) => ({ category: String(n.category ?? "OTHER"), text: String(n.text ?? "").trim(), source: String(n.source ?? "Juan") }))
+    .map((n) => ({ category: String(n.category ?? "OTHER"), text: String(n.text ?? "").trim(), source: String(n.source ?? "") }))
     .filter((n) => n.text.length > 0);
-  payload.miles_override = edits.miles === null || Number.isNaN(edits.miles) ? null : edits.miles;
+  // A report with no mileage source (another rep's, 0090) takes no override.
+  payload.miles_override =
+    payload.miles_tracked === false || edits.miles === null || Number.isNaN(edits.miles) ? null : edits.miles;
   payload.stops = (draft.payload.stops ?? []).map((s) => {
     const e = edits.stops[String(s.n)];
     if (!e) return s;
@@ -261,7 +298,7 @@ export async function saveReportDraftPayload(dateISO: string, edits: ReportEdits
     "nb_report_drafts",
     "PATCH",
     { payload, dirty: true, edited: true, updated_at: new Date().toISOString() },
-    { report_date: `eq.${dateISO}`, kind: "eq.daily" },
+    { report_date: `eq.${dateISO}`, kind: "eq.daily", user_id: `eq.${userId}` },
   );
 }
 
@@ -269,9 +306,10 @@ export async function saveReportDraftPayload(dateISO: string, edits: ReportEdits
  *  moment it is needed and redirected to immediately (see api/reports/pdf),
  *  never stored on a page: a signature starts ageing the instant it is
  *  minted, not the instant it is clicked. */
-export async function signReportObject(name: string): Promise<string | null> {
+export async function signReportObject(userId: string, name: string): Promise<string | null> {
   try {
-    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/sign/${REPORTS_BUCKET}/${encodeURIComponent(name)}`, {
+    const path = reportObjectPath(userId, name).split("/").map(enc).join("/");
+    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/sign/${REPORTS_BUCKET}/${path}`, {
       method: "POST",
       headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({ expiresIn: 900 }),
@@ -291,9 +329,10 @@ export function reportHref(name: string): string {
 
 /** Whether an object exists in the bucket, without minting a signature just
  *  to find out. Returns the stable href, not the signed URL. */
-export async function reportPreviewHref(name: string): Promise<string | null> {
+export async function reportPreviewHref(userId: string, name: string): Promise<string | null> {
   try {
-    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/info/${REPORTS_BUCKET}/${encodeURIComponent(name)}`, {
+    const path = reportObjectPath(userId, name).split("/").map(enc).join("/");
+    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/info/${REPORTS_BUCKET}/${path}`, {
       headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
       cache: "no-store",
     });
@@ -317,12 +356,15 @@ function reportLabel(kind: "daily" | "weekly", name: string): string {
   return `${fmt(start)} to ${fmt(end)}`;
 }
 
-async function listReportObjectsByKind(): Promise<Record<"daily" | "weekly", string[]>> {
+/** Names come back bare (relative to the rep's folder), so only this rep's
+ *  objects are ever listed and the root rep's listing never sees a folder's. */
+async function listReportObjectsByKind(userId: string): Promise<Record<"daily" | "weekly", string[]>> {
   if (!configured()) return { daily: [], weekly: [] };
+  const prefix = userId === ROOT_REP ? "" : `${userId}/`;
   const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/list/${REPORTS_BUCKET}`, {
     method: "POST",
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prefix: "", limit: 100, sortBy: { column: "name", order: "desc" } }),
+    body: JSON.stringify({ prefix, limit: 100, sortBy: { column: "name", order: "desc" } }),
     cache: "no-store",
   });
   if (!res.ok) return { daily: [], weekly: [] };
@@ -342,9 +384,9 @@ function signReportNames(names: string[]): PlaybookReport[] {
 
 /** Latest report of each kind. Never throws: an unreachable or empty bucket
  *  just means this section shows nothing. */
-export async function listPlaybookReports(): Promise<PlaybookReport[]> {
+export async function listPlaybookReports(userId: string): Promise<PlaybookReport[]> {
   try {
-    const byKind = await listReportObjectsByKind();
+    const byKind = await listReportObjectsByKind(userId);
     const latestNames = (["daily", "weekly"] as const).map((kind) => byKind[kind][0]).filter((n): n is string => Boolean(n));
     return signReportNames(latestNames);
   } catch {
@@ -356,9 +398,9 @@ const ARCHIVE_CAP_PER_KIND = 20;
 
 export type PlaybookReportArchive = { reports: PlaybookReport[]; truncated: Partial<Record<"daily" | "weekly", number>> };
 
-export async function listPlaybookReportArchive(): Promise<PlaybookReportArchive> {
+export async function listPlaybookReportArchive(userId: string): Promise<PlaybookReportArchive> {
   try {
-    const byKind = await listReportObjectsByKind();
+    const byKind = await listReportObjectsByKind(userId);
     const truncated: PlaybookReportArchive["truncated"] = {};
     const names: string[] = [];
     for (const kind of ["daily", "weekly"] as const) {

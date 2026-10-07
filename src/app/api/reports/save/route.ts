@@ -9,6 +9,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { saveReportDraftPayload, type ReportEdits } from "../../../../lib/features/reports/dal";
+import { currentUser } from "../../../../lib/core/user";
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) {
@@ -31,7 +32,8 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "A valid date is required." }, { status: 400 });
   }
   try {
-    const { replayed } = await withIdempotency(`reports-save:${key}`, () => saveReportDraftPayload(date, edits));
+    const me = (await currentUser()).id;
+    const { replayed } = await withIdempotency(`reports-save:${key}`, () => saveReportDraftPayload(me, date, edits));
     return Response.json({ ok: true, replayed });
   } catch {
     return Response.json({ ok: false, error: "Could not save your edits." }, { status: 500 });

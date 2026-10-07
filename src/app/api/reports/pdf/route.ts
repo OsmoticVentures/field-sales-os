@@ -8,10 +8,12 @@
  * The bucket stays private. This route sits behind the same device gate as
  * every other screen, and the object name is checked against a strict
  * pattern before it reaches Supabase: a plain filename, no path separators,
- * .pdf only.
+ * .pdf only. The name is always resolved inside the signed-in rep's own
+ * folder (0090), so a rep can only ever open his own reports.
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { signReportObject } from "../../../../lib/features/reports/dal";
+import { currentUser } from "../../../../lib/core/user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +28,7 @@ export async function GET(req: Request) {
   if (!NAME.test(name) || name.includes("..")) {
     return new Response("That report name is not valid.", { status: 400, headers: { "cache-control": "no-store" } });
   }
-  const signed = await signReportObject(name);
+  const signed = await signReportObject((await currentUser()).id, name);
   if (!signed) {
     return new Response("That report is not available.", { status: 404, headers: { "cache-control": "no-store" } });
   }

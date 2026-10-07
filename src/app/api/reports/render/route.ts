@@ -6,6 +6,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { requestPreviewRender } from "../../../../lib/features/reports/dal";
+import { currentUser } from "../../../../lib/core/user";
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) {
@@ -28,7 +29,8 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "A valid date is required." }, { status: 400 });
   }
   try {
-    const { replayed } = await withIdempotency(`reports-render:${key}`, () => requestPreviewRender(date, kind));
+    const me = (await currentUser()).id;
+    const { replayed } = await withIdempotency(`reports-render:${key}`, () => requestPreviewRender(me, date, kind));
     return Response.json({ ok: true, replayed });
   } catch {
     return Response.json({ ok: false, error: "Could not start the render." }, { status: 500 });

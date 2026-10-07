@@ -43,6 +43,8 @@ type Props = {
   initialWeekly: ReportDraft | null;
   initialWeeklyPreviewUrl: string | null;
   initialWeeklyArchivedUrl: string | null;
+  /** The signed-in rep's first name, the default source on a note he adds. */
+  repName: string;
 };
 
 export function ReportsClient(props: Props) {
@@ -131,6 +133,7 @@ export function ReportsClient(props: Props) {
         archivedUrl={dailyArchivedUrl}
         onChanged={refresh}
         onError={setError}
+        repName={props.repName}
       />
 
       {weekly?.payload ? (
@@ -161,7 +164,9 @@ function DailyReport({
   archivedUrl,
   onChanged,
   onError,
+  repName,
 }: {
+  repName: string;
   date: string;
   today: string;
   draft: ReportDraft | null;
@@ -397,6 +402,7 @@ function DailyReport({
             )}
           </div>
 
+          {payload.miles_tracked !== false && (
           <div className="mb-5 flex flex-wrap items-center gap-2">
             <label className={eyebrowCls} htmlFor="miles">
               Miles
@@ -411,6 +417,7 @@ function DailyReport({
               className={`${inputCls} w-24 tabular-nums`}
             />
           </div>
+          )}
 
           <div className="mb-5">
             <div className={`mb-2 ${eyebrowCls}`}>Notes to HQ</div>
@@ -449,7 +456,7 @@ function DailyReport({
               ))}
               <button
                 type="button"
-                onClick={() => setHqNotes((prev) => [...prev, { category: "OTHER", text: "", source: "Juan" }])}
+                onClick={() => setHqNotes((prev) => [...prev, { category: "OTHER", text: "", source: repName }])}
                 disabled={locked}
                 className={`self-start ${ghostBtn}`}
               >
