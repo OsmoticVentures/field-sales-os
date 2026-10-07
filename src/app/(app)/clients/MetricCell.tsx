@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { apiFetch } from "../../../lib/core/api";
 import { refreshAccount } from "../../../lib/core/phone-sync";
 import { READINESS_COLOR } from "../../../lib/features/route/account-filters";
@@ -13,18 +13,24 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  async function save() {
-    if (value === saved) return;
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latest = useRef(value);
+  const savedRef = useRef(saved);
+
+  async function save(next: string = latest.current) {
+    if (timer.current) clearTimeout(timer.current);
+    if (next === savedRef.current) return;
     setError(null);
     try {
       const res = await apiFetch("/api/clients/metric", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, field, value: value.trim() === "" ? null : value }),
+        body: JSON.stringify({ accountId, field, value: next.trim() === "" ? null : next }),
       });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !j.ok) throw new Error(j.error ?? `Could not save (${res.status}).`);
-      setSaved(value);
+      setSaved(next);
+      savedRef.current = next;
       router.refresh();
       void refreshAccount(accountId);
     } catch (e) {
@@ -38,8 +44,14 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
         inputMode="decimal"
         aria-label={label}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={save}
+        onChange={(e) => {
+          const v = e.target.value;
+          setValue(v);
+          latest.current = v;
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => void save(v), 500);
+        }}
+        onBlur={() => void save()}
         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
         className={`h-8 w-16 rounded-md border bg-white px-2 text-right text-[13.5px] tabular-nums outline-none focus:border-[#14201B] ${
           value === "" ? "border-dashed border-[#D8D4C6]" : "border-[#E2DFD5]"
@@ -105,30 +117,27 @@ export function ReadinessCell({ accountId, initial }: { accountId: string; initi
 
 const TIER_LETTERS = ["A", "B", "C", "D", "E"] as const;
 
-/** The OS tier chip, tappable: opens A to E and saves the pick as my own call (potential_juan). Tapping my current pick clears it. */
+/** The OS tier as A to E, always visible: one tap saves the pick as my own call (potential_juan). */
 export function TierCell({ accountId, tier }: { accountId: string; tier: string | null }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
   const [value, setValue] = useState<string | null>(tier);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function pick(t: string) {
-    if (busy) return;
+    if (busy || t === value) return;
     const prev = value;
-    const next = t;
-    setValue(next);
+    setValue(t);
     setBusy(true);
     setError(null);
     try {
       const res = await apiFetch("/api/prospect/account-fact", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ account_id: accountId, field: "potential_juan", value: next }),
+        body: JSON.stringify({ account_id: accountId, field: "potential_juan", value: t }),
       });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || j.ok === false) throw new Error(j.error ?? `Could not save (${res.status}).`);
-      setOpen(false);
       router.refresh();
       void refreshAccount(accountId);
     } catch (e) {
@@ -140,36 +149,24 @@ export function TierCell({ accountId, tier }: { accountId: string; tier: string 
   }
 
   return (
-    <span className="relative inline-flex flex-col">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label="Set tier"
-        onClick={() => setOpen((o) => !o)}
-        className={`inline-flex h-[26px] w-[26px] items-center justify-center rounded text-[12px] font-semibold ${
-          value === "A" ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"
-        }`}
-      >
-        {value ?? "-"}
-      </button>
-      {open && (
-        <span className="absolute left-0 top-8 z-20 flex gap-1 rounded-lg border border-[#E2DFD5] bg-white p-1.5 shadow-lg">
-          {TIER_LETTERS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              disabled={busy}
-              onClick={() => pick(t)}
-              className={`h-8 w-8 rounded text-[12px] font-semibold ${
-                value === t ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </span>
-      )}
-      {error && <span className="mt-0.5 max-w-[140px] text-[11px] leading-tight text-[#8A928C]">Not saved: {error}</span>}
+    <span className="inline-flex flex-col">
+      <span className="inline-flex gap-0.5">
+        {TIER_LETTERS.map((t) => (
+          <button
+            key={t}
+            type="button"
+            aria-pressed={value === t}
+            aria-label={`Tier ${t}`}
+            onClick={() => pick(t)}
+            className={`h-7 w-7 rounded text-[12px] font-semibold transition-colors ${
+              value === t ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </span>
+      {error && <span className="mt-0.5 max-w-[190px] text-[11px] leading-tight text-[#8A928C]">Not saved: {error}</span>}
     </span>
   );
 }
