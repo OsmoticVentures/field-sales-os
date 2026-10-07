@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./api";
 import { replaceAll } from "./phone-store";
+import { flagOn } from "./rep-flags";
 
 export type Me = { id: string; name: string; features: string[] | null };
 
@@ -68,4 +69,10 @@ export function useMe(): Me | null {
  *  Juan's view; the gate refuses anything not theirs regardless. */
 export function sees(me: Me | null, screen: string): boolean {
   return !me || me.features === null || me.features.includes(screen);
+}
+
+/** A per-rep switch (rep-flags.ts) for the signed-in rep. Off until the rep is
+ *  known, so the first paint is always the unchanged app. */
+export function useFlag(name: string): boolean {
+  return flagOn(useMe()?.id, name);
 }
