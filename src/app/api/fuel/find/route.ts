@@ -13,7 +13,8 @@
 import { headers } from "next/headers";
 import { hasAccess } from "../../../../lib/core/devices";
 import { resolveDestination, type Dest } from "../../../../lib/shared/places";
-import { RATE_CHEAPEST, RATE_QUICKEST, TANK_GALLONS } from "../../../../lib/features/fuel/constants";
+import { RATE_CHEAPEST, RATE_QUICKEST } from "../../../../lib/features/fuel/constants";
+import { myVehicle } from "../../../../lib/features/fuel/vehicle";
 import { fuelNearby } from "../../../../lib/features/fuel/stations";
 import { detourMinutes, milesFromOrigin, route, sampleAlong, type LatLng } from "../../../../lib/features/fuel/osrm";
 import { scoreStations, type Scored, type Station } from "../../../../lib/features/fuel/score";
@@ -104,7 +105,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "That request didn't parse." }, { status: 400 });
   }
 
-  const gallons = Math.min(TANK_GALLONS, Math.max(0.5, Number(body.gallons) || 0));
+  const gallons = Math.min((await myVehicle()).tankGallons, Math.max(0.5, Number(body.gallons) || 0));
   const origin = body.origin;
   if (!Number.isFinite(origin?.lat) || !Number.isFinite(origin?.lng)) {
     return Response.json({ ok: false, error: "No location yet." });

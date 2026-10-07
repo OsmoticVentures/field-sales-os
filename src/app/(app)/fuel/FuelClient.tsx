@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { Geolocation } from "@capacitor/geolocation";
 import { apiFetch } from "@/lib/core/api";
 import { Card, Ico } from "../../../lib/core/ui";
-import { FAVORITES, GALLON_STEP, TANK_GALLONS } from "../../../lib/features/fuel/constants";
+import { GALLON_STEP, type Favorite } from "../../../lib/features/fuel/constants";
 import type { Scored } from "../../../lib/features/fuel/score";
 
 type LatLng = { lat: number; lng: number };
@@ -24,7 +24,13 @@ type LocState = "asking" | "ok" | "denied";
 
 const PREFS_KEY = "fuel-stop-v1";
 type Prefs = { now: number; fillTo: number; favId: string | null; quickest: boolean; milesToEmpty: number | null };
-const DEFAULT_PREFS: Prefs = { now: 4, fillTo: TANK_GALLONS, favId: "home", quickest: false, milesToEmpty: null };
+const DEFAULT_PREFS: Prefs = { now: 4, fillTo: 16, favId: "home", quickest: false, milesToEmpty: null };
+
+/** The signed-in rep's car (api/fuel/vehicle). Remembered on the phone so the
+ *  gauge draws at the right size on the first paint. */
+type Vehicle = { tankGallons: number; rangeMiles: number | null; favorites: Favorite[] };
+const VEHICLE_KEY = "fuel-vehicle-v1";
+const NO_VEHICLE: Vehicle = { tankGallons: 16, rangeMiles: null, favorites: [] };
 
 type FindResult =
   | { ok: true; dest: { lat: number; lng: number; address: string; label: string }; directMinutes: number; considered: number; gallons: number; best: Scored[] }
@@ -75,6 +81,36 @@ export function FuelClient() {
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
   const resultsRef = useRef<HTMLElement>(null);
+  const [vehicle, setVehicle] = useState<Vehicle>(NO_VEHICLE);
+  const tank = vehicle.tankGallons;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(VEHICLE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      if (raw) setVehicle(JSON.parse(raw) as Vehicle);
+    } catch {}
+    apiFetch("/api/fuel/vehicle")
+      .then((r) => r.json())
+      .then((j: { ok?: boolean } & Partial<Vehicle>) => {
+        if (!j.ok || typeof j.tankGallons !== "number") return;
+        const v: Vehicle = { tankGallons: j.tankGallons, rangeMiles: j.rangeMiles ?? null, favorites: j.favorites ?? [] };
+        setVehicle(v);
+        try {
+          localStorage.setItem(VEHICLE_KEY, JSON.stringify(v));
+        } catch {}
+      })
+      .catch(() => {});
+  }, []);
+
+  /* Keep the handles inside this car's tank. */
+  useEffect(() => {
+    setPrefs((p) => {
+      if (p.fillTo <= tank && p.now < p.fillTo) return p;
+      const fillTo = Math.min(p.fillTo, tank);
+      return { ...p, fillTo, now: Math.min(p.now, fillTo - GALLON_STEP) };
+    });
+  }, [tank]);
 
   useEffect(() => {
     try {
@@ -108,7 +144,11 @@ export function FuelClient() {
   }, [locate]);
 
   const gallons = Math.max(0, snap(prefs.fillTo - prefs.now));
-  const fav = FAVORITES.find((f) => f.id === prefs.favId) ?? null;
+  const fav = vehicle.favorites.find((f) => f.id === prefs.favId) ?? null;
+  /* Typed off the dashboard wins; otherwise, for a car whose range is known,
+     the gauge's share of a full tank's range. */
+  const estimatedMiles = vehicle.rangeMiles ? Math.round((prefs.now / tank) * vehicle.rangeMiles) : null;
+  const reach = prefs.milesToEmpty ?? estimatedMiles;
 
   const find = () => {
     setFormError(null);
@@ -131,7 +171,7 @@ export function FuelClient() {
         const res = await apiFetch("/api/fuel/find", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ origin: loc, dest, gallons, quickest: prefs.quickest, milesToEmpty: prefs.milesToEmpty }),
+          body: JSON.stringify({ origin: loc, dest, gallons, quickest: prefs.quickest, milesToEmpty: reach }),
         });
         const j = (await res.json()) as FindResult;
         setResult(j);
@@ -153,7 +193,7 @@ export function FuelClient() {
           <LocationPill state={locState} onRetry={locate} />
         </div>
         <div className="flex gap-5">
-          <Gauge now={prefs.now} fillTo={prefs.fillTo} onChange={(now, fillTo) => update({ now, fillTo })} />
+          <Gauge tank={tank} now={prefs.now} fillTo={prefs.fillTo} onChange={(now, fillTo) => update({ now, fillTo })} />
           <div className="flex min-w-0 flex-1 flex-col justify-between py-1">
             <div>
               <div className="text-[48px] font-semibold leading-none tracking-tight">{gal(gallons)}</div>
@@ -165,12 +205,12 @@ export function FuelClient() {
             </div>
             <div className="mt-4 flex gap-2">
               <Chip
-                active={prefs.fillTo === TANK_GALLONS / 2}
-                onClick={() => update({ fillTo: TANK_GALLONS / 2, now: Math.min(prefs.now, TANK_GALLONS / 2 - GALLON_STEP) })}
+                active={prefs.fillTo === tank / 2}
+                onClick={() => update({ fillTo: tank / 2, now: Math.min(prefs.now, tank / 2 - GALLON_STEP) })}
               >
                 Half
               </Chip>
-              <Chip active={prefs.fillTo === TANK_GALLONS} onClick={() => update({ fillTo: TANK_GALLONS })}>
+              <Chip active={prefs.fillTo === tank} onClick={() => update({ fillTo: tank })}>
                 Full
               </Chip>
             </div>
@@ -184,7 +224,7 @@ export function FuelClient() {
             min={0}
             value={prefs.milesToEmpty ?? ""}
             onChange={(e) => update({ milesToEmpty: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })}
-            placeholder="Optional"
+            placeholder={estimatedMiles != null ? `About ${estimatedMiles}` : "Optional"}
             className={`${inputCls} mt-2 w-32`}
           />
         </div>
@@ -196,7 +236,7 @@ export function FuelClient() {
           Going to
         </div>
         <div className="flex flex-wrap gap-2">
-          {FAVORITES.map((f) => (
+          {vehicle.favorites.map((f) => (
             <Chip
               key={f.id}
               active={prefs.favId === f.id}
@@ -367,18 +407,18 @@ function Segment({ active, onClick, children }: { active: boolean; onClick: () =
  * about to be bought, which is the only number the ranking cares about.
  * Pointer-captured drag plus arrow-key nudging, unchanged from the source.
  */
-function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChange: (now: number, fillTo: number) => void }) {
+function Gauge({ tank, now, fillTo, onChange }: { tank: number; now: number; fillTo: number; onChange: (now: number, fillTo: number) => void }) {
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<"now" | "fill" | null>(null);
 
   const valueAt = (clientY: number) => {
     const r = track.current!.getBoundingClientRect();
     const frac = 1 - (clientY - r.top) / r.height;
-    return snap(clamp(frac, 0, 1) * TANK_GALLONS);
+    return snap(clamp(frac, 0, 1) * tank);
   };
   const apply = (which: "now" | "fill", v: number) => {
     if (which === "now") onChange(clamp(v, 0, fillTo - GALLON_STEP), fillTo);
-    else onChange(now, clamp(v, now + GALLON_STEP, TANK_GALLONS));
+    else onChange(now, clamp(v, now + GALLON_STEP, tank));
   };
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     const v = valueAt(e.clientY);
@@ -401,7 +441,7 @@ function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChang
     apply(which, (which === "now" ? now : fillTo) + d);
   };
 
-  const pct = (v: number) => `${(v / TANK_GALLONS) * 100}%`;
+  const pct = (v: number) => `${(v / tank) * 100}%`;
   return (
     <div className="flex select-none gap-2">
       <div className="flex h-[240px] flex-col justify-between py-[3px] text-right text-[11px] leading-none text-[#8A928C]">
@@ -423,22 +463,22 @@ function Gauge({ now, fillTo, onChange }: { now: number; fillTo: number; onChang
           <span key={f} className="absolute left-0 right-0 h-px bg-white" style={{ bottom: `${f * 100}%` }} />
         ))}
         <div className="absolute inset-x-0 bottom-0 rounded-b-[15px] bg-[#C9CFCB]" style={{ height: pct(now) }} />
-        <div className="absolute inset-x-0 bg-[#2C6A46]" style={{ bottom: pct(now), height: pct(fillTo - now), borderRadius: fillTo === TANK_GALLONS ? "15px 15px 0 0" : 0 }} />
-        <Thumb value={now} label={`Now, ${gal(now)} gallons`} bottom={pct(now)} onKeyDown={key("now")} />
-        <Thumb value={fillTo} label={`Fill to, ${gal(fillTo)} gallons`} bottom={pct(fillTo)} onKeyDown={key("fill")} />
+        <div className="absolute inset-x-0 bg-[#2C6A46]" style={{ bottom: pct(now), height: pct(fillTo - now), borderRadius: fillTo === tank ? "15px 15px 0 0" : 0 }} />
+        <Thumb max={tank} value={now} label={`Now, ${gal(now)} gallons`} bottom={pct(now)} onKeyDown={key("now")} />
+        <Thumb max={tank} value={fillTo} label={`Fill to, ${gal(fillTo)} gallons`} bottom={pct(fillTo)} onKeyDown={key("fill")} />
       </div>
     </div>
   );
 }
 
-function Thumb({ value, label, bottom, onKeyDown }: { value: number; label: string; bottom: string; onKeyDown: (e: React.KeyboardEvent) => void }) {
+function Thumb({ max, value, label, bottom, onKeyDown }: { max: number; value: number; label: string; bottom: string; onKeyDown: (e: React.KeyboardEvent) => void }) {
   return (
     <div
       role="slider"
       tabIndex={0}
       aria-label={label}
       aria-valuemin={0}
-      aria-valuemax={TANK_GALLONS}
+      aria-valuemax={max}
       aria-valuenow={value}
       onKeyDown={onKeyDown}
       className="absolute left-1/2 h-8 w-[68px] -translate-x-1/2 translate-y-1/2 rounded-full border border-[#E2DFD5] bg-white shadow-[0_1px_4px_rgba(20,32,27,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2C6A46]"
