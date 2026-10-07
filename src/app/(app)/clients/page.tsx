@@ -156,21 +156,32 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
 
           <ul className="divide-y divide-[#EDEBE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:hidden">
             {rows.map((r) => (
-              <li key={r.account_id}>
-                <Link prefetch={false}
-                  href={`/account/${r.account_id}`}
-                  className="flex min-h-14 items-center gap-3 px-4 py-3 transition-colors active:bg-[#FAF9F5]"
-                >
-                  <TierChip tier={r.tier} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] font-medium">{r.name}</span>
-                    <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[#8A928C]">
-                      <OpenBadge businessHours={hoursById[r.account_id]} dot />
-                      {realLifecycle(r.lifecycle) && <span>{realLifecycle(r.lifecycle)}</span>}
-                      {metricsById[r.account_id]?.readiness && <span className="capitalize">{metricsById[r.account_id]?.readiness}</span>}
-                    </span>
+              <li key={r.account_id} className="px-4 py-3">
+                <Link prefetch={false} href={`/account/${r.account_id}`} className="block min-h-11">
+                  <span className="block truncate text-[15px] font-medium">{r.name}</span>
+                  <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[#8A928C]">
+                    <OpenBadge businessHours={hoursById[r.account_id]} dot />
+                    {realLifecycle(r.lifecycle) && <span>{realLifecycle(r.lifecycle)}</span>}
                   </span>
                 </Link>
+                <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
+                  <TierCell accountId={r.account_id} tier={r.tier} />
+                  <ReadinessCell accountId={r.account_id} initial={metricsById[r.account_id]?.readiness ?? null} />
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-3 text-[11px] uppercase tracking-[0.08em] text-[#8A928C]">
+                  <label className="flex flex-col gap-1">
+                    Shelves
+                    <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Employees
+                    <MetricCell accountId={r.account_id} field="employee_count" initial={metricsById[r.account_id]?.employee_count ?? null} label="Employees on supplements and body care" />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Stores
+                    <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores" />
+                  </label>
+                </div>
               </li>
             ))}
           </ul>
