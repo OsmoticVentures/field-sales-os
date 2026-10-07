@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico } from "@/lib/core/ui";
+import { useFlag } from "@/lib/core/me";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { dayLabel } from "@/lib/features/route/field-week";
 import {
@@ -350,6 +351,7 @@ export function AccountsMap({
 
   const [filters, setFilters] = useState<AccountFilterState>(emptyFilters());
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const noAreas = useFlag("no-area-filters");
   const [selected, setSelected] = useState<RouteAccount | null>(null);
 
   const areaById = useMemo(() => new Map(areas.map((a) => [a.id, a])), [areas]);
@@ -727,17 +729,19 @@ export function AccountsMap({
         </button>
 
         <div className={`${filtersOpen ? "block" : "hidden"} md:block`}>
-          <FilterSection label="Areas" onClear={filters.areas.size > 0 ? () => setFiltersAndClose({ ...filters, areas: new Set() }) : undefined}>
-            {areas.map((a) => (
-              <Chip
-                key={a.id}
-                active={filters.areas.has(a.id)}
-                onClick={() => setFiltersAndClose({ ...filters, areas: toggle(filters.areas, a.id) })}
-              >
-                {a.label} <Count n={counts.areas[a.id] ?? 0} />
-              </Chip>
-            ))}
-          </FilterSection>
+          {!noAreas && (
+            <FilterSection label="Areas" onClear={filters.areas.size > 0 ? () => setFiltersAndClose({ ...filters, areas: new Set() }) : undefined}>
+              {areas.map((a) => (
+                <Chip
+                  key={a.id}
+                  active={filters.areas.has(a.id)}
+                  onClick={() => setFiltersAndClose({ ...filters, areas: toggle(filters.areas, a.id) })}
+                >
+                  {a.label} <Count n={counts.areas[a.id] ?? 0} />
+                </Chip>
+              ))}
+            </FilterSection>
+          )}
 
           <FilterSection label="Tier" onClear={filters.tiers.size > 0 ? () => setFiltersAndClose({ ...filters, tiers: new Set() }) : undefined}>
             {TIERS.map((t) => (

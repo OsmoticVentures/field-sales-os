@@ -6,6 +6,7 @@
  */
 import Link from "next/link";
 import { requireAccess } from "../../../lib/core/devices";
+import { myFlag } from "../../../lib/core/user";
 import { Card, PageHead } from "../../../lib/core/ui";
 import {
   getAccountHoursMap,
@@ -46,9 +47,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   // area id that turns out not to exist costs a second read.
   const byEngagement = sp.sort === "engagement";
   const sort = byEngagement ? "engagement" : "tier";
-  const askedArea = sp.area ?? null;
+  const noAreas = await myFlag("no-area-filters");
+  const askedArea = noAreas ? null : (sp.area ?? null);
   const [areas, pipeline, askedRows] = await Promise.all([
-    listClientAreas(),
+    noAreas ? Promise.resolve([]) : listClientAreas(),
     listPipeline(),
     listClientAccounts({ area: askedArea, sort }),
   ]);
@@ -71,6 +73,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
     <>
       <PageHead title="Clients" sub={area?.label} />
 
+      {!noAreas && (
       <div className="mb-5 flex flex-wrap gap-1.5">
         <Link prefetch={false} href="/clients" className={chip(!area)}>
           All accounts
@@ -91,6 +94,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
           );
         })}
       </div>
+      )}
 
       {pipeline.deals.length > 0 && (
         <section className="mb-8">

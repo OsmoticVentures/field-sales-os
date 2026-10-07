@@ -18,7 +18,13 @@ export type RepFlag = {
   on: string[];
 };
 
-export const REP_FLAGS: Record<string, RepFlag> = {};
+export const REP_FLAGS: Record<string, RepFlag> = {
+  "no-area-filters": {
+    about: "No area filters on the route map or the Clients screen",
+    asked: "juan for kyle 2026-10-07",
+    on: ["kyle"],
+  },
+};
 
 /** Is this switch on for this rep? An unknown name is off for everyone. */
 export function flagOn(userId: string | null | undefined, name: string): boolean {
