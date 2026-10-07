@@ -175,10 +175,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
             ))}
           </ul>
 
-          <div className="hidden overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:block">
+          <div className="hidden rounded-lg border border-[#E2DFD5] bg-white md:block">
             <table className="w-full text-[13.5px]">
               <thead>
-                <tr className="border-b border-[#E2DFD5] text-left text-[11px] uppercase tracking-[0.12em] text-[#8A928C]">
+                <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-[#8A928C] [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:border-b [&>th]:border-[#E2DFD5] [&>th]:bg-white">
                   <th className="px-4 py-2.5 font-medium">OS tier</th>
                   <th className="px-4 py-2.5 font-medium">Account</th>
                   <th className="px-4 py-2.5 font-medium">State</th>

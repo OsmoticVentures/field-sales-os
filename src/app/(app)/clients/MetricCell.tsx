@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { apiFetch } from "../../../lib/core/api";
 
 /** One editable tier field. Saves on blur or Enter and the tier re-reads at once; red text in place when it fails. */
 export function MetricCell({ accountId, field, initial, label }: { accountId: string; field: string; initial: number | null; label: string }) {
@@ -14,13 +15,13 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
     if (value === saved) return;
     setError(null);
     try {
-      const res = await fetch("/api/clients/metric", {
+      const res = await apiFetch("/api/clients/metric", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId, field, value: value.trim() === "" ? null : value }),
       });
-      const j = await res.json();
-      if (!res.ok || !j.ok) throw new Error(j.error ?? "Could not save.");
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !j.ok) throw new Error(j.error ?? `Could not save (${res.status}).`);
       setSaved(value);
       router.refresh();
     } catch (e) {
