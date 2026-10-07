@@ -47,8 +47,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
 
   // The account list starts with the areas rather than after them; only an
   // area id that turns out not to exist costs a second read.
-  const byEngagement = sp.sort === "engagement";
-  const sort = byEngagement ? "engagement" : "tier";
+  const sort = "tier";
   const noAreas = await myFlag("no-area-filters");
   const askedArea = noAreas ? null : (sp.area ?? null);
   const [areas, pipeline, askedRows] = await Promise.all([
@@ -152,14 +151,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   </span>
                 ))}
               </span>
-            </div>
-            <div className="flex items-center gap-1">
-              <Link prefetch={false} href={`/clients${areaQuery ? `?${areaQuery}` : ""}`} className={chip(!byEngagement)}>
-                OS tier
-              </Link>
-              <Link prefetch={false} href={`/clients?${[areaQuery, "sort=engagement"].filter(Boolean).join("&")}`} className={chip(byEngagement)}>
-                Most engaged
-              </Link>
             </div>
           </div>
 
