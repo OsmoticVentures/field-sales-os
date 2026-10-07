@@ -14,10 +14,12 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Geolocation } from "@capacitor/geolocation";
 import {
   chooseType,
   discard,
+  dismissDone,
   enqueue,
   fileTo,
   outboxLabel,
@@ -428,12 +430,39 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
   return (
     <div className="mt-3 flex flex-col divide-y divide-[#EDEBE3] rounded-xl border border-[#E2DFD5] bg-[#FAF9F5] px-4">
       {done.map((d) => (
-        <div key={d.id} role="status" className={lineCls}>
-          <span className="min-w-0 truncate text-[#3D4A44]">{d.label}</span>
-          <span className="flex shrink-0 items-center gap-1.5 font-medium text-[#2C6A46]">
-            <Ico name="check" size={13} />
-            {d.hubspot === "done" ? "Filed to HubSpot" : d.hubspot === "off" ? "Filed, CRM filing off" : "Filed"}
-          </span>
+        <div key={d.id} role="status" className="py-1">
+          <div className={lineCls}>
+            <span className="min-w-0 truncate text-[#3D4A44]">{d.label}</span>
+            <span className="flex shrink-0 items-center gap-1.5 font-medium text-[#2C6A46]">
+              <Ico name="check" size={13} />
+              {d.hubspot === "done" ? "Filed to HubSpot" : d.hubspot === "off" ? "Filed, CRM filing off" : "Filed"}
+            </span>
+          </div>
+          {d.outbound?.status === "drafted" && (
+            <Link
+              href="/outbound"
+              className="flex min-h-11 items-center justify-between gap-3 text-[13px] font-medium text-[#14201B]"
+            >
+              <span className="flex items-center gap-1.5">
+                <Ico name="mail" size={13} />
+                {d.outbound.toEmail ? "Email drafted" : "Email drafted, no address on file"}
+              </span>
+              <span className="underline underline-offset-2">Open</span>
+            </Link>
+          )}
+          {d.outbound?.status === "not_written" && (
+            <div role="alert" className="flex items-start justify-between gap-3 pb-2 text-[13px] leading-relaxed font-medium text-[#8A2E2E]">
+              <span>{d.outbound.reason}</span>
+              <button
+                type="button"
+                aria-label="Clear"
+                onClick={() => dismissDone(d.id)}
+                className="-mt-2.5 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center transition-transform active:scale-[0.95]"
+              >
+                <Ico name="close" size={13} />
+              </button>
+            </div>
+          )}
         </div>
       ))}
 

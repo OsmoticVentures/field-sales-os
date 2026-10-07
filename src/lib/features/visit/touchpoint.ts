@@ -12,9 +12,12 @@
  * filled, never overwritten, so a bad parse can only add a blank field,
  * never clobber a true one.
  *
+ * OUTREACH: every filed customer note goes to outbound/from-visit.ts, which
+ * decides whether it leaves an email he owes and drafts it to the top of
+ * Outbound (2026-10-07; the port had cut this and visits drafted nothing).
+ *
  * SCOPE CUT FROM THE SOURCE (see the port's handback for the full list):
- * agency directives, outreach asks (nb_outbound_drafts, ask-compose.ts),
- * and the close-signal check (nb_close_signals) are extracted by the tool
+ * agency directives and the close-signal check (nb_close_signals) are extracted by the tool
  * schema exactly as the source asks (their fields still exist on
  * ParsedTouchpoint) but are not written anywhere by this port. The one
  * exception is the return-visit queue (2026-09-25): a stated "come back"
@@ -46,6 +49,7 @@ import {
 } from "./dal";
 import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
+import { draftFromVisit, type VisitOutbound } from "../outbound/from-visit";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
@@ -391,6 +395,8 @@ export type FiledTouchpoint = {
   hubspotNoteId: string | null;
   hubspotError: string | null;
   accountFacts: AccountFactsReport | null;
+  /** The email this visit left him owing, drafted to the top of Outbound. */
+  outbound?: VisitOutbound;
 };
 
 export type RecordTouchpointResult =
@@ -575,9 +581,12 @@ async function finishTouchpoint(input: {
   // note) is run again. Never a second activity.
   const earlier = await findFiledTouchpoint(accountId, input.rawText).catch(() => null);
   if (earlier?.activity_id) {
-    const hubspot = isNeverFiledKind(parsed.activity.kind)
-      ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
-      : await autoFileEngagement(earlier.activity_id);
+    const [hubspot, outbound] = await Promise.all([
+      isNeverFiledKind(parsed.activity.kind)
+        ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
+        : autoFileEngagement(earlier.activity_id),
+      draftFromVisit(visitNote(earlier.id, accountId, input.rawText, parsed)),
+    ]);
     return {
       ok: true,
       touchpoint_id: earlier.id,
@@ -590,6 +599,7 @@ async function finishTouchpoint(input: {
       peopleUpdated: 0,
       ...hubspot,
       accountFacts: null,
+      outbound,
     };
   }
 
@@ -640,9 +650,14 @@ async function finishTouchpoint(input: {
 
   await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName)).catch(() => {});
 
-  const hubspot = isNeverFiledKind(parsed.activity.kind)
-    ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
-    : await autoFileEngagement(activity.id);
+  // The email the visit left owing is decided and drafted beside HubSpot,
+  // not after it, so the note files no slower than the slower of the two.
+  const [hubspot, outbound] = await Promise.all([
+    isNeverFiledKind(parsed.activity.kind)
+      ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
+      : autoFileEngagement(activity.id),
+    draftFromVisit(visitNote(tp.id, accountId, input.rawText, parsed)),
+  ]);
 
   return {
     ok: true,
@@ -656,6 +671,18 @@ async function finishTouchpoint(input: {
     peopleUpdated,
     ...hubspot,
     accountFacts,
+    outbound,
+  };
+}
+
+function visitNote(touchpointId: string, accountId: string, rawText: string, parsed: ParsedTouchpoint) {
+  return {
+    touchpointId,
+    accountId,
+    rawText,
+    kind: parsed.activity.kind,
+    nextStep: parsed.next_step ?? null,
+    outreachAsks: (parsed.outreach_asks ?? []).map((a) => a.ask?.trim()).filter((a): a is string => Boolean(a)),
   };
 }
 

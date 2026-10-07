@@ -149,11 +149,20 @@ export async function getVoiceContext(accountId: string): Promise<{
  * the row, in the composed form when it was written, or in the source's own
  * unwritten form (the ask, then the reason) when it was refused.
  */
-export async function insertAskDraft(input: { account_id: string; ask: string; composed: ComposedAsk }): Promise<Draft | null> {
+export async function insertAskDraft(input: {
+  account_id: string;
+  ask: string;
+  composed: ComposedAsk;
+  /** A draft a visit just asked for goes to the top of the queue. */
+  urgency?: { level: 0 | 1 | 2; reason: string };
+}): Promise<Draft | null> {
   const c = input.composed;
   // An ask that could not be written as an email is not an outbound item.
   if (!c.written) return null;
   const [row] = await sbWrite<Draft>("nb_outbound_drafts", "POST", {
+    ...(input.urgency
+      ? { urgency: input.urgency.level, urgency_reason: input.urgency.reason, urgency_set_at: new Date().toISOString() }
+      : {}),
     id: randId("draft"),
     account_id: input.account_id,
     contact_id: c.contactId,

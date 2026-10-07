@@ -22,7 +22,7 @@ export type DraftAccountPitchResult =
   | { status: "already_queued" }
   | { status: "not_written"; reason: string };
 
-async function loadAskInputs(accountId: string) {
+export async function loadAskInputs(accountId: string) {
   const [account, contactRows, alreadyFiled, voice] = await Promise.all([
     getClientAccount(accountId),
     listClientContacts(accountId),

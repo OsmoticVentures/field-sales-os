@@ -526,14 +526,27 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
       return { written: false, reason: `Not written: ${style}.` };
     }
 
-    const contact = input.contacts.find((c) => c.id === out.contact_id) ?? null;
+    // The person greeted is the person it goes to. A pick that greets one
+    // name and addresses another contact on file is corrected to the one
+    // greeted, or to no named contact when the greeted one is not on file.
+    const greeted = out.body.match(/^\s*(?:hi|hello|hey|hola)\s+([^\s,&/]+)/i)?.[1]?.toLowerCase() ?? null;
+    const firstOf = (c: AskContact) => c.name.split(/\s+/)[0].toLowerCase();
+    let contact = input.contacts.find((c) => c.id === out.contact_id) ?? null;
+    let greetedOffFile: string | null = null;
+    if (greeted && contact && firstOf(contact) !== greeted) {
+      contact = input.contacts.find((c) => firstOf(c) === greeted) ?? null;
+      if (!contact) greetedOffFile = greeted.charAt(0).toUpperCase() + greeted.slice(1);
+    }
+    // One address written in the note itself outranks the store's general one.
+    const noteEmails = [...new Set((input.noteText.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) ?? []).map((e) => e.toLowerCase()))];
+    const noteEmail = noteEmails.length === 1 ? noteEmails[0] : null;
     return {
       written: true,
       subject: out.subject.trim(),
       body: out.body.trim(),
       contactId: contact?.id ?? null,
-      toName: contact?.name ?? null,
-      toEmail: contact?.email ?? input.account.email ?? null,
+      toName: contact?.name ?? greetedOffFile,
+      toEmail: contact?.email ?? noteEmail ?? input.account.email ?? null,
     };
   }
 

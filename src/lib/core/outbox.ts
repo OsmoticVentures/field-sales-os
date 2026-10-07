@@ -38,7 +38,7 @@ import {
 export type { OutboxItem } from "./outbox-core";
 
 /** A note that just completed, kept on screen for its confirmation beat. */
-export type OutboxDone = { id: string; label: string; hubspot: OutboxItem["hubspot"] };
+export type OutboxDone = { id: string; label: string; hubspot: OutboxItem["hubspot"]; outbound: OutboxItem["outbound"] };
 
 type State = { items: OutboxItem[]; done: OutboxDone[]; running: string | null };
 
@@ -47,6 +47,8 @@ const LOCK = "clientos-outbox";
 const TIMEOUT_MS = 75_000; // past the routes' 60s maxDuration
 const TICK_MS = 20_000;
 const BEAT_MS = 1100;
+/** Long enough to tap through to the draft the visit just queued. */
+const DRAFTED_BEAT_MS = 8000;
 
 let cache = new Map<string, OutboxItem>();
 let state: State = { items: [], done: [], running: null };
@@ -156,12 +158,17 @@ function label(it: OutboxItem): string {
 }
 
 function beat(it: OutboxItem) {
-  state = { ...state, done: [...state.done, { id: it.id, label: label(it), hubspot: it.hubspot }] };
+  const outbound = it.outbound ?? null;
+  state = { ...state, done: [...state.done, { id: it.id, label: label(it), hubspot: it.hubspot, outbound }] };
   emit();
-  setTimeout(() => {
-    state = { ...state, done: state.done.filter((d) => d.id !== it.id) };
-    emit();
-  }, BEAT_MS);
+  // An email that was owed and could not be written stays until he clears it.
+  if (outbound?.status === "not_written") return;
+  setTimeout(() => dismissDone(it.id), outbound?.status === "drafted" ? DRAFTED_BEAT_MS : BEAT_MS);
+}
+
+export function dismissDone(id: string) {
+  state = { ...state, done: state.done.filter((d) => d.id !== id) };
+  emit();
 }
 
 async function pass(force: boolean) {

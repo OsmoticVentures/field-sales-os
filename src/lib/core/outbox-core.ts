@@ -35,6 +35,12 @@ export type AccountPick = { id: string; name: string; city: string | null };
 
 /** A store New company created: the type Places suggested, the one he
  *  picked, and whether it is on the account. */
+export type OutboundNotice =
+  | { status: "drafted"; draftId: string; toEmail: string | null }
+  | { status: "not_written"; reason: string }
+  | { status: "none" }
+  | { status: "already_queued" };
+
 export type StoreType = { suggested: string | null; picked: string | null; done: boolean };
 
 export type NeedsAccount = {
@@ -78,6 +84,8 @@ export type OutboxItem = {
   photoDone: boolean;
   /** Null unless New company created the store. */
   storeType?: StoreType | null;
+  /** The email the server decided this visit leaves owing, once filed. */
+  outbound?: OutboundNotice | null;
 
   attempts: number;
   nextAt: number;
@@ -265,6 +273,7 @@ type FiledShape = {
   summary: string;
   hubspotFiled: boolean;
   hubspotError: string | null;
+  outbound?: OutboundNotice;
 };
 type NeedsShape = NeedsAccount & { needsAccount: true };
 type HubspotShape = { hubspotFiled: boolean; hubspotError: string | null };
@@ -337,6 +346,7 @@ export function applyOutcome(it: OutboxItem, step: Step, out: Outcome, ctx: Appl
           accountName: r.accountName ?? it.accountName,
           activityId: r.activityId,
           summary: r.summary ?? null,
+          outbound: r.outbound ?? null,
           ...hubspotState(r, fieldNote),
           // A read needs an account to land on; a note about no store has none.
           readDone: it.readDone || !r.accountId,
