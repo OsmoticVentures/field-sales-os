@@ -197,7 +197,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <th className="px-4 py-2.5 text-right font-medium">Supp %</th>
                   <th className="px-4 py-2.5 text-right font-medium">Employees</th>
                   <th className="px-4 py-2.5 text-right font-medium">Stores/DM</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Engagement</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EDEBE3]">
@@ -230,7 +229,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                       <td className="px-4 py-2 text-right">
                         <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores per decision maker" />
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums text-[#5B6560]">{r.engagement?.toFixed(0) ?? "-"}</td>
                     </tr>
                   );
                 })}
