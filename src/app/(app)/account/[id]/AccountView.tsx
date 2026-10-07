@@ -41,15 +41,63 @@ async function postJson(path: string, body: unknown): Promise<void> {
   if (!res.ok || j.ok === false) throw new Error(j.error ?? "Could not save that.");
 }
 
-function PotentialGrade({ hq }: { hq: string | null }) {
+function PotentialGrade({ accountId, hq, juan, readiness }: { accountId: string; hq: string | null; juan: string | null; readiness: string | null }) {
+  const [value, setValue] = useState<string | null>(juan);
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
   const hqLetter = hq ? hq.split(" ")[0] || null : null;
-  if (!hqLetter) return null;
+
+  async function pick(t: string) {
+    const prev = value;
+    const next = value === t ? null : t;
+    setValue(next);
+    setPending(true);
+    setFailed(false);
+    try {
+      await postJson("/api/prospect/account-fact", { account_id: accountId, field: "potential_juan", value: next });
+      void refreshAccount(accountId);
+    } catch {
+      setValue(prev);
+      setFailed(true);
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <Card>
       <div className={`mb-2.5 ${eyebrowCls}`}>Potential</div>
-      <div className="flex items-center justify-between gap-3 text-[13px]">
-        <span className="text-[#5B6560]">HQ grade</span>
-        <TierChip tier={hqLetter} scale="hq" />
+      {hqLetter && (
+        <div className="flex items-center justify-between gap-3 text-[13px]">
+          <span className="text-[#5B6560]">HQ grade</span>
+          <TierChip tier={hqLetter} scale="hq" />
+        </div>
+      )}
+      <div className={`${hqLetter ? "mt-3 " : ""}flex flex-wrap items-center justify-between gap-2`}>
+        <span className="text-[13px] text-[#5B6560]">Your read</span>
+        <div className="flex gap-1">
+          {POTENTIAL_LETTERS.map((t) => {
+            const active = value === t;
+            return (
+              <button
+                key={t}
+                type="button"
+                disabled={pending}
+                aria-pressed={active}
+                onClick={() => pick(t)}
+                className={`h-8 w-8 rounded text-[12px] font-semibold ${press} ${
+                  active ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"
+                }`}
+              >
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {failed && <p className="mt-2 text-[12px] text-[#8A928C]">Not saved. Tap again.</p>}
+      <div className="mt-3">
+        <WarmthPicker key={`readiness-${accountId}`} accountId={accountId} value={readiness} compact onSaved={() => void refreshAccount(accountId)} />
       </div>
     </Card>
   );
@@ -560,7 +608,7 @@ export function AccountView({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4">
-          <PotentialGrade hq={a.potential_hq} />
+          <PotentialGrade accountId={a.id} hq={a.potential_hq} juan={a.potential_juan} readiness={a.readiness ?? null} />
 
           <Card>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 text-[13.5px] lg:flex lg:flex-col lg:gap-2.5">
