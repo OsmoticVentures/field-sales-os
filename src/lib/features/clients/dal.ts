@@ -63,6 +63,34 @@ export async function listClientAccounts(opts: { area?: string | null; sort?: "t
   return sbGet<TierRow>("nb_v_account_tier", params);
 }
 
+export const METRIC_FIELDS = ["shelf_units", "supp_body_pct", "employee_count", "stores_per_decision_maker"] as const;
+export type MetricField = (typeof METRIC_FIELDS)[number];
+export type Metrics = Record<MetricField, number | null>;
+
+/** Juan's four hand-entered tier fields, per account. */
+export async function getMetricsMap(ids: string[]): Promise<Record<string, Metrics>> {
+  if (ids.length === 0) return {};
+  const rows = await sbGet<Metrics & { id: string }>("nb_accounts", {
+    select: `id,${METRIC_FIELDS.join(",")}`,
+    id: `in.(${ids.join(",")})`,
+  });
+  return Object.fromEntries(rows.map((r) => [r.id, r]));
+}
+
+/** Write one metric on an account inside the signed-in rep's own book. Blank clears it. */
+export async function setMetric(accountId: string, field: MetricField, value: number | null): Promise<void> {
+  if (!isConfigured()) throw new Error("No data source configured.");
+  const params = new URLSearchParams({ id: `eq.${accountId}`, hubspot_owner_id: `eq.${await myOwnerId()}` });
+  const res = await fetch(`${SB_URL}/rest/v1/nb_accounts?${params}`, {
+    method: "PATCH",
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify({ [field]: value }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Supabase nb_accounts PATCH -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if ((await res.json()).length === 0) throw new Error("That client is not in your book.");
+}
+
 export type ClientArea = {
   id: string;
   label: string;

@@ -10,11 +10,13 @@ import { myFlag } from "../../../lib/core/user";
 import { Card, PageHead } from "../../../lib/core/ui";
 import {
   getAccountHoursMap,
+  getMetricsMap,
   isConfigured,
   listClientAccounts,
   listClientAreas,
   listPipeline,
 } from "../../../lib/features/clients/dal";
+import { MetricCell } from "./MetricCell";
 import { Confidence, OpenBadge, TierChip, realLifecycle } from "../../../lib/features/clients/ui";
 
 export const dynamic = "force-dynamic";
@@ -56,7 +58,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   ]);
   const area = areas.find((a) => a.id === askedArea) ?? null;
   const rows = (area?.id ?? null) === askedArea ? askedRows : await listClientAccounts({ area: null, sort });
-  const hoursById = await getAccountHoursMap(rows.map((r) => r.account_id));
+  const [hoursById, metricsById] = await Promise.all([
+    getAccountHoursMap(rows.map((r) => r.account_id)),
+    getMetricsMap(rows.map((r) => r.account_id)),
+  ]);
 
   const byTier: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
   for (const r of rows) byTier[r.tier] = (byTier[r.tier] ?? 0) + 1;
@@ -188,6 +193,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <th className="px-4 py-2.5 font-medium">Open</th>
                   <th className="px-4 py-2.5 font-medium">State</th>
                   <th className="px-4 py-2.5 text-right font-medium">Fit</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Shelves</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Supp %</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Employees</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Stores/DM</th>
                   <th className="px-4 py-2.5 font-medium">Known</th>
                   <th className="px-4 py-2.5 text-right font-medium">Engagement</th>
                 </tr>
@@ -210,6 +219,18 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                       </td>
                       <td className="px-4 py-2.5 text-[#5B6560]">{realLifecycle(r.lifecycle)}</td>
                       <td className={`px-4 py-2.5 text-right tabular-nums ${low ? "text-[#A79878]" : ""}`}>{r.fit?.toFixed(0) ?? "-"}</td>
+                      <td className="px-4 py-2 text-right">
+                        <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <MetricCell accountId={r.account_id} field="supp_body_pct" initial={metricsById[r.account_id]?.supp_body_pct ?? null} label="Supplements and body care, percent of store" />
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <MetricCell accountId={r.account_id} field="employee_count" initial={metricsById[r.account_id]?.employee_count ?? null} label="Total employees" />
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores per decision maker" />
+                      </td>
                       <td className="px-4 py-2.5">
                         <Confidence value={r.fit_confidence} known={r.fit_inputs_known} total={r.fit_inputs_total} />
                       </td>
