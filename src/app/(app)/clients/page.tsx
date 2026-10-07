@@ -190,7 +190,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                 <tr className="border-b border-[#E2DFD5] text-left text-[11px] uppercase tracking-[0.12em] text-[#8A928C]">
                   <th className="px-4 py-2.5 font-medium">OS tier</th>
                   <th className="px-4 py-2.5 font-medium">Account</th>
-                  <th className="px-4 py-2.5 font-medium">Open</th>
                   <th className="px-4 py-2.5 font-medium">State</th>
                   <th className="px-4 py-2.5 text-right font-medium">Fit</th>
                   <th className="px-4 py-2.5 text-right font-medium">Shelves</th>
@@ -211,9 +210,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                         <Link prefetch={false} href={`/account/${r.account_id}`} className="font-medium underline-offset-2 hover:underline">
                           {r.name}
                         </Link>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <OpenBadge businessHours={hoursById[r.account_id]} dot />
                       </td>
                       <td className="px-4 py-2.5 text-[#5B6560]">{realLifecycle(r.lifecycle)}</td>
                       <td className={`px-4 py-2.5 text-right tabular-nums ${low ? "text-[#A79878]" : ""}`}>{r.fit?.toFixed(0) ?? "-"}</td>
