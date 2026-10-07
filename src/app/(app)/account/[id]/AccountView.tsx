@@ -22,6 +22,7 @@ import type { PurchaseLine, PurchaseOrder } from "../../../../lib/features/prosp
 import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/prospect/format";
 import { dayLabel, laTodayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
+import { WarmthPicker } from "../../../../lib/features/clients/WarmthPicker";
 import { sees, useMe } from "../../../../lib/core/me";
 
 const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
@@ -40,7 +41,7 @@ async function postJson(path: string, body: unknown): Promise<void> {
   if (!res.ok || j.ok === false) throw new Error(j.error ?? "Could not save that.");
 }
 
-function PotentialGrade({ accountId, hq, juan }: { accountId: string; hq: string | null; juan: string | null }) {
+function PotentialGrade({ accountId, hq, juan, readiness }: { accountId: string; hq: string | null; juan: string | null; readiness: string | null }) {
   const [value, setValue] = useState<string | null>(juan);
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -94,7 +95,10 @@ function PotentialGrade({ accountId, hq, juan }: { accountId: string; hq: string
           })}
         </div>
       </div>
-      {failed && <p className="mt-2 text-[12px] text-[#8A2E2E]">Not saved. Tap again.</p>}
+      {failed && <p className="mt-2 text-[12px] text-[#8A928C]">Not saved. Tap again.</p>}
+      <div className="mt-3">
+        <WarmthPicker key={`readiness-${accountId}`} accountId={accountId} value={readiness} compact onSaved={() => void refreshAccount(accountId)} />
+      </div>
     </Card>
   );
 }
@@ -604,7 +608,7 @@ export function AccountView({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4">
-          <PotentialGrade accountId={a.id} hq={a.potential_hq} juan={a.potential_juan} />
+          <PotentialGrade accountId={a.id} hq={a.potential_hq} juan={a.potential_juan} readiness={a.readiness ?? null} />
 
           <Card>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 text-[13.5px] lg:flex lg:flex-col lg:gap-2.5">

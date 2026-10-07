@@ -46,3 +46,52 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
     </span>
   );
 }
+
+const LEVELS = ["urgent", "hot", "normal", "cold"] as const;
+
+/** Readiness for one row. Saves on change through the same route the client view uses. */
+export function ReadinessCell({ accountId, initial }: { accountId: string; initial: string | null }) {
+  const [value, setValue] = useState(initial ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  async function change(next: string) {
+    const prev = value;
+    setValue(next);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/visit/account-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ account_id: accountId, readiness: next }),
+      });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || j.ok === false) throw new Error(j.error ?? `Could not save (${res.status}).`);
+    } catch (e) {
+      setValue(prev);
+      setError(e instanceof Error ? e.message : "Could not save.");
+    }
+  }
+
+  return (
+    <span className="inline-flex flex-col">
+      <select
+        aria-label="Readiness"
+        value={value}
+        onChange={(e) => change(e.target.value)}
+        className={`h-8 rounded-md border bg-white px-2 text-[13.5px] capitalize outline-none focus:border-[#14201B] ${
+          value === "" ? "border-dashed border-[#D8D4C6] text-[#8A928C]" : "border-[#E2DFD5] text-[#3D4A44]"
+        }`}
+      >
+        <option value="" disabled>
+          Set
+        </option>
+        {LEVELS.map((l) => (
+          <option key={l} value={l}>
+            {l}
+          </option>
+        ))}
+      </select>
+      {error && <span className="mt-0.5 max-w-[160px] text-[11px] leading-tight text-[#8A928C]">Not saved: {error}</span>}
+    </span>
+  );
+}

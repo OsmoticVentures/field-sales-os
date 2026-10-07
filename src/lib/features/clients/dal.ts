@@ -65,13 +65,13 @@ export async function listClientAccounts(opts: { area?: string | null; sort?: "t
 
 export const METRIC_FIELDS = ["shelf_units", "supp_body_pct", "employee_count", "stores_per_decision_maker"] as const;
 export type MetricField = (typeof METRIC_FIELDS)[number];
-export type Metrics = Record<MetricField, number | null>;
+export type Metrics = Record<MetricField, number | null> & { readiness: string | null };
 
 /** Juan's four hand-entered tier fields, per account. */
 export async function getMetricsMap(ids: string[]): Promise<Record<string, Metrics>> {
   if (ids.length === 0) return {};
   const rows = await sbGet<Metrics & { id: string }>("nb_accounts", {
-    select: `id,${METRIC_FIELDS.join(",")}`,
+    select: `id,readiness,${METRIC_FIELDS.join(",")}`,
     id: `in.(${ids.join(",")})`,
   });
   return Object.fromEntries(rows.map((r) => [r.id, r]));
@@ -150,6 +150,7 @@ export async function listPipeline(): Promise<{ deals: Deal[]; stale: StaleDeal[
 
 export type ClientAccount = {
   id: string;
+  readiness?: string | null;
   hubspot_owner_id?: string | null;
   name: string;
   channel: string | null;

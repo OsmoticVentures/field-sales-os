@@ -16,7 +16,7 @@ import {
   listClientAreas,
   listPipeline,
 } from "../../../lib/features/clients/dal";
-import { MetricCell } from "./MetricCell";
+import { MetricCell, ReadinessCell } from "./MetricCell";
 import { OpenBadge, TierChip, realLifecycle } from "../../../lib/features/clients/ui";
 
 export const dynamic = "force-dynamic";
@@ -167,7 +167,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                     <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[#8A928C]">
                       <OpenBadge businessHours={hoursById[r.account_id]} dot />
                       {realLifecycle(r.lifecycle) && <span>{realLifecycle(r.lifecycle)}</span>}
-                      {r.fit != null && <span className="tabular-nums">Fit {r.fit.toFixed(0)}</span>}
+                      {metricsById[r.account_id]?.readiness && <span className="capitalize">{metricsById[r.account_id]?.readiness}</span>}
                     </span>
                   </span>
                 </Link>
@@ -182,7 +182,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <th className="px-4 py-2.5 font-medium">OS tier</th>
                   <th className="px-4 py-2.5 font-medium">Account</th>
                   <th className="px-4 py-2.5 font-medium">State</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Fit</th>
+                  <th className="px-4 py-2.5 font-medium">Readiness</th>
                   <th className="px-4 py-2.5 text-right font-medium">Shelves</th>
                   <th className="px-4 py-2.5 text-right font-medium">Supp %</th>
                   <th className="px-4 py-2.5 text-right font-medium">Employees</th>
@@ -191,7 +191,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
               </thead>
               <tbody className="divide-y divide-[#EDEBE3]">
                 {rows.map((r) => {
-                  const low = (r.fit_confidence ?? 0) < 0.5;
                   return (
                     <tr key={r.account_id} className="transition-colors hover:bg-[#FAF9F5]">
                       <td className="px-4 py-2.5">
@@ -203,7 +202,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                         </Link>
                       </td>
                       <td className="px-4 py-2.5 text-[#5B6560]">{realLifecycle(r.lifecycle)}</td>
-                      <td className={`px-4 py-2.5 text-right tabular-nums ${low ? "text-[#A79878]" : ""}`}>{r.fit?.toFixed(0) ?? "-"}</td>
+                      <td className="px-4 py-2">
+                        <ReadinessCell accountId={r.account_id} initial={metricsById[r.account_id]?.readiness ?? null} />
+                      </td>
                       <td className="px-4 py-2 text-right">
                         <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
                       </td>

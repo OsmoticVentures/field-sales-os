@@ -15,10 +15,13 @@ export function WarmthPicker({
   accountId,
   value: initial,
   onSaved,
+  compact = false,
 }: {
   accountId: string;
   value: string | null;
   onSaved?: (value: string) => void;
+  /** Sits inside a card beside other label/value rows. */
+  compact?: boolean;
 }) {
   const [value, setValue] = useState<string | null>(initial);
   const [busy, setBusy] = useState(false);
@@ -49,8 +52,8 @@ export function WarmthPicker({
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-        <span className="text-[11.5px] uppercase tracking-[0.06em] text-[#8A928C]">Warmth</span>
+      <div className={`flex flex-wrap items-center gap-x-2.5 gap-y-1.5 ${compact ? "justify-between" : ""}`}>
+        <span className={compact ? "text-[13px] text-[#5B6560]" : "text-[11.5px] uppercase tracking-[0.06em] text-[#8A928C]"}>Readiness</span>
         <div className="flex flex-wrap gap-1">
           {LEVELS.map((l) => (
             <button
@@ -59,7 +62,7 @@ export function WarmthPicker({
               disabled={busy}
               aria-pressed={value === l.value}
               onClick={() => pick(l.value)}
-              className={`min-h-11 rounded px-3 text-[13px] font-semibold transition-colors ${
+              className={`rounded font-semibold transition-colors ${compact ? "h-8 px-2.5 text-[12px]" : "min-h-11 px-3 text-[13px]"} ${
                 value === l.value ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#3D4A44] hover:bg-[#E2DFD5]"
               }`}
             >

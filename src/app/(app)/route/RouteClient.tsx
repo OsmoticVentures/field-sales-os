@@ -296,8 +296,9 @@ function RouteDay({
   const start = data.startByDay[activeDay] ?? startFallback;
   const end = data.endByDay[activeDay] ?? myLoc ?? data.home;
 
-  const [prefs, setPrefsLocal] = useState<RouteSchedulePrefs>(data.prefs);
-  useEffect(() => setPrefsLocal(data.prefs), [data.prefs]);
+  const [depart, setDepart] = useState(nowHHMM);
+  const [prefs, setPrefsLocal] = useState<RouteSchedulePrefs>({ ...data.prefs, depart });
+  useEffect(() => setPrefsLocal({ ...data.prefs, depart }), [data.prefs, depart]);
 
   const [busy, setBusy] = useState(false);
   const [legs, setLegs] = useState<DriveLeg[] | null>(null);
@@ -481,6 +482,7 @@ function RouteDay({
     postJson("/api/route/stop-times", { day, times: next }).catch(() => {});
   }
   function patchPrefs(next: RouteSchedulePrefs) {
+    setDepart(next.depart);
     setPrefsLocal(next);
     postJson<{ ok: boolean }>("/api/route/prefs", next).catch(() => {});
   }
@@ -1051,6 +1053,11 @@ function RouteDay({
       />
     </div>
   );
+}
+
+function nowHHMM(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function locateMe(): Promise<RouteEndpoint | null> {
