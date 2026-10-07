@@ -20,6 +20,7 @@ import {
 } from "../../../../lib/core/phone-sync";
 import { PageHead } from "../../../../lib/core/ui";
 import type { AccountLive, AccountPayload } from "../../../../lib/features/clients/account-payload";
+import { ReadinessCell, TierCell } from "../../clients/MetricCell";
 import { realChannel } from "../../../../lib/features/clients/ui";
 import { planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { AccountView } from "./AccountView";
@@ -109,6 +110,10 @@ export function AccountClient({ id, initial, initialLive }: { id: string; initia
           />
         }
       />
+      <div className="mb-5 flex flex-wrap items-center gap-x-8 gap-y-3">
+        <TierCell key={`tier-${a.id}-${payload.initialTier}`} accountId={a.id} tier={payload.initialTier} />
+        <ReadinessCell key={`ready-${a.id}`} accountId={a.id} initial={payload.warmth} />
+      </div>
       <AccountView
         account={a}
         contacts={payload.contacts}
