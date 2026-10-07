@@ -10,7 +10,7 @@
  * nothing here writes.
  */
 import { hasAccess } from "../../../../../lib/core/devices";
-import { getAccount, listActivities, listContacts, listPurchases, summarizePurchases } from "../../../../../lib/features/prospect/dal";
+import { getAccount, listActivities, listContacts, listPurchases, panelContact, summarizePurchases } from "../../../../../lib/features/prospect/dal";
 
 export const runtime = "nodejs";
 
@@ -56,14 +56,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       purchases: summarizePurchases(purchases.orders, purchases.lines),
       businessHours: account.business_hours,
       hubspotCompanyId: account.hubspot_company_id,
-      contacts: contacts.map((c) => ({
-        id: c.id,
-        name: [c.first_name, c.last_name].filter(Boolean).join(" ") || "Unnamed contact",
-        title: c.title,
-        phone: c.phone,
-        email: c.email,
-        isDecisionMaker: c.is_decision_maker,
-      })),
+      contacts: contacts.map(panelContact),
       activities: activities.map((a) => ({ at: a.at, kind: a.kind, detail: a.detail })),
     },
   });

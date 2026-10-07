@@ -670,6 +670,11 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
   const [loadError, setLoadError] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState<{ ok: boolean; error?: string; wroteHours?: boolean; wroteSummary?: boolean; skippedReason?: string } | null>(null);
+  /* The account on screen right now. Every reply that lands after the rep
+     moved to another client checks this first, so a slow answer about the
+     last client can never repaint the panel of the next one. */
+  const showing = useRef(item.account_id);
+  showing.current = item.account_id;
 
   useEffect(() => {
     setPanel(null);
@@ -685,6 +690,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
         if (cancelled) return;
         if (j.ok) setPanel(j.account);
         else setLoadError("Couldn't load this account.");
+        if (j.ok) void liveContacts(accountId);
       } catch {
         if (!cancelled) setLoadError("Couldn't load this account.");
       }
@@ -695,23 +701,38 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.account_id]);
 
+  /** The account's people as HubSpot has them now, merges followed. Asked for
+   *  after the panel paints, so a slow portal never holds up the account. */
+  async function liveContacts(accountId: string) {
+    try {
+      const res = await apiFetch(`/api/prospect/account/${accountId}/contacts`);
+      const j = await res.json();
+      if (!j.ok || showing.current !== accountId) return;
+      setPanel((p) => (p && p.id === accountId ? { ...p, contacts: j.contacts } : p));
+    } catch {
+      // best effort: the panel already shows what the OS had
+    }
+  }
+
   /** Find Contacts writes straight to the OS; this is how its panel gets
    *  back into the call card without a full page reload. Best effort: the
    *  Find Contacts panel already shows what it did even if this refetch
    *  itself fails. */
   async function refreshPanel() {
-    if (!item.account_id) return;
+    const accountId = item.account_id;
+    if (!accountId) return;
     try {
-      const res = await apiFetch(`/api/prospect/account/${item.account_id}`);
+      const res = await apiFetch(`/api/prospect/account/${accountId}`);
       const j = await res.json();
-      if (j.ok) setPanel(j.account);
+      if (j.ok && showing.current === accountId) setPanel(j.account);
     } catch {
       // best effort
     }
   }
 
   async function handleEnrich() {
-    if (!item.account_id || enriching) return;
+    const accountId = item.account_id;
+    if (!accountId || enriching) return;
     setEnriching(true);
     setEnrichResult(null);
     try {
@@ -722,6 +743,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
       });
       const j = await res.json().catch(() => null);
       const result = j?.ok ? j.result : { ok: false, error: j?.error ?? (res.status === 504 ? "The look-up took too long. Try again." : undefined) };
+      if (showing.current !== accountId) return;
       setEnrichResult(result);
       if (result.ok && (result.wroteHours || result.wroteSummary)) {
         setPanel((p) =>
@@ -806,7 +828,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
 
         {item.account_id && (
           <div className="mt-3 border-t border-[#E2DFD5] pt-3">
-            <FindContacts accountId={item.account_id} onUpdated={refreshPanel} />
+            <FindContacts key={item.account_id} accountId={item.account_id} onUpdated={refreshPanel} />
           </div>
         )}
 

@@ -149,6 +149,19 @@ export async function listContacts(accountId: string): Promise<Contact[]> {
   );
 }
 
+/** A contact as the account panel shows it. One shape for both the panel's
+ *  first load and its live HubSpot refresh, so the two can never disagree. */
+export function panelContact(c: Contact) {
+  return {
+    id: c.id,
+    name: [c.first_name, c.last_name].filter(Boolean).join(" ") || "Unnamed contact",
+    title: c.title,
+    phone: c.phone,
+    email: c.email,
+    isDecisionMaker: c.is_decision_maker,
+  };
+}
+
 export type Activity = { id: number; account_id: string; at: string; kind: string; detail: string | null; origin: string };
 
 /** Calls and meetings only, most recent first: the enrichment pipeline's own
