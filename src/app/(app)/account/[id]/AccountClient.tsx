@@ -20,6 +20,7 @@ import {
 } from "../../../../lib/core/phone-sync";
 import { PageHead } from "../../../../lib/core/ui";
 import type { AccountLive, AccountPayload } from "../../../../lib/features/clients/account-payload";
+import { WarmthPicker } from "../../../../lib/features/clients/WarmthPicker";
 import { realChannel } from "../../../../lib/features/clients/ui";
 import { planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { AccountView } from "./AccountView";
@@ -109,6 +110,14 @@ export function AccountClient({ id, initial, initialLive }: { id: string; initia
           />
         }
       />
+      <div className="mb-4">
+        <WarmthPicker
+          key={`warmth-${a.id}`}
+          accountId={a.id}
+          value={payload.warmth}
+          onSaved={(w) => void patchAccount(id, (p) => ({ ...p, warmth: w })).then(() => refreshAccount(id))}
+        />
+      </div>
       <AccountView
         account={a}
         contacts={payload.contacts}

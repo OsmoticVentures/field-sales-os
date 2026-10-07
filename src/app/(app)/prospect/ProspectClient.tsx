@@ -19,6 +19,7 @@
  * "done by hand, no logged call" case the source app already supports.
  */
 
+import { WarmthPicker } from "../../../lib/features/clients/WarmthPicker";
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
@@ -835,6 +836,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
         {panel && item.account_id && (
           <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-[#E2DFD5] pt-3">
             <PotentialGradeInline key={`grade-${panel.id}`} accountId={panel.id} value={panel.potentialJuan} />
+            <WarmthPicker key={`warmth-${panel.id}`} accountId={panel.id} value={panel.readiness} />
             <PhoneEditable key={`phone-${panel.id}`} accountId={panel.id} phone={panel.phone} />
           </div>
         )}
