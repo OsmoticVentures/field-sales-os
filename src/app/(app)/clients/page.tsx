@@ -16,7 +16,7 @@ import {
   listClientAreas,
   listPipeline,
 } from "../../../lib/features/clients/dal";
-import { MetricCell, ReadinessCell } from "./MetricCell";
+import { MetricCell, ReadinessCell, TierCell } from "./MetricCell";
 import { OpenBadge, TierChip, realLifecycle } from "../../../lib/features/clients/ui";
 
 export const dynamic = "force-dynamic";
@@ -180,9 +180,9 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-[#8A928C] [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:border-b [&>th]:border-[#E2DFD5] [&>th]:bg-white">
                   <th className="px-4 py-2.5 font-medium">OS tier</th>
+                  <th className="px-4 py-2.5 font-medium">Readiness</th>
                   <th className="px-4 py-2.5 font-medium">Account</th>
                   <th className="px-4 py-2.5 font-medium">State</th>
-                  <th className="px-4 py-2.5 font-medium">Readiness</th>
                   <th className="px-4 py-2.5 text-right font-medium">Shelves</th>
                   <th className="px-4 py-2.5 text-right font-medium">Supp %</th>
                   <th className="px-4 py-2.5 text-right font-medium">Employees</th>
@@ -194,7 +194,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   return (
                     <tr key={r.account_id} className="transition-colors hover:bg-[#FAF9F5]">
                       <td className="px-4 py-2.5">
-                        <TierChip tier={r.tier} />
+                        <TierCell accountId={r.account_id} tier={r.tier} />
+                      </td>
+                      <td className="px-4 py-2">
+                        <ReadinessCell accountId={r.account_id} initial={metricsById[r.account_id]?.readiness ?? null} />
                       </td>
                       <td className="px-4 py-2.5">
                         <Link prefetch={false} href={`/account/${r.account_id}`} className="font-medium underline-offset-2 hover:underline">
@@ -202,9 +205,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                         </Link>
                       </td>
                       <td className="px-4 py-2.5 text-[#5B6560]">{realLifecycle(r.lifecycle)}</td>
-                      <td className="px-4 py-2">
-                        <ReadinessCell accountId={r.account_id} initial={metricsById[r.account_id]?.readiness ?? null} />
-                      </td>
                       <td className="px-4 py-2 text-right">
                         <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
                       </td>
