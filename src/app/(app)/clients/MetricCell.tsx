@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { apiFetch } from "../../../lib/core/api";
 import { refreshAccount } from "../../../lib/core/phone-sync";
-import { READINESS_COLOR } from "../../../lib/features/route/account-filters";
+import { ReadinessButtons } from "../../../lib/features/clients/WarmthPicker";
 
 /** One editable tier field. Saves on blur or Enter and the tier re-reads at once; red text in place when it fails. */
 export function MetricCell({ accountId, field, initial, label }: { accountId: string; field: string; initial: number | null; label: string }) {
@@ -62,57 +62,9 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
   );
 }
 
-const LEVELS = ["urgent", "hot", "normal", "cold"] as const;
-
-/** Readiness for one row. Saves on change through the same route the client view uses. */
+/** Readiness for one row: four coloured icon buttons, one tap saves. */
 export function ReadinessCell({ accountId, initial }: { accountId: string; initial: string | null }) {
-  const [value, setValue] = useState(initial ?? "");
-  const [error, setError] = useState<string | null>(null);
-
-  async function change(next: string) {
-    const prev = value;
-    setValue(next);
-    setError(null);
-    try {
-      const res = await apiFetch("/api/visit/account-read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ account_id: accountId, readiness: next }),
-      });
-      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!res.ok || j.ok === false) throw new Error(j.error ?? `Could not save (${res.status}).`);
-      void refreshAccount(accountId);
-    } catch (e) {
-      setValue(prev);
-      setError(e instanceof Error ? e.message : "Could not save.");
-    }
-  }
-
-  const color = READINESS_COLOR[value as keyof typeof READINESS_COLOR] ?? null;
-
-  return (
-    <span className="inline-flex flex-col">
-      <select
-        aria-label="Readiness"
-        value={value}
-        onChange={(e) => change(e.target.value)}
-        style={color ? { color, backgroundColor: `${color}1A`, borderColor: `${color}55` } : undefined}
-        className={`h-8 rounded-md border px-2 text-[13.5px] font-medium capitalize outline-none focus:border-[#14201B] ${
-          value === "" ? "border-dashed border-[#D8D4C6] bg-white text-[#8A928C]" : ""
-        }`}
-      >
-        <option value="" disabled>
-          Set
-        </option>
-        {LEVELS.map((l) => (
-          <option key={l} value={l}>
-            {l}
-          </option>
-        ))}
-      </select>
-      {error && <span className="mt-0.5 max-w-[160px] text-[11px] leading-tight text-[#8A928C]">Not saved: {error}</span>}
-    </span>
-  );
+  return <ReadinessButtons accountId={accountId} value={initial} onSaved={() => void refreshAccount(accountId)} />;
 }
 
 const TIER_LETTERS = ["A", "B", "C", "D", "E"] as const;
