@@ -14,7 +14,7 @@ import type { LeadStage, Tier } from "./types";
 
 // --- Readiness -----------------------------------------------------------
 
-export const READINESS_FILTERS = ["urgent", "hot", "normal", "cold"] as const;
+export const READINESS_FILTERS = ["urgent", "hot", "normal", "cold", "corporate"] as const;
 export type ReadinessFilter = (typeof READINESS_FILTERS)[number];
 
 export const READINESS_LABEL: Record<ReadinessFilter, string> = {
@@ -22,6 +22,7 @@ export const READINESS_LABEL: Record<ReadinessFilter, string> = {
   hot: "Hot",
   normal: "Normal",
   cold: "Cold",
+  corporate: "Corporate",
 };
 
 export const READINESS_COLOR: Record<ReadinessFilter, string> = {
@@ -29,6 +30,7 @@ export const READINESS_COLOR: Record<ReadinessFilter, string> = {
   hot: "#D97E2B",
   normal: "#8A928C",
   cold: "#4E7FA8",
+  corporate: "#14201B",
 };
 
 /** Juan's own number: the standalone 75+ score chip, separate from

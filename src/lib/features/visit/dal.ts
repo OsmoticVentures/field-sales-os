@@ -555,7 +555,7 @@ export async function logHubspotCall(row: HubspotLogRow): Promise<void> {
 
 export const VISIT_GRADES = ["A", "B", "C", "D", "E"] as const;
 export type VisitGrade = (typeof VISIT_GRADES)[number];
-export const READINESS_VALUES = ["urgent", "hot", "normal", "cold"] as const;
+export const READINESS_VALUES = ["urgent", "hot", "normal", "cold", "corporate"] as const;
 export type Readiness = (typeof READINESS_VALUES)[number];
 
 export async function setAccountPotentialJuan(accountId: string, grade: VisitGrade | null): Promise<void> {

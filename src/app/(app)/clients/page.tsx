@@ -63,8 +63,8 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   ]);
   // Tier first, then readiness inside each tier: urgent, hot, normal, cold, unset last.
   // Array.sort is stable, so the earlier order (best fit first) holds within a readiness.
-  const READINESS_RANK: Record<string, number> = { urgent: 0, hot: 1, normal: 2, cold: 3 };
-  const rank = (id: string) => READINESS_RANK[metricsById[id]?.readiness ?? ""] ?? 4;
+  const READINESS_RANK: Record<string, number> = { urgent: 0, hot: 1, normal: 2, cold: 3, corporate: 4 };
+  const rank = (id: string) => READINESS_RANK[metricsById[id]?.readiness ?? ""] ?? 5;
   const rows = [...fetched].sort((a, b) => (a.tier ?? "~").localeCompare(b.tier ?? "~") || rank(a.account_id) - rank(b.account_id));
 
   const byTier: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };

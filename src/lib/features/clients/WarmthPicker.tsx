@@ -9,6 +9,7 @@ const LEVELS = [
   { value: "hot", label: "Hot" },
   { value: "normal", label: "Normal" },
   { value: "cold", label: "Cold" },
+  { value: "corporate", label: "Corporate" },
 ] as const;
 
 /** Stroke icons for the four readiness levels, drawn on a 24 grid. */
@@ -33,6 +34,13 @@ export function ReadinessIcon({ level, size = 16 }: { level: string; size?: numb
         <path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" />
       </svg>
     );
+  if (level === "corporate")
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M15 9.6a3.6 3.6 0 1 0 0 4.8" />
+      </svg>
+    );
   return (
     <svg {...common}>
       <path d="M5 12h14" />
@@ -40,7 +48,7 @@ export function ReadinessIcon({ level, size = 16 }: { level: string; size?: numb
   );
 }
 
-export const READINESS_LEVELS = ["urgent", "hot", "normal", "cold"] as const;
+export const READINESS_LEVELS = ["urgent", "hot", "normal", "cold", "corporate"] as const;
 
 /** Four tappable readiness buttons, coloured like the map. One tap saves. Icon only; the name is the tooltip. */
 export function ReadinessButtons({

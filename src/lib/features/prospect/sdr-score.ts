@@ -38,7 +38,7 @@
  * own capture text. Nothing here calls an LLM or stores a score.
  */
 
-export type Readiness = "urgent" | "hot" | "normal" | "cold";
+export type Readiness = "urgent" | "hot" | "normal" | "cold" | "corporate";
 
 /** The columns the potential and the score read off an account. */
 export type ScoreInput = {
