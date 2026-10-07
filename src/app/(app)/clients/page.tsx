@@ -17,7 +17,7 @@ import {
   listPipeline,
 } from "../../../lib/features/clients/dal";
 import { MetricCell } from "./MetricCell";
-import { Confidence, OpenBadge, TierChip, realLifecycle } from "../../../lib/features/clients/ui";
+import { OpenBadge, TierChip, realLifecycle } from "../../../lib/features/clients/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -197,7 +197,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <th className="px-4 py-2.5 text-right font-medium">Supp %</th>
                   <th className="px-4 py-2.5 text-right font-medium">Employees</th>
                   <th className="px-4 py-2.5 text-right font-medium">Stores/DM</th>
-                  <th className="px-4 py-2.5 font-medium">Known</th>
                   <th className="px-4 py-2.5 text-right font-medium">Engagement</th>
                 </tr>
               </thead>
@@ -230,9 +229,6 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                       </td>
                       <td className="px-4 py-2 text-right">
                         <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores per decision maker" />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Confidence value={r.fit_confidence} known={r.fit_inputs_known} total={r.fit_inputs_total} />
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#5B6560]">{r.engagement?.toFixed(0) ?? "-"}</td>
                     </tr>

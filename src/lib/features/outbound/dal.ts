@@ -8,6 +8,7 @@
  * as lib/features/prospect/dal.ts.
  */
 import "server-only";
+import { currentUser } from "../../core/user";
 import { ASK_COMPOSED_PLAY, normalizeAsk, type ComposedAsk } from "./compose";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
@@ -31,10 +32,20 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000
 
 async function sbGet<T>(table: string, params: URLSearchParams): Promise<T[]> {
   if (!isConfigured()) return [];
-  const res = await fetchWithTimeout(`${SB_URL}/rest/v1/${table}?${params}`, {
+  const url = `${SB_URL}/rest/v1/${table}?${params}`;
+  const init: RequestInit = {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Accept: "application/json" },
     cache: "no-store",
-  });
+  };
+  // One retry on a timeout, a dropped connection or a 5xx: a read that fails
+  // once should not empty a rep's queue.
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(url, init);
+    if (res.status >= 500) res = await fetchWithTimeout(url, init);
+  } catch {
+    res = await fetchWithTimeout(url, init);
+  }
   if (!res.ok) throw new Error(`Supabase ${table} -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return (await res.json()) as T[];
 }
@@ -90,10 +101,27 @@ export type Draft = {
  * being treated as "no hurry".
  */
 export async function listPendingDrafts(limit = 100): Promise<Draft[]> {
-  const rows = await sbGet<Draft>(
+  // Each rep sees the drafts for accounts in their own HubSpot book. A draft
+  // with no account is Juan's (the original single-rep queue).
+  const me = await currentUser();
+  const scoped = await sbGet<Draft & { nb_accounts?: unknown }>(
     "nb_outbound_drafts",
-    new URLSearchParams({ select: "*", status: "eq.pending", order: "created_at.desc", limit: String(limit) }),
+    new URLSearchParams({
+      select: "*,nb_accounts!inner(hubspot_owner_id)",
+      status: "eq.pending",
+      "nb_accounts.hubspot_owner_id": `eq.${me.ownerId}`,
+      order: "created_at.desc",
+      limit: String(limit),
+    }),
   );
+  const loose =
+    me.id === "juan"
+      ? await sbGet<Draft>(
+          "nb_outbound_drafts",
+          new URLSearchParams({ select: "*", status: "eq.pending", account_id: "is.null", order: "created_at.desc", limit: String(limit) }),
+        )
+      : [];
+  const rows = [...scoped.map(({ nb_accounts: _o, ...d }) => d as Draft), ...loose];
   const rank = (d: Draft) => (typeof d.urgency === "number" ? d.urgency : -1);
   return [...rows].sort((a, b) => rank(b) - rank(a));
 }
@@ -122,6 +150,8 @@ export async function getVoiceContext(accountId: string): Promise<{
   lessons: { lesson: string; before: string | null; after: string | null; seen: number }[];
   pairs: { draft: string; sent: string }[];
 }> {
+  // The voice tables are built from Juan's own rewrites; they say nothing about another rep.
+  if ((await currentUser()).id !== "juan") return { lessons: [], pairs: [] };
   try {
     type L = { lesson: string; before_quote: string | null; after_quote: string | null; seen_count: number };
     type P = { draft: string; sent: string; account_id: string | null };
@@ -187,8 +217,21 @@ export async function insertAskDraft(input: {
  * the OS cannot verify a send. It only records that Juan says he did.
  */
 export async function setDraftStatus(id: string, status: "sent" | "dismissed"): Promise<Draft> {
+  await assertMyDraft(id);
   const patch: Record<string, unknown> = { status };
   if (status === "sent") patch.sent_at = new Date().toISOString();
   const [row] = await sbWrite<Draft>("nb_outbound_drafts", "PATCH", patch, new URLSearchParams({ id: `eq.${id}` }));
   return row;
+}
+
+/** A rep may only decide a draft that is in their own queue. */
+export async function assertMyDraft(id: string): Promise<void> {
+  const me = await currentUser();
+  const [d] = await sbGet<{ account_id: string | null; nb_accounts?: { hubspot_owner_id: string | null } | null }>(
+    "nb_outbound_drafts",
+    new URLSearchParams({ select: "account_id,nb_accounts(hubspot_owner_id)", id: `eq.${id}`, limit: "1" }),
+  );
+  if (!d) throw new Error("That draft is gone.");
+  const owner = d.nb_accounts?.hubspot_owner_id ?? null;
+  if (d.account_id ? owner !== null && owner !== me.ownerId : me.id !== "juan") throw new Error("That draft is not in your queue.");
 }

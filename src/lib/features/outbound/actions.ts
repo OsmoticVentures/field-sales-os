@@ -13,6 +13,7 @@
  * the Outbound screen's fallback.
  */
 import "server-only";
+import { myOwnerId } from "../../core/user";
 import { getClientAccount, listClientContacts } from "../clients/dal";
 import { asksCollide, composeAsk } from "./compose";
 import { getVoiceContext, insertAskDraft, listAskKeys } from "./dal";
@@ -29,6 +30,9 @@ export async function loadAskInputs(accountId: string) {
     listAskKeys(accountId),
     getVoiceContext(accountId),
   ]);
+  // A rep drafts only for accounts in their own book (an unowned account is open to both).
+  const owner = account?.hubspot_owner_id ?? null;
+  const mine = !account || owner === null || owner === (await myOwnerId());
   const contacts = contactRows
     .map((c) => ({
       id: c.id,
@@ -37,7 +41,7 @@ export async function loadAskInputs(accountId: string) {
       email: c.email,
     }))
     .filter((c) => c.name);
-  return { account, contacts, alreadyFiled, voice };
+  return { account: mine ? account : null, contacts, alreadyFiled, voice };
 }
 
 /**

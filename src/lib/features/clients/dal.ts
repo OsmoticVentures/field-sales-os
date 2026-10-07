@@ -150,6 +150,7 @@ export async function listPipeline(): Promise<{ deals: Deal[]; stale: StaleDeal[
 
 export type ClientAccount = {
   id: string;
+  hubspot_owner_id?: string | null;
   name: string;
   channel: string | null;
   street: string | null;

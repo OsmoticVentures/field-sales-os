@@ -68,7 +68,29 @@ export type ComposeAskInput = {
   account: AskAccount;
   contacts: AskContact[];
   voice?: VoiceContext;
+  /** Whose email this is. Absent means Juan, the original author of every rule here. */
+  rep?: Rep;
 };
+
+/** The rep an email is written for: the name it is signed with and the territory it speaks from. */
+export type Rep = { first: string; full: string; region: string };
+export const JUAN: Rep = { first: "Juan", full: "Juan Arenas", region: "Southern California" };
+const REGIONS: Record<string, string> = { juan: "Southern California", kyle: "Northern California" };
+
+/** The signed-in rep. A request with no rep behind it (a script) is Juan's. */
+export async function currentRep(): Promise<Rep> {
+  try {
+    const { currentUser } = await import("../../core/user");
+    const u = await currentUser();
+    const first = u.name.split(/\s+/)[0];
+    return { first, full: u.name, region: REGIONS[u.id] ?? "California" };
+  } catch {
+    return JUAN;
+  }
+}
+
+/** A typed-out block for either rep ("Kyle Maxwell", "Juan Arenas"): the mail client adds it. */
+const REP_BLOCK = /^\s*(kyle\s+maxwell[\w\s.]{0,20})\s*$/i;
 
 /** Facts Juan wrote in his own sent mail and approved as a source, 2026-09-23.
  *  Source text for the number check, like the note. */
@@ -216,7 +238,7 @@ function bodyWithoutFrame(body: string): string {
   while (lines.length && (!lines[0].trim() || /^\s*(hi|hello|hey|hola|buenos)\b/i.test(lines[0]))) lines.shift();
   while (lines.length) {
     const last = lines[lines.length - 1].trim();
-    if (!last || /^(juan|thanks|thank you|talk soon|best|regards)[,.]?$/i.test(last) || SIGNATURE_BLOCK.test(last)) {
+    if (!last || /^(juan|kyle|thanks|thank you|talk soon|best|regards)[,.]?$/i.test(last) || SIGNATURE_BLOCK.test(last)) {
       lines.pop();
       continue;
     }
@@ -307,7 +329,7 @@ export function styleFailure(subject: string, body: string, sources: string[]): 
   // client adds the block; a draft that carries one sends it twice.
   const tail = body.trimEnd().split("\n").slice(-SIGNATURE_TAIL_LINES);
   for (const line of tail) {
-    if (SIGNATURE_BLOCK.test(line)) return `the draft used ${SIGNATURE_WHY}`;
+    if (SIGNATURE_BLOCK.test(line) || REP_BLOCK.test(line)) return `the draft used ${SIGNATURE_WHY}`;
   }
 
   if (body.length > BODY_LIMIT) return BODY_LIMIT_WHY;
@@ -370,8 +392,8 @@ const COMPOSE_TOOL = {
   },
 };
 
-function systemPrompt(): string {
-  return `You write one short follow-up email for Juan Arenas, NutriBiotic's Southern California field sales rep, from a note he typed after a visit or a call.
+function systemPrompt(rep: Rep): string {
+  return `You write one short follow-up email for ${rep.full}, NutriBiotic's ${rep.region} field sales rep, from a note he typed after a visit or a call.
 
 YOU MAY ONLY RE-WORD WHAT THE NOTE AND THE ACCOUNT RECORD ALREADY SAY. This is the hardest rule you have. You may re-order it, tighten it, and make it read like an email. You may never introduce a product, a price, a quantity, a date, a discount, a delivery time, a document, or a promise that is not already in the material given to you. If the note does not say when he is coming back, the email does not say when he is coming back. A number that is not in the note is an invention, and an invented number reaches a real customer.
 
@@ -381,7 +403,7 @@ WHAT IS NOT WRITABLE. Say so instead of writing something:
 - Writing it would need a fact nobody stated: a price, a sell-through figure, a document that does not exist.
 Being honest that it cannot be written is always better than writing something plausible. A vague ask is still writable if he can honestly acknowledge it and say he is putting it together, as long as he promises nothing specific that the note does not already contain.
 
-HOW HE WRITES. What follows is his own voice file, written from his own sent mail, with a real line of his behind every rule. Follow it over any instinct you have about how a sales email is supposed to read. Where it describes a habit, copy the habit, not the example sentence.
+HOW HE WRITES. What follows is the agency's voice file, written from the lead rep's sent mail, with a real line behind every rule.${rep.first === "Juan" ? "" : ` Where it says "Juan" or "I'm Juan", read ${rep.first}; the habits and structure are the house style, and you copy them, never a name or fact from them.`} Follow it over any instinct you have about how a sales email is supposed to read. Where it describes a habit, copy the habit, not the example sentence.
 
 ${EMAIL_VOICE}
 
@@ -389,7 +411,7 @@ WHAT THIS EMAIL IS FOR. Your habit is to write a report of his visit note. He re
 
 1. Name everyone on their team that the note or the contacts list names, in the first two lines: who connected you, who he met, who he is writing to. "Hi Honey and Susan," / "Following up after meeting with Carmen." / "Miriam told me this address is the way to reach Mehrdad."
 
-2. In a first email, say who he is in one line: "I'm Juan, your representative with NutriBiotic." Not in a reply.
+2. In a first email, say who he is in one line: "I'm ${rep.first}, your representative with NutriBiotic." Not in a reply.
 
 3. Turn account data into the relationship: "Your company has been trusting NutriBiotic for years." Never recite order dates or order history; those are his notes, not their news.
 
@@ -405,7 +427,7 @@ WHAT THIS EMAIL IS FOR. Your habit is to write a report of his visit note. He re
 
 9. Every sentence carries a fact from the note, a talking point, a concrete ask, or a specific kindness about that person. A sentence that would read the same for any account is filler and is refused. "Let me know what other information you need from me to move forward" is refused.
 
-10. Close with appreciation, "Thank you," or "Thanks," ("Gracias," to a Spanish-speaking buyer), then his first name alone, "Juan", on its own line. Never type "Juan Arenas Martin" or a company line: his mail client adds the block.
+10. Close with appreciation, "Thank you," or "Thanks," ("Gracias," to a Spanish-speaking buyer), then his first name alone, "${rep.first}", on its own line. Never type "${rep.full}" or a company line: his mail client adds the block.
 
 11. Greet by first name: "Hi Julie,". If no named person fits, open with "Hello,".
 
@@ -415,7 +437,7 @@ APPROVED TALKING POINTS:
 ${TALKING_POINTS.map((t) => `- (${t.topic}) ${t.line}`).join("\n")}`;
 }
 
-function userPrompt(input: ComposeAskInput): string {
+function userPrompt(input: ComposeAskInput, rep: Rep): string {
   const contacts = input.contacts.length
     ? input.contacts
         .map((c) => `${c.id} · ${c.name}${c.title ? `, ${c.title}` : ""}${c.email ? ` · ${c.email}` : " · no email on file"}`)
@@ -427,7 +449,7 @@ function userPrompt(input: ComposeAskInput): string {
 CONTACTS ON FILE (pick the recipient from these, by id):
 ${contacts}
 
-THE ASK, in Juan's own words:
+THE ASK, in ${rep.first}'s own words:
 ${input.ask}
 
 THE FULL NOTE the ask came from, which is the only other thing you know:
@@ -465,18 +487,25 @@ type ComposeOut = {
   body: string;
 };
 
-async function askModel(input: ComposeAskInput, correction: string | null): Promise<ComposeOut | string> {
-  const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userPrompt(input) }];
+async function askModel(input: ComposeAskInput, rep: Rep, correction: string | null): Promise<ComposeOut | string> {
+  const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userPrompt(input, rep) }];
   if (correction) messages.push({ role: "user", content: correction });
 
   try {
-    const msg = await client!.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 900,
-      system: systemPrompt(),
-      messages,
-      tools: [COMPOSE_TOOL],
-      tool_choice: { type: "tool", name: "write_outreach_email" },
+    const call = () =>
+      client!.messages.create({
+        model: "claude-sonnet-5",
+        max_tokens: 900,
+        system: systemPrompt(rep),
+        messages,
+        tools: [COMPOSE_TOOL],
+        tool_choice: { type: "tool", name: "write_outreach_email" },
+      });
+    // One more try on an overloaded, rate-limited or dropped call: a rep at a
+    // stop should not get "not written" for a blip.
+    const msg = await call().catch(async () => {
+      await new Promise((r) => setTimeout(r, 1500));
+      return call();
     });
     const toolUse = msg.content.find((b) => b.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") return "the draft came back empty";
@@ -496,6 +525,7 @@ async function askModel(input: ComposeAskInput, correction: string | null): Prom
  */
 export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
   if (!client) return { written: false, reason: "Not written: no model is configured on this deployment." };
+  const rep = input.rep ?? (await currentRep());
 
   const sources = [input.ask, input.noteText, input.account.name, input.account.city ?? "", TALKING_POINT_TEXT];
   const firstNames = input.contacts.map((c) => c.name.split(/\s+/)[0]).filter(Boolean);
@@ -504,7 +534,7 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
   // Two attempts at most: the first, and one correction when what was wrong
   // was the writing rather than the facts.
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const out = await askModel(input, correction);
+    const out = await askModel(input, rep, correction);
     if (typeof out === "string") return { written: false, reason: `Not written: ${out}.` };
 
     if (!out.writable || !out.body.trim() || !out.subject.trim()) {
@@ -520,7 +550,7 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
     const style = styleFailure(out.subject, out.body, sources);
     if (style) {
       if (attempt === 0) {
-        correction = `That draft was refused before Juan saw it, because ${style}. Write it again. Change only the writing: every fact in it is already settled by the note, and you may not add a new one to fill the gap. Cut the empty sentence rather than rephrasing it, and if what is left is two sentences, two sentences is the email.`;
+        correction = `That draft was refused before ${rep.first} saw it, because ${style}. Write it again. Change only the writing: every fact in it is already settled by the note, and you may not add a new one to fill the gap. Cut the empty sentence rather than rephrasing it, and if what is left is two sentences, two sentences is the email.`;
         continue;
       }
       return { written: false, reason: `Not written: ${style}.` };
