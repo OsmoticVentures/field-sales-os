@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { apiFetch } from "../../../lib/core/api";
+import { refreshAccount } from "../../../lib/core/phone-sync";
 
 /** One editable tier field. Saves on blur or Enter and the tier re-reads at once; red text in place when it fails. */
 export function MetricCell({ accountId, field, initial, label }: { accountId: string; field: string; initial: number | null; label: string }) {
@@ -24,6 +25,7 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
       if (!res.ok || !j.ok) throw new Error(j.error ?? `Could not save (${res.status}).`);
       setSaved(value);
       router.refresh();
+      void refreshAccount(accountId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
     }
@@ -66,6 +68,7 @@ export function ReadinessCell({ accountId, initial }: { accountId: string; initi
       });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || j.ok === false) throw new Error(j.error ?? `Could not save (${res.status}).`);
+      void refreshAccount(accountId);
     } catch (e) {
       setValue(prev);
       setError(e instanceof Error ? e.message : "Could not save.");
