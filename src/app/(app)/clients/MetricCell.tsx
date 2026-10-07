@@ -1,12 +1,14 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-/** One editable tier field. Saves on blur or Enter; red text in place when it fails. */
+/** One editable tier field. Saves on blur or Enter and the tier re-reads at once; red text in place when it fails. */
 export function MetricCell({ accountId, field, initial, label }: { accountId: string; field: string; initial: number | null; label: string }) {
   const [value, setValue] = useState(initial == null ? "" : String(initial));
   const [saved, setSaved] = useState(initial == null ? "" : String(initial));
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
 
   async function save() {
     if (value === saved) return;
@@ -20,6 +22,7 @@ export function MetricCell({ accountId, field, initial, label }: { accountId: st
       const j = await res.json();
       if (!res.ok || !j.ok) throw new Error(j.error ?? "Could not save.");
       setSaved(value);
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save.");
     }
