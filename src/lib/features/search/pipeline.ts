@@ -48,8 +48,10 @@ type Candidate = Json;
 
 const PLACES_URL = "https://places.googleapis.com/v1/places:searchText";
 const SOURCE = "nb_places_search";
-const OWNER_ID = "36242368";
-const OWNER_NAME = "Juan Arenas Martin";
+/** Whose book a landed prospect joins. Carried in the job's params from the
+ *  request that queued it (api/search), because the job may run later, from
+ *  another request, with nobody's cookie in scope. */
+export type LandOwner = { id: string; name: string };
 
 const FIELD_MASK = [
   "places.id",
@@ -1305,7 +1307,7 @@ export async function enrichCandidates(candidates: Candidate[], sitePages: numbe
   return summary;
 }
 
-function candidateRow(c: Candidate, category: string, now: string): [Json, string] {
+function candidateRow(c: Candidate, category: string, now: string, owner: LandOwner): [Json, string] {
   const foundBySearch = `google_places: category search '${category}'`;
   const website = c.website ?? null;
   const status: Json = {
@@ -1366,8 +1368,8 @@ function candidateRow(c: Candidate, category: string, now: string): [Json, strin
       area: c.area ?? null,
       lifecycle: "prospect",
       origin: "enriched",
-      owner_name: OWNER_NAME,
-      hubspot_owner_id: OWNER_ID,
+      owner_name: owner.name,
+      hubspot_owner_id: owner.id,
       hubspot_sync_eligible: false,
       source: SOURCE,
       source_external_id: c.places_id ?? null,
@@ -1411,7 +1413,7 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export async function landCandidates(
   candidates: Candidate[],
-  o: { category: string; calls_per_day?: number; start_date?: string | null; write?: boolean },
+  o: { category: string; calls_per_day?: number; start_date?: string | null; write?: boolean; owner: LandOwner },
   log: Log,
 ): Promise<Summary> {
   const category = o.category;
@@ -1449,7 +1451,7 @@ export async function landCandidates(
       log(`  skipping ${c.name}: already in the book (${why})`);
       continue;
     }
-    const [row, rowId] = candidateRow(c, category, now);
+    const [row, rowId] = candidateRow(c, category, now, o.owner);
     rows.push(row);
     landed.push({ ...c, id: rowId });
   }
@@ -1547,6 +1549,8 @@ export async function stageRequest(stage: string, req: Json, log: Log): Promise<
     return enrichCandidates([...((req.candidates as Candidate[]) || [])], intOr(req.site_pages, 4), log);
   }
   if (stage === "land") {
+    const owner = req._owner as LandOwner | undefined;
+    if (!owner?.id || !owner?.name) throw new PlacesError("this run does not say whose book it lands in; queue it again");
     return landCandidates(
       [...((req.candidates as Candidate[]) || [])],
       {
@@ -1554,6 +1558,7 @@ export async function stageRequest(stage: string, req: Json, log: Log): Promise<
         calls_per_day: intOr(req.calls_per_day, 15),
         start_date: (req.start_date as string) || null,
         write: Boolean(req.write),
+        owner: req._owner as LandOwner,
       },
       log,
     );

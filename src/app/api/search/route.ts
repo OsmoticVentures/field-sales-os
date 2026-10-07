@@ -32,6 +32,7 @@ import {
   type SearchJobStage,
 } from "../../../lib/features/search/dal";
 import { runSearchJob } from "../../../lib/features/search/worker";
+import { currentUser } from "../../../lib/core/user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -204,9 +205,10 @@ export async function POST(req: Request) {
     };
   }
 
+  const me = await currentUser();
   try {
     const { result: job, replayed } = await withIdempotency(`search:${key}`, () =>
-      createSearchJob(stage, params),
+      createSearchJob(stage, { ...params, _owner: { id: me.ownerId, name: me.ownerName } }),
     );
     after(() => runSearchJob(job));
     return Response.json(

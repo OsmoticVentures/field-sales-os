@@ -19,7 +19,9 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { readAuthCookies, readDeviceToken, readTrustStamp, setTrustStamp, verifyToken } from "./session";
+import { headers } from "next/headers";
+import { readAuthCookies, readDeviceToken, readSessionUser, readTrustStamp, setTrustStamp } from "./session";
+import { SCREENS, canSee, deviceRowId, deviceUser, userById } from "./user";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -71,9 +73,12 @@ const lookupTrusted = cache(async (claimed: string): Promise<string | null> => {
   const hit = trustedAt.get(claimed);
   if (hit && Date.now() - hit < TRUST_TTL_MS) return claimed;
 
+  /* The row must belong to the rep the token names, so a device enrolled by
+     one rep can never be read as the other's. */
   const params = new URLSearchParams({
     select: "id,last_seen_at",
-    id: `eq.${claimed}`,
+    id: `eq.${deviceRowId(claimed)}`,
+    user_id: `eq.${deviceUser(claimed)}`,
     revoked_at: "is.null",
     limit: "1",
   });
@@ -94,7 +99,7 @@ const lookupTrusted = cache(async (claimed: string): Promise<string | null> => {
 
   trustedAt.set(claimed, Date.now());
   void touch(rows[0].id, rows[0].last_seen_at).catch(() => {});
-  return rows[0].id;
+  return claimed;
 });
 
 /** The device a given remembered-device cookie value proves, or null. */
@@ -129,24 +134,54 @@ async function touch(id: string, lastSeen: string | null): Promise<void> {
  *  device. Reads the jar itself, first thing, inside the caller's await
  *  chain; the only memoized part is the database lookup behind it. */
 export async function hasAccess(): Promise<boolean> {
+  return (await access()) === "ok";
+}
+
+/** "none": no valid sign-in. "forbidden": signed in, but this screen is not
+ *  one of this rep's. Split so a screen can send the second case home rather
+ *  than back to a PIN that would only land them here again. */
+export async function access(): Promise<"ok" | "none" | "forbidden"> {
   const { session, device, trust } = await readAuthCookies();
-  if (await verifyToken(session)) return true;
+  const sessionUser = await readSessionUser(session);
+  if (sessionUser) return allowedHere(sessionUser);
 
   const claimed = await readDeviceToken(device);
-  if (!claimed) return false;
-  if ((await readTrustStamp(trust)) === claimed) return true;
+  if (!claimed) return "none";
+  if ((await readTrustStamp(trust)) === claimed) return allowedHere(deviceUser(claimed));
 
   const id = await lookupTrusted(claimed);
-  if (id === null) return false;
+  if (id === null) return "none";
   await setTrustStamp(id);
-  return true;
+  return allowedHere(deviceUser(claimed));
+}
+
+/**
+ * The second half of the gate: the rep still exists, and this screen or API
+ * segment is one of theirs. proxy.ts stamps the path into x-nb-path; a
+ * request that reaches here without it (a server render the proxy matched
+ * the same way) is judged on the user alone.
+ */
+async function allowedHere(userId: string): Promise<"ok" | "none" | "forbidden"> {
+  let user;
+  try {
+    user = await userById(userId);
+  } catch {
+    return "none"; // fail closed: an unreadable user table is not a yes
+  }
+  if (!user) return "none";
+  const path = (await headers()).get("x-nb-path") ?? "";
+  const seg = path.replace(/^\/(api\/)?/, "").split("/")[0];
+  if ((SCREENS as readonly string[]).includes(seg) && !canSee(user, seg)) return "forbidden";
+  return "ok";
 }
 
 /** For a screen that renders data on the server: the gate, or off to the
  *  PIN. Screens that load their data after opening need no call here, their
  *  API routes each ask hasAccess(), so those pages can be static. */
 export async function requireAccess(): Promise<void> {
-  if (!(await hasAccess())) redirect("/gate");
+  const a = await access();
+  if (a === "none") redirect("/gate");
+  if (a === "forbidden") redirect("/visit");
 }
 
 export async function liveDeviceCount(): Promise<number> {
@@ -164,7 +199,7 @@ export async function liveDeviceCount(): Promise<number> {
  * Returns the new id, or null when the cap is full, which the gate reports
  * rather than swallowing.
  */
-export async function enrollDevice(label: string, userAgent: string, limit: number): Promise<string | null> {
+export async function enrollDevice(label: string, userAgent: string, limit: number, userId: string): Promise<string | null> {
   if (!configured()) throw new Error("Cannot remember a device: no data source configured.");
   if ((await liveDeviceCount()) >= limit) return null;
 
@@ -174,6 +209,7 @@ export async function enrollDevice(label: string, userAgent: string, limit: numb
     headers: { Prefer: "return=minimal" },
     body: JSON.stringify({
       id,
+      user_id: userId,
       label: label.slice(0, 60),
       user_agent: userAgent.slice(0, 300),
       last_seen_at: new Date().toISOString(),

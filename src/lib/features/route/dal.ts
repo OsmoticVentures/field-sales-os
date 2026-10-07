@@ -12,6 +12,7 @@
  * module talks to Supabase directly, same pattern as lib/core/devices.ts.
  */
 import "server-only";
+import { currentUser, myOwnerId } from "../../core/user";
 import type {
   CallEntry,
   CustomStop,
@@ -29,7 +30,6 @@ const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 export const isConfigured = (): boolean => Boolean(SB_URL && SB_KEY);
 
-export const JUAN_OWNER_ID = "36242368";
 
 async function sb(table: string, query: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${SB_URL}/rest/v1/${table}?${query}`, {
@@ -54,7 +54,7 @@ async function raw<T>(table: string, query: string): Promise<T[]> {
 
 async function prefsPatch(patch: Record<string, unknown>): Promise<void> {
   if (!isConfigured()) throw new Error("No data source configured.");
-  const res = await sb("nb_ui_prefs", "id=eq.1", {
+  const res = await sb("nb_ui_prefs", `id=eq.${(await currentUser()).prefsId}`, {
     method: "PATCH",
     headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
@@ -63,7 +63,7 @@ async function prefsPatch(patch: Record<string, unknown>): Promise<void> {
 }
 
 async function prefsSelect<T extends Record<string, unknown>>(select: string): Promise<T | null> {
-  const rows = await raw<T>("nb_ui_prefs", `select=${select}&id=eq.1`);
+  const rows = await raw<T>("nb_ui_prefs", `select=${select}&id=eq.${(await currentUser()).prefsId}`);
   return rows[0] ?? null;
 }
 
@@ -83,7 +83,7 @@ export async function listOwnerAccounts(): Promise<RouteAccount[]> {
     raw<AccountRow>(
       "nb_accounts",
       "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness" +
-        `&hubspot_owner_id=eq.${JUAN_OWNER_ID}&lat=not.is.null&closed_at=is.null&order=name.asc`,
+        `&hubspot_owner_id=eq.${await myOwnerId()}&lat=not.is.null&closed_at=is.null&order=name.asc`,
     ),
     raw<{ account_id: string; potential_grade: Tier }>(
       "nb_v_account_potential",

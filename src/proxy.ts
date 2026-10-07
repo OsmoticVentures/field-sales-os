@@ -24,8 +24,15 @@ export async function proxy(req: NextRequest) {
 
   // The gate itself and every API route stay reachable while signed out:
   // the gate obviously needs to be, and api/auth is what mints the session.
+  /* The path every gate check judges a rep's screens against (devices.ts
+     allowedHere). Set here, overwriting anything the client sent, because a
+     route handler cannot see its own path any other way. */
+  const forward = new Headers(req.headers);
+  forward.set("x-nb-path", pathname);
+  const pass = () => NextResponse.next({ request: { headers: forward } });
+
   if (pathname === "/gate" || pathname.startsWith("/api/")) {
-    return NextResponse.next();
+    return pass();
   }
 
   // Home Screen manifests: iOS fetches one while installing a tile, and a
@@ -45,7 +52,7 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const res = NextResponse.next();
+  const res = pass();
   // This surface shows a third party's customer data on some routes and
   // Juan's own pay data on others; neither has business being indexed.
   res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");

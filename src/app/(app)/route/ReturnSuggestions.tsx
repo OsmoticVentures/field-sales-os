@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { sees, useMe } from "../../../lib/core/me";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn } from "@/lib/core/ui";
 import { laTodayIso } from "@/lib/features/route/field-week";
@@ -79,6 +80,7 @@ export function ReturnSuggestions({
   inRoute: Set<string>;
   onAddToDay: (a: RouteAccount) => void;
 }) {
+  const me = useMe();
   const [suggestions, setSuggestions] = useState<ReturnSuggestion[]>(
     () => peekJson<{ ok: boolean; suggestions?: ReturnSuggestion[] }>("/api/route/returns")?.suggestions ?? [],
   );
@@ -230,18 +232,20 @@ export function ReturnSuggestions({
                     <Ico name="phone" size={13} />
                     {busyId === s.accountId ? "Adding" : "SDR"}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWhyOpenId(s.accountId);
-                      setWhy("");
-                    }}
-                    className={actionBtn}
-                    title="Generate outbound"
-                  >
-                    <Ico name="mail" size={13} />
-                    Draft
-                  </button>
+                  {sees(me, "outbound") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWhyOpenId(s.accountId);
+                        setWhy("");
+                      }}
+                      className={actionBtn}
+                      title="Generate outbound"
+                    >
+                      <Ico name="mail" size={13} />
+                      Draft
+                    </button>
+                  )}
                 </div>
               )}
               {error && <span className="text-[12.5px] text-[#8A2E2E]">{error}</span>}

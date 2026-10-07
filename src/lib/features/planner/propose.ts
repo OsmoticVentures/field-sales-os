@@ -28,7 +28,6 @@
  */
 import "server-only";
 import {
-  JUAN_OWNER_ID,
   getAccountsByIds,
   getHomeEndpoint,
   getRouteEndpointsByDay,
@@ -40,6 +39,7 @@ import {
   listReturnContext,
 } from "../route/dal";
 import { getPriorityBook } from "../prospect/dal";
+import { myOwnerId } from "../../core/user";
 import { buildReturnSuggestions } from "../route/return-suggestions";
 import { planningHorizonDates } from "../route/field-week";
 import { haversineMiles } from "../route/route-optimize";
@@ -172,6 +172,7 @@ export async function proposeWeek(daysCount: number = DEFAULT_HORIZON_DAYS): Pro
   const routableIds = new Set(book.ranked.filter((r) => r.result.suppressed === null).map((r) => r.account.id));
 
   const directiveAccountIds = [...new Set(directives.map((d) => d.account_id))];
+  const myOwner = await myOwnerId();
   const rawFacts = await getAccountsByIds(directiveAccountIds);
   const factsById = new Map(rawFacts.map((f) => [f.id, f]));
 
@@ -182,7 +183,7 @@ export async function proposeWeek(daysCount: number = DEFAULT_HORIZON_DAYS): Pro
       unroutable.push({ accountId: id, name: id, reason: "no coordinates" });
       continue;
     }
-    if (f.hubspot_owner_id !== JUAN_OWNER_ID) continue; // not his account, not his to route
+    if (f.hubspot_owner_id !== myOwner) continue; // not his account, not his to route
     if (f.closed_at) unroutable.push({ accountId: id, name: f.name, reason: "closed" });
     else if (f.chain_excluded) unroutable.push({ accountId: id, name: f.name, reason: "corporate-gated" });
     else if (f.do_not_visit) unroutable.push({ accountId: id, name: f.name, reason: "do not visit" });

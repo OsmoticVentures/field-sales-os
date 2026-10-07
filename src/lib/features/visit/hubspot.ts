@@ -20,13 +20,15 @@
 import "server-only";
 import { payloadHash } from "./hubspot-hash";
 import { logHubspotCall } from "./dal";
+import { myOwnerId } from "../../core/user";
 
 const BASE = "https://api.hubapi.com";
 const BATCH_MAX = 100;
 
-/** Juan's HubSpot owner id. Hardcoded exactly as the source does: the scope
- *  guard must never widen by a config edit or a caller argument. */
-export const OWNER_ID = "36242368";
+/** The signed-in rep's HubSpot owner id (lib/core/user.ts). Resolved per
+ *  request from the session, never from a caller argument, so the scope guard
+ *  can only ever be the rep who is actually signed in. */
+export const ownerId = myOwnerId;
 
 const token = (): string => process.env.NB_HUBSPOT_TOKEN ?? "";
 
@@ -163,7 +165,8 @@ export type ScopeVerdict = { allowed: string[]; dropped: Array<{ id: string; own
 
 /** The live-portal owner-scope assertion. The Supabase read that produced
  *  the company id is the first assertion; this re-reads the live record. */
-export async function assertJuansBook(companyIds: string[]): Promise<ScopeVerdict> {
+export async function assertOwnBook(companyIds: string[]): Promise<ScopeVerdict> {
+  const OWNER_ID = await ownerId();
   const unique = Array.from(new Set(companyIds.filter(Boolean)));
   if (unique.length === 0) return { allowed: [], dropped: [] };
   const live = await batchRead("companies", unique, ["hubspot_owner_id"]);

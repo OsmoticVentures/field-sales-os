@@ -17,16 +17,12 @@
  * on purpose.
  */
 import "server-only";
+import { DEFAULT_USER, currentUser, myOwnerId } from "../../core/user";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 export const isConfigured = (): boolean => Boolean(SB_URL && SB_KEY);
-
-/** Juan's HubSpot owner id. Hardcoded, mirrors lib/hubspot.ts's OWNER_ID and
- *  the source dal.ts's JUAN_OWNER_ID: the scope guard must never widen by a
- *  config edit. */
-export const JUAN_OWNER_ID = "36242368";
 
 function randId(prefix: string): string {
   const bytes = new Uint8Array(8);
@@ -93,7 +89,7 @@ export type AccountCandidate = { id: string; name: string; city: string | null }
 export async function listAccountsForMatching(): Promise<AccountCandidate[]> {
   return query<AccountCandidate>("nb_accounts", {
     select: "id,name,city",
-    hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+    hubspot_owner_id: `eq.${await myOwnerId()}`,
     closed_at: "is.null",
     lifecycle: "neq.waypoint",
   });
@@ -107,10 +103,11 @@ export async function searchAccounts(q: string): Promise<AccountCandidate[]> {
   // with one of them must not break the search.
   const term = q.replace(/[*,()]/g, " ").replace(/\s+/g, " ").trim();
   if (!term) return [];
+  const owner = await myOwnerId();
   const byName = (t: string) =>
     query<AccountCandidate>("nb_accounts", {
       select: "id,name,city",
-      hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+      hubspot_owner_id: `eq.${owner}`,
       closed_at: "is.null",
       name: `ilike.*${t}*`,
       limit: "8",
@@ -250,6 +247,7 @@ export async function insertBareAccount(input: {
   /** Places-enriched columns, present only when a confident match was found. */
   enriched?: Record<string, unknown>;
 }): Promise<Account> {
+  const me = await currentUser();
   const [row] = await mutate<Account>("nb_accounts", "POST", {
     ...(input.enriched ?? {}),
     id: randId("a"),
@@ -257,8 +255,8 @@ export async function insertBareAccount(input: {
     city: input.city ?? (input.enriched?.city as string | undefined) ?? null,
     hubspot_company_id: input.hubspot_company_id ?? null,
     origin: "manual",
-    hubspot_owner_id: JUAN_OWNER_ID,
-    owner_name: "Juan Arenas Martin",
+    hubspot_owner_id: me.ownerId,
+    owner_name: me.ownerName,
   });
   return row;
 }
@@ -368,7 +366,7 @@ export type NewActivity = {
 export type Activity = { id: number; account_id: string; kind: string };
 
 export async function insertActivity(input: NewActivity): Promise<Activity> {
-  const [row] = await mutate<Activity>("nb_activities", "POST", { ...input, actor: "juan", origin: "manual" });
+  const [row] = await mutate<Activity>("nb_activities", "POST", { ...input, actor: (await currentUser()).id, origin: "manual" });
   return row;
 }
 
@@ -583,7 +581,7 @@ export async function setAccountChannel(accountId: string, channel: StoreTypeVal
     "nb_accounts",
     "PATCH",
     { channel },
-    { id: `eq.${accountId}`, hubspot_owner_id: `eq.${JUAN_OWNER_ID}`, select: "id" },
+    { id: `eq.${accountId}`, hubspot_owner_id: `eq.${await myOwnerId()}`, select: "id" },
   );
   if (rows.length === 0) throw new Error("That account is not in your book.");
 }
@@ -598,7 +596,9 @@ export async function attachTouchpointPhoto(
 ): Promise<{ attachments: TouchpointAttachment[] }> {
   if (!isConfigured()) throw new Error("Cannot attach a photo: no data source configured.");
   const { ensureFolder, uploadFile, asOwnerLink } = await import("../../shared/gdrive");
-  const root = await ensureFolder("NutriBiotic Field Notes", null);
+  // Each rep's photos in a folder of their own; Juan's keeps its original name.
+  const me = await currentUser();
+  const root = await ensureFolder(me.id === DEFAULT_USER ? "NutriBiotic Field Notes" : `NutriBiotic Field Notes · ${me.name}`, null);
   const day = await ensureFolder(new Date().toISOString().slice(0, 10), root.id);
   const ext = photo.filename.includes(".") ? photo.filename.slice(photo.filename.lastIndexOf(".")) : ".jpg";
   const name = `${touchpointId}_${Date.now().toString(36)}${ext}`;

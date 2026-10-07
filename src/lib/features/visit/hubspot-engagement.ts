@@ -29,7 +29,8 @@ import {
   type Contact,
   type EngagementActivity,
 } from "./dal";
-import { assertJuansBook, batchRead, OWNER_ID, request, type HubspotFeature } from "./hubspot";
+import { assertOwnBook, batchRead, request, type HubspotFeature } from "./hubspot";
+import { currentUser } from "../../core/user";
 
 export class Blocked extends Error {}
 
@@ -169,6 +170,7 @@ function typedProperties(
   activity: EngagementActivity,
   body: string,
   plainBody: string,
+  OWNER_ID: string,
 ): Record<string, string | number | null> {
   const ts = hsTimestamp(activity);
   const kind = activity.kind || "";
@@ -432,8 +434,9 @@ export async function runEngagement(
 
   const account = await getAccountForEngagement(activity.account_id);
   if (!account) throw new Blocked(`nb_accounts has no row with id ${activity.account_id}.`);
-  if ((account.owner_name ?? "") !== "Juan Arenas Martin") {
-    throw new Blocked(`account ${account.id} (${account.name}) is owned by '${account.owner_name || "(unowned)"}', not Juan Arenas Martin. Out of scope.`);
+  const me = await currentUser();
+  if ((account.owner_name ?? "") !== me.ownerName) {
+    throw new Blocked(`account ${account.id} (${account.name}) is owned by '${account.owner_name || "(unowned)"}', not ${me.ownerName}. Out of scope.`);
   }
   if (!account.hubspot_company_id) {
     throw new Blocked(`account ${account.id} (${account.name}) is not linked to a portal company. Linking is a human decision.`);
@@ -474,10 +477,10 @@ export async function runEngagement(
     return { status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype, lines, matchedNames, alreadyFiledId: null, wrote: false, noteId: null };
   }
 
-  const scope = await assertJuansBook([companyId]);
+  const scope = await assertOwnBook([companyId]);
   if (!scope.allowed.includes(companyId)) {
     const dropped = scope.dropped.find((d) => d.id === companyId);
-    throw new Blocked(`portal company ${companyId} (${account.name}) has hubspot_owner_id ${dropped?.owner ?? "(none)"}, not Juan's ${OWNER_ID}. DROPPED, nothing written.`);
+    throw new Blocked(`portal company ${companyId} (${account.name}) has hubspot_owner_id ${dropped?.owner ?? "(none)"}, not ${me.ownerName}'s ${me.ownerId}. DROPPED, nothing written.`);
   }
 
   await ensureHubspotContacts(companyId, matched, opts.feature);
@@ -492,7 +495,7 @@ export async function runEngagement(
       { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_COMPANY[otype] }] },
       ...contactIds.map((cid) => ({ to: { id: cid }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_CONTACT[otype] }] })),
     ];
-    const props = typedProperties(otype, activity, body, lines.join("\n"));
+    const props = typedProperties(otype, activity, body, lines.join("\n"), me.ownerId);
     const writeProps = Object.fromEntries(Object.entries(props).filter(([, v]) => v !== null));
     const res = await request<{ id?: string }>({
       method: "POST",

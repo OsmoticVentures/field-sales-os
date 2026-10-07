@@ -19,7 +19,6 @@ const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 export const isConfigured = (): boolean => Boolean(SB_URL && SB_KEY);
 
-const JUAN_OWNER_ID = "36242368";
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000): Promise<Response> {
   const controller = new AbortController();
@@ -90,9 +89,9 @@ export async function getEnrichAccount(id: string): Promise<EnrichAccount | null
 }
 
 /** Same scope assertion as headhunter.py's `in_scope`: this pipeline only
- *  ever runs against an open account in Juan's own book. */
-export function outOfScopeReason(acc: EnrichAccount): string | null {
-  if (String(acc.hubspot_owner_id || "") !== JUAN_OWNER_ID) return "This account is not in Juan's book.";
+ *  ever runs against an open account in the signed-in rep's own book. */
+export function outOfScopeReason(acc: EnrichAccount, ownerId: string): string | null {
+  if (String(acc.hubspot_owner_id || "") !== ownerId) return "This account is not in your book.";
   if (acc.origin === "synthetic") return "This is a seed row, not a real account.";
   if (acc.closed_at) return "This account is closed.";
   // Juan, 2026-09-30: a corporate chain gets no Head Hunter work on any tier.

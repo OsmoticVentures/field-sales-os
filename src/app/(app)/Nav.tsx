@@ -5,6 +5,13 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { warmJson } from "../../lib/core/api";
 import { Ico } from "../../lib/core/ui";
+import { sees, useMe } from "../../lib/core/me";
+
+/** Only the screens the signed-in rep has. */
+function useMine(items: NavItem[]): NavItem[] {
+  const me = useMe();
+  return items.filter((n) => sees(me, n.href.slice(1)));
+}
 
 /** The reads each screen makes as it mounts. A finger landing on its tab
  *  starts them, so the data is already on its way when the screen appears.
@@ -34,8 +41,9 @@ function isActive(pathname: string | null, href: string): boolean {
 
 /** The desktop sidebar list. One array (NAV in layout.tsx) feeds both this
  *  and TabBar below, so adding a port's route is a single edit. */
-export function SidebarNav({ items }: { items: NavItem[] }) {
+export function SidebarNav({ items: all }: { items: NavItem[] }) {
   const pathname = usePathname();
+  const items = useMine(all);
   return (
     <nav className="flex flex-col gap-0.5">
       {items.map((n) => {
@@ -72,8 +80,9 @@ const tabCls = (active: boolean) =>
  * anchored to the trigger), with a scrim because picking a screen is a
  * modal choice. Reduced motion collapses the slide to a fade.
  */
-export function TabBar({ items }: { items: NavItem[] }) {
+export function TabBar({ items: all }: { items: NavItem[] }) {
   const pathname = usePathname();
+  const items = useMine(all);
   const [moreOpen, setMoreOpen] = useState(false);
   const tabs = items.filter((n) => n.tab);
   const rest = items.filter((n) => !n.tab);

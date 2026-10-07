@@ -18,6 +18,7 @@
  * hand, no activity id" case the source app already supports.
  */
 import "server-only";
+import { DEFAULT_USER, currentUser, myOwnerId } from "../../core/user";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -25,7 +26,6 @@ const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 export const isConfigured = (): boolean => Boolean(SB_URL && SB_KEY);
 
 /** Juan's HubSpot owner id, the one territory this whole app scopes to. */
-const JUAN_OWNER_ID = "36242368";
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000): Promise<Response> {
   const controller = new AbortController();
@@ -232,7 +232,20 @@ export async function listSdrSchedule(days = 6): Promise<SdrScheduleItem[]> {
     "nb_sdr_schedule",
     new URLSearchParams({ select: "*", scheduled_date: `gte.${from}`, order: "scheduled_date.asc,created_at.asc", limit: "500" }),
   );
-  return rows.filter((r) => r.scheduled_date <= to);
+  const inWindow = rows.filter((r) => r.scheduled_date <= to);
+  /* Only calls on the signed-in rep's own accounts. A row with no account
+     predates the second rep and is Juan's. */
+  const me = await currentUser();
+  const ids = [...new Set(inWindow.map((r) => r.account_id).filter((v): v is string => Boolean(v)))];
+  const mine = new Set<string>();
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = await sbGet<{ id: string }>(
+      "nb_accounts",
+      new URLSearchParams({ select: "id", id: `in.(${ids.slice(i, i + 150).join(",")})`, hubspot_owner_id: `eq.${me.ownerId}` }),
+    );
+    for (const r of chunk) mine.add(r.id);
+  }
+  return inWindow.filter((r) => (r.account_id ? mine.has(r.account_id) : me.id === DEFAULT_USER));
 }
 
 /** The account's open SDR queue entries, soonest first. */
@@ -266,7 +279,7 @@ export async function insertSdrScheduleItem(input: NewSdrScheduleItem): Promise<
   if (input.account_id) {
     const owned = await sbGet<{ id: string }>(
       "nb_accounts",
-      new URLSearchParams({ select: "id", id: `eq.${input.account_id}`, hubspot_owner_id: `eq.${JUAN_OWNER_ID}`, limit: "1" }),
+      new URLSearchParams({ select: "id", id: `eq.${input.account_id}`, hubspot_owner_id: `eq.${await myOwnerId()}`, limit: "1" }),
     );
     if (!owned[0]) throw new Error("That account is not in Juan's book, nothing was scheduled.");
   }
@@ -336,7 +349,7 @@ export async function searchOwnedAccounts(
     "nb_accounts",
     new URLSearchParams({
       select: "id,name,city,phone,area",
-      hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+      hubspot_owner_id: `eq.${await myOwnerId()}`,
       closed_at: "is.null",
       name: `ilike.*${q}*`,
       order: "name.asc",
@@ -360,7 +373,7 @@ export async function searchOwnedContacts(
   const accountIds = [...new Set(hits.map((h) => h.account_id))];
   const accounts = await sbGet<{ id: string; name: string; city: string | null; phone: string | null }>(
     "nb_accounts",
-    new URLSearchParams({ select: "id,name,city,phone", id: `in.(${accountIds.join(",")})`, hubspot_owner_id: `eq.${JUAN_OWNER_ID}`, closed_at: "is.null" }),
+    new URLSearchParams({ select: "id,name,city,phone", id: `in.(${accountIds.join(",")})`, hubspot_owner_id: `eq.${await myOwnerId()}`, closed_at: "is.null" }),
   );
   const byId = new Map(accounts.map((a) => [a.id, a]));
   return hits
@@ -417,18 +430,21 @@ export type PriorityBook = {
  * (invalidatePriorityBook).
  */
 const BOOK_TTL_MS = 10 * 60 * 1000;
-let bookMemo: { at: number; p: Promise<PriorityBook> } | null = null;
+/* One memo per rep: each rep's book is a different book. */
+const bookMemos = new Map<string, { at: number; p: Promise<PriorityBook> }>();
 
 export function invalidatePriorityBook(): void {
-  bookMemo = null;
+  bookMemos.clear();
 }
 
-export function getPriorityBook(): Promise<PriorityBook> {
-  if (bookMemo && Date.now() - bookMemo.at < BOOK_TTL_MS) return bookMemo.p;
+export async function getPriorityBook(): Promise<PriorityBook> {
+  const owner = await myOwnerId();
+  const hit = bookMemos.get(owner);
+  if (hit && Date.now() - hit.at < BOOK_TTL_MS) return hit.p;
   const memo = { at: Date.now(), p: readPriorityBook() };
-  bookMemo = memo;
+  bookMemos.set(owner, memo);
   memo.p.catch(() => {
-    if (bookMemo === memo) bookMemo = null;
+    if (bookMemos.get(owner) === memo) bookMemos.delete(owner);
   });
   return memo.p;
 }
@@ -479,7 +495,7 @@ async function readPriorityBook(): Promise<PriorityBook> {
       new URLSearchParams({
         select:
           "id,name,lifecycle,phone,area,trailing_12m_revenue,lifetime_revenue,first_order_at,last_order_at,expected_reorder_days,places_status,closed_at,do_not_visit,readiness,channel,origin,store_type,potential_juan,potential_hq,locations_count,places_rating_count",
-        hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+        hubspot_owner_id: `eq.${await myOwnerId()}`,
         lifecycle: "neq.waypoint",
         closed_at: "is.null",
         chain_excluded: "eq.false",

@@ -6,22 +6,21 @@
  * lib/features/prospect/dal.ts's listPurchases.
  */
 import "server-only";
+import { myOwnerId } from "../../core/user";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 export const isConfigured = (): boolean => Boolean(SB_URL && SB_KEY);
 
-const JUAN_OWNER_ID = "36242368";
-
-/** Juan's working book: owned, not chain/practice-excluded, open, not a waypoint. */
-const BOOK = {
-  hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+/** The signed-in rep's working book: owned, not chain/practice-excluded, open, not a waypoint. */
+const book = async () => ({
+  hubspot_owner_id: `eq.${await myOwnerId()}`,
   chain_excluded: "eq.false",
   practice_excluded: "eq.false",
   closed_at: "is.null",
   lifecycle: "neq.waypoint",
-};
+});
 
 async function sbGet<T>(table: string, params: Record<string, string>): Promise<T[]> {
   if (!isConfigured()) return [];
@@ -56,7 +55,7 @@ export type TierRow = {
 export async function listClientAccounts(opts: { area?: string | null; sort?: "tier" | "engagement" } = {}): Promise<TierRow[]> {
   const params: Record<string, string> = {
     select: "*",
-    ...BOOK,
+    ...(await book()),
     order: opts.sort === "engagement" ? "engagement.desc.nullslast,tier.asc" : "tier.asc,fit_confidence.desc,fit.desc",
     limit: "500",
   };
@@ -104,7 +103,7 @@ export type StaleDeal = {
 };
 
 async function listTerritoryAccountIds(): Promise<Set<string>> {
-  const rows = await sbGet<{ id: string }>("nb_accounts", { select: "id", ...BOOK, limit: "2000" });
+  const rows = await sbGet<{ id: string }>("nb_accounts", { select: "id", ...(await book()), limit: "2000" });
   return new Set(rows.map((r) => r.id));
 }
 

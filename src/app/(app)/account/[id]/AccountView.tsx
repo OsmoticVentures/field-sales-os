@@ -22,6 +22,7 @@ import type { PurchaseLine, PurchaseOrder } from "../../../../lib/features/prosp
 import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/prospect/format";
 import { dayLabel, laTodayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
+import { sees, useMe } from "../../../../lib/core/me";
 
 const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
 
@@ -432,6 +433,7 @@ export function AccountView({
   routeDays: string[];
   routeDraftByDay: Record<string, RouteDraftEntry[]>;
 }) {
+  const me = useMe();
   const hasSummary = a.current_state || a.future_state || a.impact;
   const channels = [
     a.email && { href: outlookCompose(a.email), label: a.email, icon: "mail" },
@@ -491,7 +493,7 @@ export function AccountView({
         )}
         <AddToRoute accountId={a.id} days={routeDays} draftByDay={routeDraftByDay} />
         <AddToSdr accountId={a.id} />
-        <DraftOutreachButton accountId={a.id} />
+        {sees(me, "outbound") && <DraftOutreachButton accountId={a.id} />}
         <Link href={{ pathname: "/visit", query: { account: a.id, name: a.name } }} className={actionBtn}>
           <Ico name="plus" size={14} />
           Log a visit

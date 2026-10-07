@@ -9,12 +9,12 @@
  * is written, so a search no longer waits on Juan's Mac.
  */
 import "server-only";
+import { myOwnerId } from "../../core/user";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 const configured = (): boolean => Boolean(SB_URL && SB_KEY);
 
-const JUAN_OWNER_ID = "36242368";
 
 async function sbGet<T>(table: string, params: Record<string, string>): Promise<T[]> {
   if (!configured()) return [];
@@ -154,7 +154,7 @@ export async function listAccountsForMatching(): Promise<BookAccount[]> {
     "nb_v_account_tier",
     {
       select: "account_id,name,area,tier",
-      hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+      hubspot_owner_id: `eq.${await myOwnerId()}`,
       closed_at: "is.null",
       lifecycle: "neq.waypoint",
     },
@@ -168,7 +168,7 @@ export type BookPlace = { id: string; city: string | null; state: string | null 
 export async function listBookPlaces(): Promise<BookPlace[]> {
   return sbGet<BookPlace>("nb_accounts", {
     select: "id,city,state",
-    hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+    hubspot_owner_id: `eq.${await myOwnerId()}`,
     closed_at: "is.null",
   });
 }

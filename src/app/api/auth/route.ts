@@ -15,16 +15,17 @@ import {
   DEVICE_TTL,
   SESSION_TTL_SECONDS,
   LOCKOUT_MINUTES,
-  checkPin,
   lockRemainingMs,
   mintDeviceToken,
   mintToken,
+  readDeviceToken,
   registerFailure,
   registerSuccess,
   requestUserAgent,
   setTrustStamp,
 } from "../../../lib/core/session";
 import { deviceLabel, enrollDevice, trustedDeviceIdFrom } from "../../../lib/core/devices";
+import { deviceUser, userByPin } from "../../../lib/core/user";
 
 export async function POST(req: Request) {
   // Request-scoped APIs first, awaited directly in the handler: in Next 16
@@ -42,9 +43,9 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!process.env.NB_PIN || !process.env.NB_SESSION_SECRET) {
+  if (!process.env.NB_SESSION_SECRET) {
     return NextResponse.json(
-      { ok: false, error: "unconfigured", message: "NB_PIN and NB_SESSION_SECRET are not set." },
+      { ok: false, error: "unconfigured", message: "NB_SESSION_SECRET is not set." },
       { status: 503 },
     );
   }
@@ -61,7 +62,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
   }
 
-  if (!checkPin(pin)) {
+  let user;
+  try {
+    user = await userByPin(pin);
+  } catch {
+    return NextResponse.json({ ok: false, error: "unavailable", message: "Could not check the PIN. Try again." }, { status: 503 });
+  }
+  if (!user) {
     const { locked, left } = registerFailure();
     return NextResponse.json(
       {
@@ -82,24 +89,36 @@ export async function POST(req: Request) {
     sameSite: "lax" as const,
     path: "/nb",
   };
-  jar.set(COOKIE, await mintToken(), { ...opts, maxAge: SESSION_TTL_SECONDS });
+  jar.set(COOKIE, await mintToken(user.id), { ...opts, maxAge: SESSION_TTL_SECONDS });
+
+  /* A remembered-device cookie for the other rep must not outlive this
+     sign-in: once the session lapsed, it would quietly hand this browser back
+     to them. */
+  const prior = await readDeviceToken(jar.get(DEVICE_COOKIE)?.value);
+  if (prior && deviceUser(prior) !== user.id) {
+    jar.delete({ name: DEVICE_COOKIE, path: "/nb" });
+    jar.delete({ name: TRUST_COOKIE, path: "/nb" });
+  }
 
   // Remembering this device: possession of the PIN authorizes it, so this is
   // the only code path that may mint one.
   let remembered: "already" | "ok" | "full" | "off" | "error" = "off";
   if (remember) {
     try {
-      const existing = await trustedDeviceIdFrom(jar.get(DEVICE_COOKIE)?.value);
+      /* A device already remembered for THIS rep is refreshed; one remembered
+         for the other rep is left alone and this rep gets a slot of their own. */
+      const found = await trustedDeviceIdFrom(jar.get(DEVICE_COOKIE)?.value);
+      const existing = found && deviceUser(found) === user.id ? found : null;
       if (existing) {
-        jar.set(DEVICE_COOKIE, await mintDeviceToken(existing), { ...opts, maxAge: DEVICE_TTL });
+        jar.set(DEVICE_COOKIE, await mintDeviceToken(existing.split("~")[0], user.id), { ...opts, maxAge: DEVICE_TTL });
         remembered = "already";
         await setTrustStamp(existing);
       } else {
-        const id = await enrollDevice(deviceLabel(ua, surface), ua, DEVICE_LIMIT);
+        const id = await enrollDevice(`${user.name} · ${deviceLabel(ua, surface)}`, ua, DEVICE_LIMIT, user.id);
         if (id) {
-          jar.set(DEVICE_COOKIE, await mintDeviceToken(id), { ...opts, maxAge: DEVICE_TTL });
+          jar.set(DEVICE_COOKIE, await mintDeviceToken(id, user.id), { ...opts, maxAge: DEVICE_TTL });
           remembered = "ok";
-          await setTrustStamp(id);
+          await setTrustStamp(`${id}~${user.id}`);
         } else {
           remembered = "full";
         }
@@ -109,7 +128,7 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, remembered, device_limit: DEVICE_LIMIT });
+  return NextResponse.json({ ok: true, remembered, device_limit: DEVICE_LIMIT, user: { id: user.id, name: user.name } });
 }
 
 /** Sign out: clears the session and stops trusting this device. */

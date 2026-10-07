@@ -8,6 +8,7 @@
  * Juan types, same idiom as the source app. Cached 60 seconds here too.
  */
 import { hasAccess } from "../../../../lib/core/devices";
+import { myOwnerId } from "../../../../lib/core/user";
 import {
   listAccountsForMatching,
   listBookPeople,
@@ -21,18 +22,22 @@ export const dynamic = "force-dynamic";
 
 const CACHE_MS = 60_000;
 
-let cache: {
+/* One entry per rep: each rep's book is a different book. */
+type Entry = {
   at: number;
   rows: BookAccount[];
   where: Map<string, { city: string | null; state: string | null }>;
   people: BookPerson[];
-} | null = null;
+};
+const caches = new Map<string, Entry>();
 
 export async function GET() {
   if (!(await hasAccess())) {
     return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
 
+  const owner = await myOwnerId();
+  let cache = caches.get(owner);
   try {
     if (!cache || Date.now() - cache.at >= CACHE_MS) {
       const [rows, places, people] = await Promise.all([listAccountsForMatching(), listBookPlaces(), listBookPeople()]);
@@ -43,6 +48,7 @@ export async function GET() {
         where: new Map(places.map((p) => [p.id, { city: p.city, state: p.state }])),
         people: people.filter((p) => inBook.has(p.account_id)),
       };
+      caches.set(owner, cache);
     }
   } catch {
     return Response.json({ ok: false, error: "Could not read the book." }, { status: 502 });
@@ -55,8 +61,8 @@ export async function GET() {
     name: row.name,
     area: row.area,
     tier: row.tier,
-    city: cache!.where.get(row.id)?.city ?? null,
-    state: cache!.where.get(row.id)?.state ?? null,
+    city: cache.where.get(row.id)?.city ?? null,
+    state: cache.where.get(row.id)?.state ?? null,
   }));
   // One master list: every company, then every named person with their
   // company as the subtext. A person opens their company's account.

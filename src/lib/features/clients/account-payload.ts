@@ -13,6 +13,7 @@
  * client.
  */
 import "server-only";
+import { myOwnerId } from "../../core/user";
 import { getPriorityBook, listAccountSdrQueue, type PurchaseLine, type PurchaseOrder } from "../prospect/dal";
 import { getRouteStateByDay, isConfigured as routeConfigured } from "../route/dal";
 import { dayLabel } from "../route/field-week";
@@ -23,16 +24,14 @@ const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
 const configured = (): boolean => Boolean(SB_URL && SB_KEY);
 
-const JUAN_OWNER_ID = "36242368";
-
-/** Juan's working book, same filter as clients/dal.ts. */
-const BOOK = {
-  hubspot_owner_id: `eq.${JUAN_OWNER_ID}`,
+/** The signed-in rep's working book: owned, not chain/practice-excluded, open, not a waypoint. */
+const book = async () => ({
+  hubspot_owner_id: `eq.${await myOwnerId()}`,
   chain_excluded: "eq.false",
   practice_excluded: "eq.false",
   closed_at: "is.null",
   lifecycle: "neq.waypoint",
-};
+});
 
 /** Per client, the same caps the single-client reads always used. */
 const ACTIVITY_CAP = 60;
@@ -252,7 +251,7 @@ export async function readBookPayloads(): Promise<Record<string, AccountPayload>
   if (!configured()) return {};
   const rows: Row[] = [];
   for (let page = 0; page < 20; page++) {
-    const p = new URLSearchParams({ select: "*", ...BOOK, order: "id.asc", limit: "1000", offset: String(page * 1000) });
+    const p = new URLSearchParams({ select: "*", ...(await book()), order: "id.asc", limit: "1000", offset: String(page * 1000) });
     const batch = await sbGet<Row>("nb_accounts", p);
     rows.push(...batch);
     if (batch.length < 1000) break;

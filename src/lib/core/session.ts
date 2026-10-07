@@ -3,8 +3,8 @@
  * (portfolio/src/app/nutribiotic/lib/session.ts), same env var names, same
  * cookie shape, so the PIN Juan already uses keeps working.
  *
- * Single-user tool: a PIN plus a signed cookie is the whole model, no
- * accounts, no roles, no user table.
+ * Two reps, one PIN each (lib/core/user.ts, nb_users). The session cookie
+ * names the rep; nothing else about them rides in it.
  *
  *  - The cookie is SIGNED (HMAC-SHA256), unforgeable client-side, carries
  *    only an expiry, never the PIN.
@@ -13,8 +13,7 @@
  *  - Web Crypto only (no node:crypto), so this module runs in the proxy
  *    runtime as well as in route handlers.
  *
- * Env vars (set in Vercel, never committed):
- *   NB_PIN               the PIN itself
+ * Env var (set in Vercel, never committed):
  *   NB_SESSION_SECRET    signs the cookie
  */
 
@@ -64,10 +63,20 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-export async function mintToken(): Promise<string> {
+/** Signs "<userId>.<expiry>". A token minted before two reps shared the app
+ *  signs a bare expiry; it still verifies, and user.ts reads it as Juan's. */
+export async function mintToken(userId: string): Promise<string> {
   const exp = Date.now() + TTL_SECONDS * 1000;
-  const payload = String(exp);
+  const payload = `${userId}.${exp}`;
   return `${payload}.${await hmac(payload)}`;
+}
+
+/** The user a valid, unexpired session token names, or null. */
+export async function readSessionUser(token: string | undefined): Promise<string | null> {
+  if (!(await verifyToken(token))) return null;
+  const payload = token!.slice(0, token!.lastIndexOf("."));
+  const at = payload.lastIndexOf(".");
+  return at < 0 ? "juan" : payload.slice(0, at);
 }
 
 /** Verify a token's signature and expiry. Pure and dependency-free, so proxy
@@ -87,14 +96,14 @@ export async function verifyToken(token: string | undefined): Promise<boolean> {
   }
   if (!timingSafeEqual(sig, expected)) return false;
 
-  const exp = Number(payload);
+  const exp = Number(payload.slice(payload.lastIndexOf(".") + 1));
   return Number.isFinite(exp) && Date.now() < exp;
 }
 
-/** Mint a remembered-device token: signs `<deviceId>.<expiry>` so neither
- *  half can be edited. */
-export async function mintDeviceToken(deviceId: string): Promise<string> {
-  const payload = `${deviceId}.${Date.now() + DEVICE_TTL_SECONDS * 1000}`;
+/** Mint a remembered-device token: signs `<deviceId>~<userId>.<expiry>` so no
+ *  part can be edited, the rep least of all. */
+export async function mintDeviceToken(deviceId: string, userId: string): Promise<string> {
+  const payload = `${deviceId}~${userId}.${Date.now() + DEVICE_TTL_SECONDS * 1000}`;
   return `${payload}.${await hmac(payload)}`;
 }
 
@@ -233,12 +242,6 @@ export function registerFailure(): { locked: boolean; left: number } {
 export function registerSuccess(): void {
   attempts.count = 0;
   attempts.lockedUntil = 0;
-}
-
-export function checkPin(candidate: string): boolean {
-  const real = process.env.NB_PIN;
-  if (!real) return false;
-  return timingSafeEqual(candidate, real);
 }
 
 export const SESSION_TTL_SECONDS = TTL_SECONDS;

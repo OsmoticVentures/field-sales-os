@@ -39,6 +39,7 @@ import { personFromAccountName } from "./named-practitioner";
 import { runWebSearchPass } from "./websearch-pass";
 import { isDirectory } from "./html";
 import type { FilledField, FindContactsResult, FoundPerson, Lead, NotFoundField, Proposal, TierOutcome } from "./types";
+import { myOwnerId } from "../../core/user";
 
 /** Kept under /api/enrich/run's maxDuration (120s) with room to write. */
 export const FIND_CONTACTS_BUDGET_MS = 95_000;
@@ -97,7 +98,7 @@ function differentBusinessSignal(account: EnrichAccount, candidateName: string, 
 export async function runFindContacts(accountId: string): Promise<FindContactsResult> {
   const account = await getEnrichAccount(accountId);
   if (!account) return blocked(accountId, "Account not found.");
-  const scopeReason = outOfScopeReason(account);
+  const scopeReason = outOfScopeReason(account, await myOwnerId());
   if (scopeReason) return blocked(accountId, scopeReason, account.name);
 
   const existing = await listContacts(accountId);
