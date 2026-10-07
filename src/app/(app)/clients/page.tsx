@@ -184,9 +184,8 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                   <th className="px-4 py-2.5 font-medium">Account</th>
                   <th className="px-4 py-2.5 font-medium">State</th>
                   <th className="px-4 py-2.5 text-right font-medium">Shelves</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Supp %</th>
                   <th className="px-4 py-2.5 text-right font-medium">Employees</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Stores/DM</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Stores</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#EDEBE3]">
@@ -209,13 +208,10 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                         <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
                       </td>
                       <td className="px-4 py-2 text-right">
-                        <MetricCell accountId={r.account_id} field="supp_body_pct" initial={metricsById[r.account_id]?.supp_body_pct ?? null} label="Supplements and body care, percent of store" />
+                        <MetricCell accountId={r.account_id} field="employee_count" initial={metricsById[r.account_id]?.employee_count ?? null} label="Employees on supplements and body care" />
                       </td>
                       <td className="px-4 py-2 text-right">
-                        <MetricCell accountId={r.account_id} field="employee_count" initial={metricsById[r.account_id]?.employee_count ?? null} label="Total employees" />
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores per decision maker" />
+                        <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores" />
                       </td>
                     </tr>
                   );
