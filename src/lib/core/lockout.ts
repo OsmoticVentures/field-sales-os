@@ -1,8 +1,7 @@
 /**
- * PIN lockout shared by every serverless instance (nb_pin_attempts, migration
- * supabase/0005_pin_attempts.sql). Two counters: one per address (five tries, then fifteen
- * minutes), and one ceiling across every address, so spreading guesses over
- * many addresses still hits a wall.
+ * PIN hold shared by every serverless instance (nb_pin_attempts, migration
+ * supabase/0005_pin_attempts.sql). One counter per address: three wrong PINs
+ * hold that address for one minute, then it starts fresh.
  *
  * If the database cannot be reached, the old in-memory counter in session.ts
  * answers instead: a slower guesser is still slowed, and a rep is never locked
@@ -13,8 +12,6 @@ import { LOCKOUT_MAX, LOCKOUT_MINUTES, lockRemainingMs, registerFailure, registe
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
-const GLOBAL_KEY = "global";
-const GLOBAL_MAX = 30;
 
 export type LockState = { lockedMs: number };
 export type FailState = { locked: boolean; left: number };
@@ -41,7 +38,7 @@ export async function addressKey(h: Headers): Promise<string> {
 
 export async function lockState(key: string): Promise<LockState> {
   try {
-    const seconds = await rpc<number>("nb_pin_lock_remaining", { p_keys: [key, GLOBAL_KEY] });
+    const seconds = await rpc<number>("nb_pin_lock_remaining", { p_keys: [key] });
     return { lockedMs: Math.max(0, Number(seconds) || 0) * 1000 };
   } catch {
     return { lockedMs: lockRemainingMs() };
@@ -51,11 +48,8 @@ export async function lockState(key: string): Promise<LockState> {
 export async function recordFailure(key: string): Promise<FailState> {
   try {
     type Row = { attempts_left: number; locked_seconds: number };
-    const [mine, all] = await Promise.all([
-      rpc<Row[]>("nb_pin_fail", { p_key: key, p_max: LOCKOUT_MAX, p_minutes: LOCKOUT_MINUTES }),
-      rpc<Row[]>("nb_pin_fail", { p_key: GLOBAL_KEY, p_max: GLOBAL_MAX, p_minutes: LOCKOUT_MINUTES }),
-    ]);
-    const locked = (mine[0]?.locked_seconds ?? 0) > 0 || (all[0]?.locked_seconds ?? 0) > 0;
+    const mine = await rpc<Row[]>("nb_pin_fail", { p_key: key, p_max: LOCKOUT_MAX, p_minutes: LOCKOUT_MINUTES });
+    const locked = (mine[0]?.locked_seconds ?? 0) > 0;
     return { locked, left: locked ? 0 : (mine[0]?.attempts_left ?? 0) };
   } catch {
     return registerFailure();

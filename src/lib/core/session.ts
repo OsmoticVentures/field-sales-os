@@ -9,7 +9,7 @@
  *  - The cookie is SIGNED (HMAC-SHA256), unforgeable client-side, carries
  *    only an expiry, never the PIN.
  *  - PIN comparison is TIMING-SAFE.
- *  - Failed attempts are rate-limited with a lockout.
+ *  - Three wrong PINs in a row hold the gate for one minute.
  *  - Web Crypto only (no node:crypto), so this module runs in the proxy
  *    runtime as well as in route handlers.
  *
@@ -21,8 +21,8 @@ import { cookies, headers } from "next/headers";
 
 export const COOKIE = "nb_session";
 const TTL_SECONDS = 60 * 60 * 8; // 8h, about one working day
-const LOCK_MAX = 5;
-const LOCK_MINUTES = 15;
+const LOCK_MAX = 3;
+const LOCK_MINUTES = 1;
 
 /** The remembered-device cookie. Carries a device id, not just an expiry, so
  *  what it proves can be looked up and revoked (see lib/core/devices.ts). */

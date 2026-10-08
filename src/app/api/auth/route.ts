@@ -14,7 +14,6 @@ import {
   DEVICE_LIMIT,
   DEVICE_TTL,
   SESSION_TTL_SECONDS,
-  LOCKOUT_MINUTES,
   mintDeviceToken,
   mintToken,
   readDeviceToken,
@@ -38,7 +37,7 @@ export async function POST(req: Request) {
   const { lockedMs: lockMs } = await lockState(who);
   if (lockMs > 0) {
     return NextResponse.json(
-      { ok: false, error: "locked", message: `Too many attempts. Locked for about ${Math.ceil(lockMs / 60000)} more minutes.` },
+      { ok: false, error: "locked", message: `Too many attempts. Try again in ${Math.ceil(lockMs / 1000)} seconds.` },
       { status: 429 },
     );
   }
@@ -75,7 +74,7 @@ export async function POST(req: Request) {
       {
         ok: false,
         error: "bad_pin",
-        message: locked ? `Too many attempts. Locked for ${LOCKOUT_MINUTES} minutes.` : "Incorrect PIN.",
+        message: locked ? "Too many attempts. Try again in a minute." : "Incorrect PIN.",
         attempts_left: left,
         locked,
       },
