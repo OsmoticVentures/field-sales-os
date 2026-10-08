@@ -169,7 +169,7 @@ export function WarmthPicker({
               style={
                 value === l.value
                   ? { backgroundColor: READINESS_COLOR[l.value], color: "#fff" }
-                  : { backgroundColor: `${READINESS_COLOR[l.value]}1A`, color: READINESS_COLOR[l.value] }
+                  : { backgroundColor: "#EEF0EC", color: "#5B6560" }
               }
               className={`inline-flex items-center gap-1.5 rounded font-semibold transition-opacity hover:opacity-80 ${compact ? "h-8 px-2.5 text-[12px]" : "min-h-11 px-3 text-[13px]"}`}
             >
