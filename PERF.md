@@ -88,3 +88,19 @@ What stands out:
    phone (Google Maps loads as a script on Route and Search only).
 
 ## Changes
+
+### 1. Clients: one book read, the list drawn a page at a time
+
+- The list ships every row's data but draws the first 40 rows; the next 80
+  are drawn whenever the end of the list is within about two screens.
+  Order, values and the page's other text are unchanged (checked: the same
+  404 synthetic rows in the same order, header and weekly review text equal).
+- Hours, the four metrics and readiness come from one read of the book,
+  filtered by owner rather than by 500 ids, and it runs alongside the list.
+  The pipeline is filtered with the same read, so the separate 2,000-id read
+  is gone. The tier view and stale-deal view return only the columns drawn.
+
+| /nb/clients | cold ms | warm ms | response KB | db requests | db KB |
+|---|---|---|---|---|---|
+| before | 415 | 195 | 5,152 | 8 | 283 |
+| after | 105 | 33 | 558 | 6 | 169 |

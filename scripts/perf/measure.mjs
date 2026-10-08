@@ -41,7 +41,13 @@ await up(`http://127.0.0.1:${DB}/__meter`);
 const env = { ...process.env, NB_SUPABASE_URL: `http://127.0.0.1:${DB}`, NB_SUPABASE_SERVICE_ROLE_KEY: "fake", NB_SESSION_SECRET: SECRET, NB_PIN: "", PORT: String(PORT) };
 const results = [];
 for (const path of TARGETS) {
-  const app = spawn("node_modules/.bin/next", ["start", "-p", String(PORT)], { env, stdio: "ignore" });
+  try {
+    await fetch(`http://127.0.0.1:${PORT}/nb/api/health`);
+    throw new Error(`port ${PORT} is already serving; stop that server first`);
+  } catch (e) {
+    if (String(e).includes("already serving")) throw e;
+  }
+  const app = spawn("node_modules/.bin/next", ["start", "-p", String(PORT)], { env, stdio: "ignore", detached: true });
   await up(`http://127.0.0.1:${PORT}/nb/api/health`);
   await fetch(`http://127.0.0.1:${DB}/__meter`); // reset
   const get = async () => {
@@ -68,8 +74,10 @@ for (const path of TARGETS) {
     dbRequests: meter.length, dbBytes: meter.reduce((s, m) => s + m.bytes, 0), byTable,
     shownHash: createHash("sha256").update(shown).digest("hex").slice(0, 12),
   });
-  app.kill();
-  await sleep(300);
+  process.kill(-app.pid); // the whole group: next start forks the server
+  for (let i = 0; i < 50; i++) {
+    try { await fetch(`http://127.0.0.1:${PORT}/nb/api/health`); await sleep(100); } catch { break; }
+  }
 }
 db.kill();
 

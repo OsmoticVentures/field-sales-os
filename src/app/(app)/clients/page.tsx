@@ -8,16 +8,10 @@ import Link from "next/link";
 import { requireAccess } from "../../../lib/core/devices";
 import { myFlag } from "../../../lib/core/user";
 import { Card, PageHead } from "../../../lib/core/ui";
-import {
-  getAccountHoursMap,
-  getMetricsMap,
-  isConfigured,
-  listClientAccounts,
-  listClientAreas,
-  listPipeline,
-} from "../../../lib/features/clients/dal";
-import { MetricCell, ReadinessCell, TierCell } from "./MetricCell";
-import { OpenBadge, TierChip, realLifecycle } from "../../../lib/features/clients/ui";
+import { getBookFacts, isConfigured, listClientAccounts, listClientAreas, listPipeline } from "../../../lib/features/clients/dal";
+import { hoursStatus } from "../../../lib/features/prospect/hours";
+import { ClientsList, type ClientsRow } from "./ClientsList";
+import { TierChip, realLifecycle } from "../../../lib/features/clients/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -50,17 +44,17 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const sort = "tier";
   const noAreas = await myFlag("no-area-filters");
   const askedArea = noAreas ? null : (sp.area ?? null);
-  const [areas, pipeline, askedRows] = await Promise.all([
+  // One read of the book's per-account facts (hours, metrics, and the id set
+  // the pipeline is filtered to) runs alongside the list, not after it.
+  const facts = getBookFacts();
+  const [areas, pipeline, askedRows, { metrics: metricsById, hours: hoursById }] = await Promise.all([
     noAreas ? Promise.resolve([]) : listClientAreas(),
-    listPipeline(),
+    listPipeline(facts.then((f) => f.ids)),
     listClientAccounts({ area: askedArea, sort }),
+    facts,
   ]);
   const area = areas.find((a) => a.id === askedArea) ?? null;
   const fetched = (area?.id ?? null) === askedArea ? askedRows : await listClientAccounts({ area: null, sort });
-  const [hoursById, metricsById] = await Promise.all([
-    getAccountHoursMap(fetched.map((r) => r.account_id)),
-    getMetricsMap(fetched.map((r) => r.account_id)),
-  ]);
   // Tier first, then readiness inside each tier: urgent, hot, normal, cold, unset last.
   // Array.sort is stable, so the earlier order (best fit first) holds within a readiness.
   const READINESS_RANK: Record<string, number> = { urgent: 0, hot: 1, normal: 2, cold: 3, corporate: 4 };
@@ -68,6 +62,21 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   // Ungraded accounts go to the very bottom, below every letter.
   const tierRank = (t: string | null) => (t ? t.charCodeAt(0) : 999);
   const rows = [...fetched].sort((a, b) => tierRank(a.tier) - tierRank(b.tier) || rank(a.account_id) - rank(b.account_id));
+  const listRows: ClientsRow[] = rows.map((r) => {
+    const m = metricsById[r.account_id];
+    const open = hoursStatus(hoursById[r.account_id]);
+    return {
+      id: r.account_id,
+      name: r.name,
+      lifecycle: realLifecycle(r.lifecycle),
+      tier: r.tier,
+      readiness: m?.readiness ?? null,
+      shelf: m?.shelf_units ?? null,
+      employees: m?.employee_count ?? null,
+      stores: m?.stores_per_decision_maker ?? null,
+      open: open ? { open: open.open, label: open.label } : null,
+    };
+  });
 
   const byTier: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
   for (const r of rows) byTier[r.tier] = (byTier[r.tier] ?? 0) + 1;
@@ -161,82 +170,7 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
             </div>
           </div>
 
-          <ul className="divide-y divide-[#EDEBE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white md:hidden">
-            {rows.map((r) => (
-              <li key={r.account_id} className="px-4 py-3">
-                <Link prefetch={false} href={`/account/${r.account_id}`} className="block min-h-11">
-                  <span className="block truncate text-[15px] font-medium">{r.name}</span>
-                  <span className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[#8A928C]">
-                    <OpenBadge businessHours={hoursById[r.account_id]} dot />
-                    {realLifecycle(r.lifecycle) && <span>{realLifecycle(r.lifecycle)}</span>}
-                  </span>
-                </Link>
-                <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-2">
-                  <TierCell accountId={r.account_id} tier={r.tier} />
-                  <ReadinessCell accountId={r.account_id} initial={metricsById[r.account_id]?.readiness ?? null} />
-                </div>
-                <div className="mt-2 grid grid-cols-3 gap-3 text-[11px] uppercase tracking-[0.08em] text-[#8A928C]">
-                  <label className="flex flex-col gap-1">
-                    Shelves
-                    <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    Employees
-                    <MetricCell accountId={r.account_id} field="employee_count" initial={metricsById[r.account_id]?.employee_count ?? null} label="Employees on supplements and body care" />
-                  </label>
-                  <label className="flex flex-col gap-1">
-                    Stores
-                    <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores" />
-                  </label>
-                </div>
-              </li>
-            ))}
-          </ul>
-
-          <div className="hidden rounded-lg border border-[#E2DFD5] bg-white md:block">
-            <table className="w-full text-[13.5px]">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-[#8A928C] [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:border-b [&>th]:border-[#E2DFD5] [&>th]:bg-white">
-                  <th className="px-4 py-2.5 font-medium">OS tier</th>
-                  <th className="px-4 py-2.5 font-medium">Readiness</th>
-                  <th className="px-4 py-2.5 font-medium">Account</th>
-                  <th className="px-4 py-2.5 font-medium">State</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Shelves</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Employees</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Stores</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#EDEBE3]">
-                {rows.map((r) => {
-                  return (
-                    <tr key={r.account_id} className="transition-colors hover:bg-[#FAF9F5]">
-                      <td className="px-4 py-2.5">
-                        <TierCell accountId={r.account_id} tier={r.tier} />
-                      </td>
-                      <td className="px-4 py-2">
-                        <ReadinessCell accountId={r.account_id} initial={metricsById[r.account_id]?.readiness ?? null} />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Link prefetch={false} href={`/account/${r.account_id}`} className="font-medium underline-offset-2 hover:underline">
-                          {r.name}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-2.5 text-[#5B6560]">{realLifecycle(r.lifecycle)}</td>
-                      <td className="px-4 py-2 text-right">
-                        <MetricCell accountId={r.account_id} field="shelf_units" initial={metricsById[r.account_id]?.shelf_units ?? null} label="Shelf units (3 ft each)" />
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <MetricCell accountId={r.account_id} field="employee_count" initial={metricsById[r.account_id]?.employee_count ?? null} label="Employees on supplements and body care" />
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <MetricCell accountId={r.account_id} field="stores_per_decision_maker" initial={metricsById[r.account_id]?.stores_per_decision_maker ?? null} label="Stores" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ClientsList rows={listRows} />
 
           {pipeline.deals.length > 0 && pipeline.stale.length > 0 && (
             <section className="mt-8">

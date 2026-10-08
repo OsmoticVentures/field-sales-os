@@ -1,7 +1,7 @@
 /**
  * Data access for Clients (/clients) and the client view (/account/[id]).
  * Ported from the source app's lib/dal.ts: listAccounts, listAreas,
- * getAccountHoursMap, listDeals, listStaleDeals, listTerritoryAccountIds,
+ * getAccountHoursMap, listDeals, listStaleDeals, listTerritoryAccountIds
  * getAccount, listActivities, listContacts. Purchases reuse
  * lib/features/prospect/dal.ts's listPurchases.
  */
@@ -54,29 +54,53 @@ type TierFields = {
   area: string | null;
 };
 
-export async function listClientAccounts(opts: { area?: string | null; sort?: "tier" | "engagement" } = {}): Promise<TierRow[]> {
+/** Only the columns the Clients list draws; the order still runs on the view's
+ *  fit columns inside Postgres, they just never cross the wire. */
+export type ClientListRow = Pick<TierRow, "account_id" | "name" | "lifecycle" | "tier">;
+
+export async function listClientAccounts(opts: { area?: string | null; sort?: "tier" | "engagement" } = {}): Promise<ClientListRow[]> {
   const params: Record<string, string> = {
-    select: "*",
+    select: "account_id,name,lifecycle,tier",
     ...(await book()),
     order: opts.sort === "engagement" ? "engagement.desc.nullslast,tier.asc" : "tier.asc,fit_confidence.desc,fit.desc",
     limit: "500",
   };
   if (opts.area) params.area = `eq.${opts.area}`;
-  return sbGet<TierRow>("nb_v_account_tier", params);
+  return sbGet<ClientListRow>("nb_v_account_tier", params);
 }
 
 export const METRIC_FIELDS = ["shelf_units", "supp_body_pct", "employee_count", "stores_per_decision_maker"] as const;
 export type MetricField = (typeof METRIC_FIELDS)[number];
 export type Metrics = Record<MetricField, number | null> & { readiness: string | null };
 
-/** Juan's four hand-entered tier fields, per account. */
-export async function getMetricsMap(ids: string[]): Promise<Record<string, Metrics>> {
-  if (ids.length === 0) return {};
-  const rows = await sbGet<Metrics & { id: string }>("nb_accounts", {
-    select: `id,readiness,${METRIC_FIELDS.join(",")}`,
-    id: `in.(${ids.join(",")})`,
+export type BusinessHours = Record<string, string[][]>;
+
+/**
+ * Everything Clients needs per account in the rep's book besides the list
+ * itself, in one read: the four hand-entered tier fields, readiness and the
+ * opening hours, keyed by id, plus the id set the pipeline is filtered to.
+ * Filtered by the book rather than by a list of ids, so it runs alongside the
+ * list instead of after it, and the URL stays short.
+ */
+export type BookFacts = {
+  ids: Set<string>;
+  metrics: Record<string, Metrics>;
+  hours: Record<string, BusinessHours | null>;
+};
+
+export async function getBookFacts(): Promise<BookFacts> {
+  const rows = await sbGet<Metrics & { id: string; business_hours: BusinessHours | null }>("nb_accounts", {
+    select: `id,business_hours,readiness,${METRIC_FIELDS.join(",")}`,
+    ...(await book()),
+    limit: "2000",
   });
-  return Object.fromEntries(rows.map((r) => [r.id, r]));
+  const metrics: Record<string, Metrics> = {};
+  const hours: Record<string, BusinessHours | null> = {};
+  for (const { business_hours, ...m } of rows) {
+    metrics[m.id] = m;
+    hours[m.id] = business_hours;
+  }
+  return { ids: new Set(rows.map((r) => r.id)), metrics, hours };
 }
 
 /** Write one metric on an account inside the signed-in rep's own book. Blank clears it. */
@@ -104,17 +128,6 @@ export async function listClientAreas(): Promise<ClientArea[]> {
   return sbGet<ClientArea>("nb_territory_areas", { select: "id,label,color,account_count", order: "display_order.asc" });
 }
 
-export type BusinessHours = Record<string, string[][]>;
-
-export async function getAccountHoursMap(ids: string[]): Promise<Record<string, BusinessHours | null>> {
-  if (ids.length === 0) return {};
-  const rows = await sbGet<{ id: string; business_hours: BusinessHours | null }>("nb_accounts", {
-    select: "id,business_hours",
-    id: `in.(${ids.join(",")})`,
-  });
-  return Object.fromEntries(rows.map((a) => [a.id, a.business_hours]));
-}
-
 export type Deal = {
   id: string;
   account_id: string;
@@ -132,17 +145,17 @@ export type StaleDeal = {
   days_since_activity: number | null;
 };
 
-async function listTerritoryAccountIds(): Promise<Set<string>> {
-  const rows = await sbGet<{ id: string }>("nb_accounts", { select: "id", ...(await book()), limit: "2000" });
-  return new Set(rows.map((r) => r.id));
-}
-
-/** nb_deals and nb_v_pipeline_stale carry no owner, so both are filtered to Juan's book here. */
-export async function listPipeline(): Promise<{ deals: Deal[]; stale: StaleDeal[] }> {
+/** nb_deals and nb_v_pipeline_stale carry no owner, so both are filtered to
+ *  the rep's book (getBookFacts().ids) here. */
+export async function listPipeline(bookIds: Promise<Set<string>>): Promise<{ deals: Deal[]; stale: StaleDeal[] }> {
   const [deals, stale, ids] = await Promise.all([
     sbGet<Deal>("nb_deals", { select: "id,account_id,stage,next_step,next_step_date", order: "next_step_date.asc.nullslast", limit: "300" }),
-    sbGet<StaleDeal>("nb_v_pipeline_stale", { select: "*", order: "next_step_days_overdue.desc.nullslast", limit: "150" }),
-    listTerritoryAccountIds(),
+    sbGet<StaleDeal>("nb_v_pipeline_stale", {
+      select: "deal_id,account_id,account_name,stage,next_step_days_overdue,days_since_activity",
+      order: "next_step_days_overdue.desc.nullslast",
+      limit: "150",
+    }),
+    bookIds,
   ]);
   return {
     deals: deals.filter((d) => ids.has(d.account_id)),
