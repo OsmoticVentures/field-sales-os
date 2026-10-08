@@ -15,15 +15,13 @@ import {
   DEVICE_TTL,
   SESSION_TTL_SECONDS,
   LOCKOUT_MINUTES,
-  lockRemainingMs,
   mintDeviceToken,
   mintToken,
   readDeviceToken,
-  registerFailure,
-  registerSuccess,
   requestUserAgent,
   setTrustStamp,
 } from "../../../lib/core/session";
+import { addressKey, lockState, recordFailure, recordSuccess } from "../../../lib/core/lockout";
 import { deviceLabel, enrollDevice, trustedDeviceIdFrom } from "../../../lib/core/devices";
 import { deviceUser, userByPin } from "../../../lib/core/user";
 import { captureError } from "@/lib/core/errors";
@@ -36,7 +34,8 @@ export async function POST(req: Request) {
   const jar = await cookies();
   const ua = await requestUserAgent();
 
-  const lockMs = lockRemainingMs();
+  const who = await addressKey(req.headers);
+  const { lockedMs: lockMs } = await lockState(who);
   if (lockMs > 0) {
     return NextResponse.json(
       { ok: false, error: "locked", message: `Too many attempts. Locked for about ${Math.ceil(lockMs / 60000)} more minutes.` },
@@ -71,7 +70,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "unavailable", message: "Could not check the PIN. Try again." }, { status: 503 });
   }
   if (!user) {
-    const { locked, left } = registerFailure();
+    const { locked, left } = await recordFailure(who);
     return NextResponse.json(
       {
         ok: false,
@@ -84,7 +83,7 @@ export async function POST(req: Request) {
     );
   }
 
-  registerSuccess();
+  await recordSuccess(who);
   const opts = {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",

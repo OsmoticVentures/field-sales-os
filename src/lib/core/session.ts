@@ -218,9 +218,9 @@ export async function requestUserAgent(): Promise<string> {
 }
 
 /**
- * Lockout state. In-memory, which is the honest choice for a single-user
- * tool on serverless: it resets on cold start, a speed bump rather than a
- * vault, raising the cost of online brute force by orders of magnitude.
+ * In-memory lockout, the fallback only. The real counter is shared across
+ * instances in nb_pin_attempts (lib/core/lockout.ts); this one answers when
+ * the database cannot, and resets on cold start.
  */
 type Attempts = { count: number; lockedUntil: number };
 const attempts: Attempts = { count: 0, lockedUntil: 0 };
@@ -247,3 +247,4 @@ export function registerSuccess(): void {
 export const SESSION_TTL_SECONDS = TTL_SECONDS;
 export const DEVICE_TTL = DEVICE_TTL_SECONDS;
 export const LOCKOUT_MINUTES = LOCK_MINUTES;
+export const LOCKOUT_MAX = LOCK_MAX;
