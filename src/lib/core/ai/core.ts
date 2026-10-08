@@ -1,0 +1,422 @@
+/**
+ * The one way this app asks a model for anything. Every AI step is a fixed,
+ * code-controlled workflow (one call, a schema, a check), never an open agent
+ * loop, so each step can be made dependable on its own terms:
+ *
+ *   1. MODELS IN ONE PLACE. Each task names a tier; the tier names a primary
+ *      model and a fallback. Changing a model is one line in TIERS.
+ *   2. A BOUNDED RETRY BUDGET. At most three attempts and one deadline per
+ *      call. Only transient failures are retried (429, 5xx, overloaded, a
+ *      dropped connection). A permanent failure (a bad request, a bad key)
+ *      fails at once. An overloaded or unknown primary hands the next attempt
+ *      to the fallback model.
+ *   3. SCHEMA-VALIDATED OUTPUT. A task with a zod schema runs with structured
+ *      outputs (output_config.format), and the reply is parsed and validated
+ *      here. A reply that does not validate (cut off, refused, malformed)
+ *      becomes one corrective retry, then a thrown AiError: never silent bad
+ *      data.
+ *   4. A RUN RECORD. Every call, pass or fail, hands one record to `log` (the
+ *      server wiring writes it to nb_ai_runs for error analysis).
+ *
+ * PURE ON PURPOSE: no "server-only", no env reads, no relative imports, and
+ * the SDK is injected, so tests/ai-client.test.mts runs this file under plain
+ * node with a fake model. The server wiring is ./client.ts.
+ */
+import { createHash } from "node:crypto";
+import type Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import type { z } from "zod";
+
+// ---------------------------------------------------------------------------
+// the config: models, tiers, tasks
+// ---------------------------------------------------------------------------
+
+/** Current model ids (checked against the claude-api skill, 2026-10-08). No
+ *  date suffixes. `effort` says whether the model takes output_config.effort:
+ *  Claude Haiku 4.5 rejects it. */
+export const MODELS = {
+  "claude-sonnet-5-5": { effort: true },
+  "claude-sonnet-5": { effort: true },
+  "claude-haiku-5-5": { effort: true },
+  "claude-haiku-4-5": { effort: false },
+} as const;
+export type ModelId = keyof typeof MODELS;
+
+/** standard: reading a note, a page or a photo, and writing in his voice.
+ *  fast: a yes/no decision or a short suggestion list. */
+export const TIERS = {
+  standard: { primary: "claude-sonnet-5-5", fallback: "claude-sonnet-5" },
+  fast: { primary: "claude-haiku-5-5", fallback: "claude-haiku-4-5" },
+} as const satisfies Record<string, { primary: ModelId; fallback: ModelId }>;
+export type Tier = keyof typeof TIERS;
+
+export type Effort = "low" | "medium" | "high";
+
+/** Every AI step in the app. maxTokens covers thinking plus the reply (these
+ *  models think by default, and thinking counts against the cap). timeoutMs is
+ *  the whole call, retries included; a caller's own deadline can only shorten it. */
+export const TASKS = {
+  touchpoint_extract: { tier: "standard", effort: "low", maxTokens: 8000, timeoutMs: 40_000 },
+  outbound_decide: { tier: "fast", effort: "low", maxTokens: 2000, timeoutMs: 15_000 },
+  outbound_compose: { tier: "standard", effort: "low", maxTokens: 6000, timeoutMs: 40_000 },
+  enrich_site_people: { tier: "standard", effort: "low", maxTokens: 6000, timeoutMs: 30_000 },
+  enrich_websearch: { tier: "standard", effort: "low", maxTokens: 4000, timeoutMs: 35_000 },
+  enrich_websearch_extract: { tier: "standard", effort: "low", maxTokens: 4000, timeoutMs: 20_000 },
+  prospect_quick_enrich: { tier: "standard", effort: "low", maxTokens: 4000, timeoutMs: 25_000 },
+  expenses_classify: { tier: "standard", effort: "low", maxTokens: 3000, timeoutMs: 25_000 },
+  mileage_odometer: { tier: "standard", effort: "low", maxTokens: 2000, timeoutMs: 25_000 },
+  search_suggest_categories: { tier: "fast", effort: "low", maxTokens: 2000, timeoutMs: 15_000 },
+} as const satisfies Record<string, { tier: Tier; effort: Effort; maxTokens: number; timeoutMs: number }>;
+export type TaskName = keyof typeof TASKS;
+
+export const MAX_ATTEMPTS = 3;
+const MIN_ATTEMPT_MS = 4_000;
+const MAX_TOKENS_CEILING = 16_000;
+
+// ---------------------------------------------------------------------------
+// errors
+// ---------------------------------------------------------------------------
+
+export type AiErrorKind = "unconfigured" | "permanent" | "transient" | "timeout" | "invalid" | "refusal";
+
+/** What a caller catches. `message` is plain enough to show a rep. */
+export class AiError extends Error {
+  readonly kind: AiErrorKind;
+  readonly detail?: string;
+  constructor(kind: AiErrorKind, message: string, detail?: string) {
+    super(message);
+    this.name = "AiError";
+    this.kind = kind;
+    this.detail = detail;
+  }
+}
+
+type Failure = { retry: "same" | "fallback" | "never"; kind: AiErrorKind; detail: string; waitMs?: number };
+
+/** Read an SDK error (or anything thrown) into a retry decision. Duck-typed on
+ *  `status` and the class name so the fake client in the tests can throw the
+ *  same shapes the SDK does. */
+export function classifyError(err: unknown): Failure {
+  const e = err as { status?: unknown; name?: unknown; message?: unknown; headers?: unknown; error?: unknown };
+  const name = typeof e?.name === "string" ? e.name : "";
+  const detail = typeof e?.message === "string" ? e.message.slice(0, 300) : String(err).slice(0, 300);
+  if (name.includes("Timeout") || /timed? ?out/i.test(detail)) return { retry: "never", kind: "timeout", detail };
+  if (name.includes("Connection")) return { retry: "same", kind: "transient", detail };
+  const status = typeof e?.status === "number" ? e.status : null;
+  if (status === null) {
+    // Not an API error at all (a bug, an abort): retrying cannot help.
+    return { retry: "never", kind: "permanent", detail };
+  }
+  if (status === 529 || /overloaded/i.test(detail)) return { retry: "fallback", kind: "transient", detail };
+  if (status === 429) return { retry: "same", kind: "transient", detail, waitMs: retryAfterMs(e.headers) };
+  if (status === 408 || status === 409 || status >= 500) return { retry: "same", kind: "transient", detail };
+  // A model id the account cannot reach: the fallback can still answer.
+  if (status === 404) return { retry: "fallback", kind: "permanent", detail };
+  return { retry: "never", kind: "permanent", detail };
+}
+
+function retryAfterMs(headers: unknown): number | undefined {
+  const get = (k: string): string | null => {
+    if (!headers) return null;
+    if (typeof (headers as Headers).get === "function") return (headers as Headers).get(k);
+    const v = (headers as Record<string, unknown>)[k];
+    return typeof v === "string" ? v : null;
+  };
+  const s = Number(get("retry-after"));
+  return Number.isFinite(s) && s > 0 ? s * 1000 : undefined;
+}
+
+/** 0.5s, 1s, 2s, plus jitter, capped by whatever the server asked for. */
+export function backoffMs(attempt: number, serverAskedMs?: number, rand: () => number = Math.random): number {
+  const base = 500 * 2 ** Math.max(0, attempt - 1);
+  return Math.max(serverAskedMs ?? 0, Math.round(base + rand() * 250));
+}
+
+// ---------------------------------------------------------------------------
+// the run record
+// ---------------------------------------------------------------------------
+
+export type RunRecord = {
+  task: TaskName;
+  model: string;
+  ok: boolean;
+  /** "pass" when the reply validated, "fail" when it did not, "error" when no
+   *  reply came back at all, "text" for a call with no schema. */
+  validation: "pass" | "fail" | "error" | "text";
+  attempts: number;
+  fallback_used: boolean;
+  latency_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  stop_reason: string | null;
+  input_hash: string;
+  input_excerpt: string;
+  output_excerpt: string | null;
+  error: string | null;
+  actor: string | null;
+};
+
+export const EXCERPT_CHARS = { input: 1500, output: 3000 } as const;
+
+export function clip(s: string | null | undefined, n: number): string {
+  const t = (s ?? "").trim();
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+}
+
+/** Stable hash of what a task was asked: the same input always hashes the same,
+ *  so a run can be matched to its retries and to its side effects. */
+export function hashInput(...parts: unknown[]): string {
+  const h = createHash("sha256");
+  for (const p of parts) h.update(typeof p === "string" ? p : JSON.stringify(p ?? null)).update("\u0000");
+  return h.digest("hex").slice(0, 32);
+}
+
+// ---------------------------------------------------------------------------
+// the call
+// ---------------------------------------------------------------------------
+
+type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
+type Message = Anthropic.Message;
+
+export type Deps = {
+  /** client.messages.create, bound, with per-request options. */
+  create: (params: CreateParams, opts: { timeout: number; maxRetries: 0 }) => Promise<Message>;
+  log?: (rec: RunRecord) => Promise<void>;
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+};
+
+export type AiRequest<S extends z.ZodType | undefined> = {
+  task: TaskName;
+  /** A plain system prompt, or one split so the stable part is cached (put the
+   *  volatile part, a timestamp, in `tail`). */
+  system: string | { cached: string; tail?: string };
+  messages: Anthropic.MessageParam[];
+  schema?: S;
+  /** Server tools for a text call (web search). Never combined with a schema. */
+  tools?: Anthropic.ToolUnion[];
+  /** An absolute epoch-ms deadline from the caller's own time budget. */
+  deadline?: number;
+  /** Who asked (the rep id), for the run record. */
+  actor?: string | null;
+};
+
+export type AiResult<T> = {
+  data: T;
+  /** Every text block, joined: the whole answer of a text call. */
+  text: string;
+  /** The final message, for a caller that reads more than text (citations). */
+  message: Message;
+  model: string;
+  attempts: number;
+  fallbackUsed: boolean;
+};
+
+type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+function systemParam(system: AiRequest<undefined>["system"]): CreateParams["system"] {
+  if (typeof system === "string") return system;
+  const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: system.cached, cache_control: { type: "ephemeral" } }];
+  if (system.tail) blocks.push({ type: "text", text: system.tail });
+  return blocks;
+}
+
+function inputExcerpt(req: AiRequest<z.ZodType | undefined>): string {
+  const parts: string[] = [];
+  for (const m of req.messages) {
+    if (m.role !== "user") continue;
+    if (typeof m.content === "string") parts.push(m.content);
+    else for (const b of m.content) if (b.type === "text") parts.push(b.text);
+      else if (b.type === "image") parts.push("[image]");
+  }
+  return clip(parts.join("\n\n"), EXCERPT_CHARS.input);
+}
+
+function hashOfRequest(req: AiRequest<z.ZodType | undefined>): string {
+  const msgs = req.messages.map((m) =>
+    typeof m.content === "string"
+      ? m.content
+      : m.content.map((b) =>
+          b.type === "text" ? b.text : b.type === "image" && b.source.type === "base64" ? hashInput(b.source.data) : b.type,
+        ),
+  );
+  return hashInput(req.task, req.system, msgs);
+}
+
+/**
+ * Run one task. Returns validated data (or the text, for a call with no
+ * schema), or throws an AiError after the budget is spent.
+ */
+export async function runAi<S extends z.ZodType | undefined = undefined>(
+  deps: Deps,
+  req: AiRequest<S>,
+): Promise<AiResult<S extends z.ZodType ? z.infer<S> : string>> {
+  type Out = S extends z.ZodType ? z.infer<S> : string;
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const cfg = TASKS[req.task];
+  const tier = TIERS[cfg.tier];
+  const started = now();
+  const deadline = Math.min(started + cfg.timeoutMs, req.deadline ?? Infinity);
+  const format = req.schema ? zodOutputFormat(req.schema as unknown as Parameters<typeof zodOutputFormat>[0]) : null;
+
+  let model: ModelId = tier.primary;
+  let maxTokens: number = cfg.maxTokens;
+  let messages = req.messages;
+  let attempts = 0;
+  let fallbackUsed = false;
+  let correctedOnce = false;
+  let lastStop: string | null = null;
+  let lastText: string | null = null;
+  let lastError: AiError | null = null;
+  const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+  const toFallback = (): boolean => {
+    if (fallbackUsed) return false;
+    model = tier.fallback;
+    fallbackUsed = true;
+    return true;
+  };
+
+  const record = async (ok: boolean, validation: RunRecord["validation"], error: string | null) => {
+    if (!deps.log) return;
+    try {
+      await deps.log({
+        task: req.task,
+        model,
+        ok,
+        validation,
+        attempts,
+        fallback_used: fallbackUsed,
+        latency_ms: now() - started,
+        input_tokens: usage.input,
+        output_tokens: usage.output,
+        cache_read_tokens: usage.cacheRead,
+        cache_write_tokens: usage.cacheWrite,
+        stop_reason: lastStop,
+        input_hash: hashOfRequest(req),
+        input_excerpt: inputExcerpt(req),
+        output_excerpt: lastText === null ? null : clip(lastText, EXCERPT_CHARS.output),
+        error: error ? clip(error, 500) : null,
+        actor: req.actor ?? null,
+      });
+    } catch {
+      // A run record is for analysis; it never fails the step it describes.
+    }
+  };
+
+  while (attempts < MAX_ATTEMPTS) {
+    const remaining = deadline - now();
+    if (remaining < MIN_ATTEMPT_MS && attempts > 0) break;
+    attempts += 1;
+
+    const params: CreateParams = {
+      model,
+      max_tokens: maxTokens,
+      system: systemParam(req.system),
+      messages,
+      ...(req.tools ? { tools: req.tools } : {}),
+    };
+    const outputConfig: Anthropic.OutputConfig = {};
+    if (MODELS[model].effort) outputConfig.effort = cfg.effort;
+    if (format) outputConfig.format = { type: "json_schema", schema: format.schema };
+    if (Object.keys(outputConfig).length) params.output_config = outputConfig;
+
+    let msg: Message;
+    try {
+      msg = await deps.create(params, { timeout: Math.max(1_000, remaining), maxRetries: 0 });
+    } catch (err) {
+      const f = classifyError(err);
+      lastError = new AiError(f.kind, f.kind === "timeout" ? "The model ran out of time." : "The model could not answer just now.", f.detail);
+      if (f.retry === "never") break;
+      if (f.retry === "fallback" && !toFallback()) {
+        // Already on the fallback: a permanent failure ends it, an overload
+        // gets the one plain retry that is left.
+        if (f.kind === "permanent" || attempts >= MAX_ATTEMPTS) break;
+      } else if (f.retry === "same" && attempts >= 2) {
+        // A second transient failure on one model moves to the other.
+        toFallback();
+      }
+      const wait = backoffMs(attempts, f.waitMs);
+      if (now() + wait + MIN_ATTEMPT_MS > deadline) break;
+      await sleep(wait);
+      continue;
+    }
+
+    usage.input += msg.usage?.input_tokens ?? 0;
+    usage.output += msg.usage?.output_tokens ?? 0;
+    usage.cacheRead += msg.usage?.cache_read_input_tokens ?? 0;
+    usage.cacheWrite += msg.usage?.cache_creation_input_tokens ?? 0;
+    lastStop = msg.stop_reason ?? null;
+    const text = msg.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+    lastText = text;
+
+    if (msg.stop_reason === "refusal") {
+      lastError = new AiError("refusal", "The model declined this one.", "stop_reason refusal");
+      if (toFallback()) continue;
+      break;
+    }
+
+    if (!req.schema) {
+      if (msg.stop_reason === "max_tokens" && !text.trim()) {
+        lastError = new AiError("invalid", "The answer came back empty.", "max_tokens before any text");
+        maxTokens = Math.min(MAX_TOKENS_CEILING, maxTokens * 2);
+        continue;
+      }
+      await record(true, "text", null);
+      return { data: text as Out, text, message: msg, model, attempts, fallbackUsed };
+    }
+
+    const problem = validate(req.schema, text, msg.stop_reason);
+    if (problem.ok) {
+      await record(true, "pass", null);
+      return { data: problem.value as Out, text, message: msg, model, attempts, fallbackUsed };
+    }
+    lastError = new AiError("invalid", "The answer came back in a shape the app cannot use.", problem.issue);
+    if (correctedOnce) break;
+    correctedOnce = true;
+    if (msg.stop_reason === "max_tokens") {
+      maxTokens = Math.min(MAX_TOKENS_CEILING, maxTokens * 2);
+    } else {
+      // Append-only: the original turn stays as it was, the correction follows it.
+      messages = [
+        ...req.messages,
+        {
+          role: "user",
+          content: `Your previous answer could not be used: ${problem.issue}. Answer again with only the JSON object the schema asks for. Every rule above still holds; never fill a field the text does not support.`,
+        },
+      ];
+    }
+  }
+
+  const err = lastError ?? new AiError("timeout", "The model ran out of time.", "deadline reached before an attempt");
+  await record(false, err.kind === "invalid" || err.kind === "refusal" ? "fail" : "error", `${err.kind}: ${err.detail ?? err.message}`);
+  throw err;
+}
+
+/** Parse and check a structured reply. Exported for the offline evals. */
+export function validate<S extends z.ZodType>(
+  schema: S,
+  text: string,
+  stopReason: string | null,
+): { ok: true; value: z.infer<S> } | { ok: false; issue: string } {
+  if (stopReason === "max_tokens") return { ok: false, issue: "the answer was cut off before it finished" };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return { ok: false, issue: "the answer was not valid JSON" };
+  }
+  const parsed = schema.safeParse(raw);
+  if (parsed.success) return { ok: true, value: parsed.data };
+  const issues = parsed.error.issues
+    .slice(0, 4)
+    .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+    .join("; ");
+  return { ok: false, issue: `fields did not match the schema (${issues})` };
+}
