@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Fraunces } from "next/font/google";
 import { OutboxRunner } from "../lib/core/outbox-runner";
 import { stage } from "../lib/core/stage";
+import { ServiceWorkerRegister } from "../lib/core/sw-register";
 import "./globals.css";
 
 // Display-only, self-hosted at build time (next/font needs no extra
@@ -46,6 +47,7 @@ export default function RootLayout({
       <body>
         {children}
         <OutboxRunner />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );
