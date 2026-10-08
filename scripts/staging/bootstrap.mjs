@@ -90,7 +90,7 @@ if (!existsSync(NB_DIR)) die(`Migrations folder not found: ${NB_DIR}. Set STAGIN
  *  labels, never a customer, a contact, an order or a person. Inserts inside
  *  function bodies that only take parameters (voice_lessons, nb_app_errors)
  *  are listed too, since the scan cannot tell a body from a top-level row. */
-const SAFE_INSERT_TABLES = new Set(["nb_ui_prefs", "nb_search_groups", "voice_lessons", "nb_app_errors"]);
+const SAFE_INSERT_TABLES = new Set(["nb_ui_prefs", "nb_search_groups", "voice_lessons", "nb_app_errors", "nb_job_runner"]);
 
 /** Rewrites for migrations that carry a real row. Each must match exactly
  *  once, so a migration edited later stops the run instead of slipping past. */
