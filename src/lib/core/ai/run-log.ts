@@ -1,5 +1,6 @@
 /**
- * One row per AI call in nb_ai_runs (agency migration
+ * One row per AI call in nb_ai_runs (supabase/0006_ai_runs.sql, applied to
+ * production as agency migration
  * nutribiotic/supabase/migrations/0098_ai_runs.sql), for error analysis:
  * read the real runs, find the failure modes, fix the prompt or the check.
  * tests/evals/ reads them back offline.
