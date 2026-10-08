@@ -46,6 +46,7 @@ which project answered. `region_cutover.py measure` takes five calls.
 | When | Function | Database | DB read ms, median (range) | Note |
 |---|---|---|---|---|
 | Before, 2026-10-08 13:55 PT | yul1 | ca-central-1 | 35 (18 to 258, first read cold) | 18 reads, db_id 1868fa8c |
+| After cutover, 2026-10-08 16:02 PT | sfo1 | us-west-1 | 29 (16 to 133) | 15 reads |
 
 The DB read is a hop inside one region before and after, so it should stay
 about the same. The part that changes is the phone to the function: Southern
