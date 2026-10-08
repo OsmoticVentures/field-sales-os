@@ -6,51 +6,34 @@
  * A read that classifies/suggests and writes nothing, so it takes no
  * idempotency key, per PORTING.md.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { hasAccess } from "../../../../lib/core/devices";
 import { captureError } from "@/lib/core/errors";
+import { ai, aiConfigured, AiError } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-
-const SUGGEST_TOOL = {
-  name: "suggest_excluded_categories",
-  description:
-    "Suggest business categories that commonly show up as false positives in a Google Places sweep for one category, worth excluding from a field-sales prospecting search.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      suggestions: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            category: {
-              type: "string",
-              description: "A short, plain business category phrase to exclude, e.g. 'nail salon'.",
-            },
-            why: {
-              type: "string",
-              description:
-                "One short phrase on why it is a near-miss for this search, e.g. 'often shares Google's spa category but is not a wellness buyer'.",
-            },
-          },
-          required: ["category", "why"],
-        },
-        description: "3 to 8 category phrases worth excluding. Fewer, better ones over a padded list.",
-      },
-    },
-    required: ["suggestions"],
-  },
-};
+const SuggestSchema = z.object({
+  suggestions: z
+    .array(
+      z.object({
+        category: z.string().describe("A short, plain business category phrase to exclude, e.g. 'nail salon'."),
+        why: z
+          .string()
+          .describe(
+            "One short phrase on why it is a near-miss for this search, e.g. 'often shares Google's spa category but is not a wellness buyer'.",
+          ),
+      }),
+    )
+    .describe("3 to 8 category phrases worth excluding. Fewer, better ones over a padded list."),
+});
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) {
     return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
-  if (!client) {
+  if (!aiConfigured()) {
     return Response.json({ ok: false, error: "Suggestions are not configured." }, { status: 500 });
   }
 
@@ -70,9 +53,8 @@ export async function POST(req: Request) {
     : [];
 
   try {
-    const msg = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
+    const { data } = await ai({
+      task: "search_suggest_categories",
       system:
         "You help a field rep narrow a Google Places category sweep before it runs. He gives " +
         "you the category he is searching for (e.g. 'medical spa') and you name businesses OF A DIFFERENT " +
@@ -96,17 +78,14 @@ export async function POST(req: Request) {
           ],
         },
       ],
-      tools: [SUGGEST_TOOL],
-      tool_choice: { type: "tool", name: "suggest_excluded_categories" },
+      schema: SuggestSchema,
     });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") {
+    return Response.json({ ok: true, suggestions: data.suggestions });
+  } catch (err) {
+    if (err instanceof AiError && (err.kind === "invalid" || err.kind === "refusal")) {
       return Response.json({ ok: false, error: "Could not suggest anything for that category." }, { status: 422 });
     }
-    const input = toolUse.input as { suggestions?: { category: string; why: string }[] };
-    return Response.json({ ok: true, suggestions: input.suggestions ?? [] });
-  } catch (caught) {
-    captureError(caught, "/api/search/suggest-categories");
+    captureError(err, "/api/search/suggest-categories");
     return Response.json({ ok: false, error: "Suggestion failed." }, { status: 500 });
   }
 }

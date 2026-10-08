@@ -10,58 +10,47 @@
  * Drive/Sheets. Not a write, so it takes no idempotency key: nothing here
  * creates a row, a repeat call just costs another model call.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { hasAccess } from "../../../../lib/core/devices";
 import { captureError } from "@/lib/core/errors";
+import { ai, aiConfigured, AiError } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-
-const CLASSIFY_TOOL = {
-  name: "classify_expense_photo",
-  description: "Classify one field-expense photo and read only what is clearly legible.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      photo_type: {
-        type: "string",
-        enum: ["odometer", "receipt", "statement"],
-        description:
-          "odometer: a car dashboard/odometer display. receipt: a paper store receipt. statement: a bank/card app screenshot listing multiple charges.",
-      },
-      odometer_reading: { type: ["string", "null"], description: "The total odometer number, digits only (a decimal is normal). Null if not an odometer photo or unreadable." },
-      odometer_moment: {
-        type: ["string", "null"],
-        enum: ["start", "end", null],
-        description: "The colourful EV/battery-style cluster is the start of a drive, the plain dark odometer screen is the end. Null if unsure.",
-      },
-      merchant: { type: ["string", "null"], description: "Receipt only: the merchant name exactly as printed. Null if not a receipt or unreadable." },
-      amount: { type: ["string", "null"], description: "Receipt only: the total amount paid (not subtotal), digits only. Null if not a receipt or unreadable." },
-      date: { type: ["string", "null"], description: "Receipt only: the date printed on the receipt, YYYY-MM-DD. Null if not printed or unreadable." },
-      category: {
-        type: ["string", "null"],
-        enum: ["meals", "parking", "tolls", "fuel", "lodging", "supplies", "samples", "shipping", "other", null],
-        description: "Receipt only: what kind of expense this is, read off the merchant/items, not guessed from context. Null if not a receipt or unclear.",
-      },
-      city: { type: ["string", "null"], description: "Receipt only, parking category only: the city printed in the merchant's address, if any. Null otherwise." },
-      item_summary: {
-        type: ["string", "null"],
-        description:
-          "Receipt only, meals category only: the food itself in 1-3 plain words read off the line items (e.g. 'burger', 'chia pudding'), never a business reason. Null if not a meal receipt or the items aren't legible.",
-      },
-      confidence: { type: "string", enum: ["high", "medium", "low"] },
-    },
-    required: ["photo_type", "confidence"],
-  },
-};
+const ClassifySchema = z.object({
+  photo_type: z
+    .enum(["odometer", "receipt", "statement"])
+    .describe(
+      "odometer: a car dashboard/odometer display. receipt: a paper store receipt. statement: a bank/card app screenshot listing multiple charges.",
+    ),
+  odometer_reading: z.string().nullable().describe("The total odometer number, digits only (a decimal is normal). Null if not an odometer photo or unreadable."),
+  odometer_moment: z
+    .enum(["start", "end"])
+    .nullable()
+    .describe("The colourful EV/battery-style cluster is the start of a drive, the plain dark odometer screen is the end. Null if unsure."),
+  merchant: z.string().nullable().describe("Receipt only: the merchant name exactly as printed. Null if not a receipt or unreadable."),
+  amount: z.string().nullable().describe("Receipt only: the total amount paid (not subtotal), digits only. Null if not a receipt or unreadable."),
+  date: z.string().nullable().describe("Receipt only: the date printed on the receipt, YYYY-MM-DD. Null if not printed or unreadable."),
+  category: z
+    .enum(["meals", "parking", "tolls", "fuel", "lodging", "supplies", "samples", "shipping", "other"])
+    .nullable()
+    .describe("Receipt only: what kind of expense this is, read off the merchant/items, not guessed from context. Null if not a receipt or unclear."),
+  city: z.string().nullable().describe("Receipt only, parking category only: the city printed in the merchant's address, if any. Null otherwise."),
+  item_summary: z
+    .string()
+    .nullable()
+    .describe(
+      "Receipt only, meals category only: the food itself in 1-3 plain words read off the line items (e.g. 'burger', 'chia pudding'), never a business reason. Null if not a meal receipt or the items aren't legible.",
+    ),
+  confidence: z.enum(["high", "medium", "low"]),
+});
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) {
     return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
-  if (!client) {
+  if (!aiConfigured()) {
     return Response.json({ ok: false, error: "ANTHROPIC_API_KEY is not configured." }, { status: 500 });
   }
 
@@ -81,9 +70,8 @@ export async function POST(req: Request) {
   const base64 = Buffer.from(bytes).toString("base64");
 
   try {
-    const msg = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 500,
+    const { data } = await ai({
+      task: "expenses_classify",
       system:
         "You are sorting a field rep's expense photos, never reading a digit you are not sure of. " +
         "An unreadable field must come back null, never a plausible guess: this feeds a reimbursement " +
@@ -105,15 +93,13 @@ export async function POST(req: Request) {
           ],
         },
       ],
-      tools: [CLASSIFY_TOOL],
-      tool_choice: { type: "tool", name: "classify_expense_photo" },
+      schema: ClassifySchema,
     });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") {
+    return Response.json({ ok: true, suggestion: data });
+  } catch (err) {
+    if (err instanceof AiError && (err.kind === "invalid" || err.kind === "refusal")) {
       return Response.json({ ok: false, error: "Could not read that photo." }, { status: 422 });
     }
-    return Response.json({ ok: true, suggestion: toolUse.input });
-  } catch (err) {
     captureError(err, "/api/expenses/classify");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Classify failed." }, { status: 500 });
   }

@@ -11,41 +11,28 @@
  * Juan's own odometer, nowhere near a customer record or HubSpot, is a low
  * enough stakes write for the widget's own bearer token.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { getLastRouteOdo, setLastRouteOdo, setRouteMileageDay } from "../../../../lib/features/route/dal";
 import type { RouteMileageSide } from "../../../../lib/features/route/dal";
 import { fileTripFromLinks, uploadMileagePhoto } from "../../../../lib/shared/expenses";
 import { hasAccess } from "../../../../lib/core/devices";
 import { hasWidgetToken } from "../../../../lib/features/route/widget-auth";
 import { captureError } from "@/lib/core/errors";
+import { ai, aiConfigured } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-
-const READ_TOOL = {
-  name: "read_odometer",
-  description: "Report the total odometer reading visible in this dashboard photo.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      reading: {
-        type: ["string", "null"],
-        description: "The total odometer number, digits only. Null if not clearly legible, never a guess.",
-      },
-    },
-    required: ["reading"],
-  },
-};
+const ReadSchema = z.object({
+  reading: z.string().nullable().describe("The total odometer number, digits only. Null if not clearly legible, never a guess."),
+});
 
 async function readOdometer(bytes: ArrayBuffer, mimeType: string): Promise<string | null> {
-  if (!client) return null;
+  if (!aiConfigured()) return null;
   try {
     const base64 = Buffer.from(bytes).toString("base64");
-    const msg = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 200,
+    const { data } = await ai({
+      task: "mileage_odometer",
       system:
         "Read the total odometer number from this car dashboard photo. An unreadable or ambiguous digit means the " +
         "reading is null, never a plausible guess, this feeds a mileage reimbursement.",
@@ -58,12 +45,9 @@ async function readOdometer(bytes: ArrayBuffer, mimeType: string): Promise<strin
           ],
         },
       ],
-      tools: [READ_TOOL],
-      tool_choice: { type: "tool", name: "read_odometer" },
+      schema: ReadSchema,
     });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return null;
-    return (toolUse.input as { reading: string | null }).reading ?? null;
+    return data.reading ?? null;
   } catch {
     return null;
   }
