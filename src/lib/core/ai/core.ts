@@ -160,7 +160,7 @@ export type RunRecord = {
   actor: string | null;
 };
 
-export const EXCERPT_CHARS = { input: 1500, output: 3000 } as const;
+export const EXCERPT_CHARS = { input: 1500, output: 6000 } as const;
 
 export function clip(s: string | null | undefined, n: number): string {
   const t = (s ?? "").trim();
