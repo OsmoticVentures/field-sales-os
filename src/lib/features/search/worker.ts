@@ -4,12 +4,18 @@
  * stage, write the summary (or the crash) back onto the row. Never throws, so
  * a failure is always a row the screen can read, never a job left spinning.
  *
- *   done   the stage answered; `result` is its summary verbatim, and it may
- *          itself carry ok:false with `errors` (Google unreachable, say).
- *   error  the runner itself failed.
+ *   done     the stage answered; `result` is its summary verbatim, and it may
+ *            itself carry ok:false with `errors` (Google unreachable, say).
+ *   pending  a passing failure (the network) with a try left: back in the
+ *            queue, where the next poll or the minute drain picks it up.
+ *   error    the runner itself failed, or its tries are spent.
+ *
+ * A function killed mid-run never reaches any of these; its lease lapses and
+ * the sweep (supabase/0002_durable_search_jobs.sql) does the same thing.
  */
 import "server-only";
-import { claimSearchJob, finishSearchJob, pruneSearchJobs } from "./dal";
+import { claimSearchJob, durableQueue, finishSearchJob, pruneSearchJobs, requeueSearchJob } from "./dal";
+import { isTransient } from "./lease";
 import { PlacesError, stageRequest } from "./pipeline";
 
 const PRUNE_EVERY_MS = 30 * 60_000;
@@ -39,7 +45,12 @@ export async function runSearchJob(id: string): Promise<void> {
       result = { ok: false, stage, errors: [e.message], candidates: [] };
     } else {
       const err = e as Error;
-      console.error(`search job ${id} (${stage}) crashed`, err);
+      console.error(`search job ${id} (${stage}) crashed on try ${row.attempts ?? 1}`, err);
+      const triesLeft = (row.max_attempts ?? 1) - (row.attempts ?? 1);
+      if (triesLeft > 0 && isTransient(e) && (await durableQueue())) {
+        await requeueSearchJob(id).catch(() => undefined);
+        return;
+      }
       await finishSearchJob(id, { error: `${err?.name ?? "Error"}: ${err?.message ?? String(e)}` }).catch(() => undefined);
       return;
     }

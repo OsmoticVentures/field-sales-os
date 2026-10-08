@@ -13,7 +13,11 @@
  *   GET  /nb/api/search?job=id   the browser polls this until the row says
  *                         done or error. A row still pending after a few
  *                         seconds is picked up here too, so a job whose
- *                         first run never started is never stranded.
+ *                         first run never started is never stranded, and a
+ *                         run whose function died is retried or failed in
+ *                         place (lib/features/search/dal.ts, DURABLE QUEUE).
+ *                         With the tab closed, the minute drain
+ *                         (api/jobs/drain) does the same.
  *
  * IDEMPOTENCY, ADDED FOR THIS REPO (the source app has none, per PORTING.md).
  * The queue insert is the write, so a re-tap of the same click (a dropped
@@ -40,7 +44,8 @@ export const dynamic = "force-dynamic";
 // sites; the run happens after the response, inside this window.
 export const maxDuration = 300;
 
-/** A pending row older than this is started by the poll instead. */
+/** A pending row untouched this long is started by the poll instead. Measured
+ *  from updated_at, so a row put back after a failed try waits the same. */
 const KICK_AFTER_MS = 8_000;
 
 /** A bound on one search. The worker reports `capped_off` when it bites, so a
@@ -226,7 +231,7 @@ export async function POST(req: Request) {
 /**
  * GET · what has happened to a queued job. `?job=<id>`. The result is
  * fetched only once the status says it exists, in a second query: a finished
- * search carries around 60 candidate records, and re-shipping that on every
+ * search carries around 60 candidate records, and re-sending that on every
  * poll is real egress for no reason.
  */
 export async function GET(req: Request) {
@@ -250,7 +255,7 @@ export async function GET(req: Request) {
     return Response.json({ ok: false, error: "No such run." }, { status: 404 });
   }
 
-  if (row.status === "pending" && Date.now() - Date.parse(row.created_at) > KICK_AFTER_MS) {
+  if (row.status === "pending" && Date.now() - Date.parse(row.updated_at) > KICK_AFTER_MS) {
     after(() => runSearchJob(id));
   }
 
@@ -261,6 +266,8 @@ export async function GET(req: Request) {
     created_at: row.created_at,
     started_at: row.started_at,
     updated_at: row.updated_at,
+    attempts: row.attempts ?? null,
+    max_attempts: row.max_attempts ?? null,
   };
 
   if (row.status === "pending" || row.status === "running") {

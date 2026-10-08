@@ -166,11 +166,28 @@ function rememberPast(key: string, value: string): string[] {
   return next;
 }
 
-type Progress = { stage: Exclude<Busy, null>; status: "pending" | "running"; elapsedMs: number };
+type Progress = {
+  stage: Exclude<Busy, null>;
+  status: "pending" | "running";
+  elapsedMs: number;
+  /** Tries started so far, once the server reports them. */
+  attempts?: number | null;
+};
 
-const POLL_MS = 1500;
 const WAITING_AFTER_MS = 20_000;
-const GIVE_UP_MS = 180_000;
+/** The server always ends a run in done or error (a lapsed lease is retried
+ *  or failed in place), so this is a backstop past the longest legitimate
+ *  wait: two tries of five minutes plus the minute drain's latency. */
+const GIVE_UP_MS = 15 * 60_000;
+
+/** Fast while a run is young, slower once it is clearly a long one. The
+ *  status read is a few hundred bytes; this keeps a long run's polls in the
+ *  low hundreds rather than the thousands. */
+function pollDelay(elapsedMs: number): number {
+  if (elapsedMs < 60_000) return 1500;
+  if (elapsedMs < 5 * 60_000) return 4000;
+  return 10_000;
+}
 
 const RUNNING_LINE: Record<Exclude<Busy, null>, string> = {
   search: "Searching Google",
@@ -330,22 +347,24 @@ export function SearchClient() {
       const since = Date.now();
       setProgress({ stage, status: "pending", elapsedMs: 0 });
       let last: "pending" | "running" = "pending";
+      let attempts: number | null = null;
 
       for (;;) {
-        await sleep(POLL_MS);
+        await sleep(pollDelay(Date.now() - since));
 
-        let json: (StageReply & { status?: string }) | null = null;
+        let json: (StageReply & { status?: string; attempts?: number | null }) | null = null;
         try {
           const res = await apiFetch(`/api/search?job=${encodeURIComponent(job)}`, { cache: "no-store" });
-          json = (await res.json()) as StageReply & { status?: string };
+          json = (await res.json()) as StageReply & { status?: string; attempts?: number | null };
         } catch {
           json = null; // a dropped poll, not a dropped run
         }
 
         if (json && (json.status === "pending" || json.status === "running")) {
           last = json.status;
+          if (typeof json.attempts === "number") attempts = json.attempts;
         }
-        setProgress({ stage, status: last, elapsedMs: Date.now() - since });
+        setProgress({ stage, status: last, elapsedMs: Date.now() - since, attempts });
 
         if (json && json.status && json.status !== "pending" && json.status !== "running") {
           setProgress(null);
@@ -364,8 +383,8 @@ export function SearchClient() {
           setProgress(null);
           setFailure(
             last === "running"
-              ? "This has not finished in three minutes. It is still running."
-              : "This has not started in three minutes. Try it again.",
+              ? "This has not finished in fifteen minutes. It is still running."
+              : "This has not started in fifteen minutes. Try it again.",
           );
           return null;
         }
@@ -1503,12 +1522,17 @@ function BookSearch() {
 function ProgressLine({ progress }: { progress: Progress }) {
   const elapsed = Math.max(0, Math.round(progress.elapsedMs / 1000));
   const waiting = progress.status === "pending" && progress.elapsedMs > WAITING_AFTER_MS;
+  const retry = (progress.attempts ?? 0) >= (progress.status === "running" ? 2 : 1);
   const label =
     progress.status === "running"
-      ? RUNNING_LINE[progress.stage]
-      : waiting
-        ? "Starting"
-        : "Queued";
+      ? retry
+        ? `${RUNNING_LINE[progress.stage]}, second try`
+        : RUNNING_LINE[progress.stage]
+      : retry
+        ? "Retrying"
+        : waiting
+          ? "Starting"
+          : "Queued";
 
   return (
     <div className={`${panel} flex items-center justify-between gap-3 px-3.5 py-2.5`}>

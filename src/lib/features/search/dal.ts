@@ -10,6 +10,7 @@
  */
 import "server-only";
 import { myOwnerId } from "../../core/user";
+import { maxAttemptsFor, runLapsed } from "./lease";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -94,9 +95,18 @@ function randId(prefix: string): string {
 // ---------------------------------------------------------------------------
 //
 // The POST route writes a pending row and runs it (worker.ts) right after the
-// response; the browser polls the row. A claim is a PATCH predicated on
-// status=pending, so two runners (this app and the old Mac worker, while it
-// is still loaded) can never both run one job.
+// response; the browser polls the row. A claim is predicated on
+// status=pending, so two runners (this app, the minute drain, the old Mac
+// worker while it is still loaded) can never both run one job.
+//
+// DURABLE QUEUE (supabase/0002_durable_search_jobs.sql). With that migration
+// in place a claim takes a lease and counts an attempt; a lapsed lease means
+// the function died, and nb_sweep_search_jobs() puts the row back to pending
+// while attempts remain or fails it in place when they are spent. pg_cron
+// runs the sweep every minute inside Postgres and calls /api/jobs/drain only
+// when a row is ready, so a job survives a closed tab and a dead function.
+// Until the migration is applied, every function here falls back to the
+// original lease-less behavior, so this code is safe either way.
 
 export type SearchJobStage = "search" | "enrich" | "land";
 export type SearchJobStatus = "pending" | "running" | "done" | "error";
@@ -109,7 +119,44 @@ export type SearchJob = {
   created_at: string;
   started_at: string | null;
   updated_at: string;
+  /** Present once the durable migration is applied. */
+  attempts?: number;
+  max_attempts?: number;
+  lease_until?: string | null;
 };
+
+/* Is the durable schema there? Learned once per instance: a yes is kept for
+   good, a no is asked again after five minutes, one zero-row read each time. */
+let durableKnown: { at: number; yes: boolean } | null = null;
+const DURABLE_RECHECK_MS = 5 * 60_000;
+
+export async function durableQueue(): Promise<boolean> {
+  if (durableKnown && (durableKnown.yes || Date.now() - durableKnown.at < DURABLE_RECHECK_MS)) {
+    return durableKnown.yes;
+  }
+  if (!configured()) return false;
+  const res = await fetch(`${SB_URL}/rest/v1/${JOBS}?select=lease_until&limit=0`, {
+    headers: sbHeaders(),
+    cache: "no-store",
+  }).catch(() => null);
+  const yes = Boolean(res?.ok);
+  durableKnown = { at: Date.now(), yes };
+  return yes;
+}
+
+async function sbRpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+  if (!configured()) throw new Error(`Cannot call "${fn}": no data source configured.`);
+  const res = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: sbHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(args),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Supabase rpc ${fn} -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  }
+  return (await res.json()) as T;
+}
 
 /** Queue one stage. Returns the id the browser polls. */
 export async function createSearchJob(
@@ -117,14 +164,19 @@ export async function createSearchJob(
   params: Record<string, unknown>,
 ): Promise<string> {
   const id = randId("sj");
-  await sbInsert(JOBS, { id, stage, params, status: "pending" });
+  const row: Record<string, unknown> = { id, stage, params, status: "pending" };
+  if (await durableQueue()) row.max_attempts = maxAttemptsFor(stage, params);
+  await sbInsert(JOBS, row);
   return id;
 }
 
+const STATUS_COLS = "id,stage,status,error,created_at,started_at,updated_at";
+
 /** Everything about a job except its result. The poll. */
 export async function getSearchJobStatus(id: string): Promise<SearchJob | null> {
-  const rows = await sbGet<SearchJob>("nb_search_jobs", {
-    select: "id,stage,status,error,created_at,started_at,updated_at",
+  const durable = await durableQueue();
+  const rows = await sbGet<SearchJob>(JOBS, {
+    select: durable ? `${STATUS_COLS},attempts,max_attempts,lease_until` : STATUS_COLS,
     id: `eq.${encodeURIComponent(id)}`,
     limit: "1",
   });
@@ -133,12 +185,29 @@ export async function getSearchJobStatus(id: string): Promise<SearchJob | null> 
 
 /** The stage's own summary, verbatim, fetched once the status says it exists. */
 export async function getSearchJobResult(id: string): Promise<Record<string, unknown> | null> {
-  const rows = await sbGet<{ result: Record<string, unknown> | null }>("nb_search_jobs", {
+  const rows = await sbGet<{ result: Record<string, unknown> | null }>(JOBS, {
     select: "result",
     id: `eq.${encodeURIComponent(id)}`,
     limit: "1",
   });
   return rows[0]?.result ?? null;
+}
+
+/** Oldest ready jobs first, ids only. The drain's one read. */
+export async function listPendingJobIds(limit: number): Promise<string[]> {
+  const rows = await sbGet<{ id: string }>(JOBS, {
+    select: "id",
+    status: "eq.pending",
+    order: "created_at.asc",
+    limit: String(limit),
+  });
+  return rows.map((r) => r.id);
+}
+
+/** Recover runs whose function died (durable schema only). Returns how many
+ *  rows are ready to run. */
+export async function sweepSearchJobs(): Promise<number> {
+  return sbRpc<number>("nb_sweep_search_jobs", {});
 }
 
 // ---------------------------------------------------------------------------
@@ -203,10 +272,25 @@ export async function listBookPeople(): Promise<BookPerson[]> {
 // The runner's side of the queue
 // ---------------------------------------------------------------------------
 
-export type ClaimedJob = { id: string; stage: SearchJobStage; params: Record<string, unknown> | string | null };
+export type ClaimedJob = {
+  id: string;
+  stage: SearchJobStage;
+  params: Record<string, unknown> | string | null;
+  attempts?: number;
+  max_attempts?: number;
+};
+
+/** A lease a little past the route's maxDuration (300s): a live run never
+ *  loses its row, and a dead one is noticed within a minute of its function
+ *  being killed. */
+const LEASE_SECONDS = 330;
 
 /** Take the job, or learn somebody else already did. */
 export async function claimSearchJob(id: string): Promise<ClaimedJob | null> {
+  if (await durableQueue()) {
+    const rows = await sbRpc<ClaimedJob[]>("nb_claim_search_job", { p_id: id, p_lease_seconds: LEASE_SECONDS });
+    return rows[0] ?? null;
+  }
   const rows = await sbPatch<ClaimedJob>(
     JOBS,
     { id: `eq.${id}`, status: "eq.pending" },
@@ -220,16 +304,25 @@ export async function finishSearchJob(id: string, done: { result?: unknown; erro
   const body: Record<string, unknown> = { status: done.error ? "error" : "done" };
   if (done.result !== undefined) body.result = done.result;
   if (done.error !== undefined) body.error = done.error.slice(0, 2000);
+  if (await durableQueue()) body.lease_until = null;
   await sbPatch(JOBS, { id: `eq.${id}` }, body, false);
 }
 
-/** A job left running past this was interrupted; it is failed rather than
- *  left spinning, since the screen has no other way to learn that. */
-const STALE_RUNNING_MIN = 20;
+/** Put a running job back in the queue after a passing failure (durable
+ *  schema only; the caller has checked attempts remain). */
+export async function requeueSearchJob(id: string): Promise<void> {
+  await sbPatch(JOBS, { id: `eq.${id}`, status: "eq.running" }, { status: "pending", lease_until: null }, false);
+}
 
+/** Without the durable schema: a run left going past 20 minutes was
+ *  interrupted; fail it rather than leave it spinning. With it, the sweep
+ *  does this (and retries first). */
 export async function failIfStale(job: SearchJob): Promise<boolean> {
-  if (job.status !== "running" || !job.started_at) return false;
-  if (Date.now() - Date.parse(job.started_at) < STALE_RUNNING_MIN * 60_000) return false;
+  if (!runLapsed(job)) return false;
+  if (await durableQueue()) {
+    await sweepSearchJobs();
+    return true;
+  }
   const rows = await sbPatch<{ id: string }>(
     JOBS,
     { id: `eq.${job.id}`, status: "eq.running" },
@@ -245,6 +338,23 @@ const RETENTION_DAYS = 3;
 export async function pruneSearchJobs(): Promise<void> {
   const cutoff = new Date(Date.now() - RETENTION_DAYS * 86_400_000).toISOString();
   await sbDelete(JOBS, { status: "in.(done,error)", updated_at: `lt.${cutoff}` });
+}
+
+// ---------------------------------------------------------------------------
+// The minute drain's shared secret (nb_job_runner, durable schema only)
+// ---------------------------------------------------------------------------
+
+let runnerSecret: { at: number; value: string | null } | null = null;
+const SECRET_TTL_MS = 10 * 60_000;
+
+/** The secret pg_cron sends in x-nb-runner. Read at most every ten minutes. */
+export async function jobRunnerSecret(): Promise<string | null> {
+  if (runnerSecret && Date.now() - runnerSecret.at < SECRET_TTL_MS) return runnerSecret.value;
+  const rows = await sbGet<{ secret: string }>("nb_job_runner", { select: "secret", id: "eq.1", limit: "1" }).catch(
+    () => [],
+  );
+  runnerSecret = { at: Date.now(), value: rows[0]?.secret ?? null };
+  return runnerSecret.value;
 }
 
 // ---------------------------------------------------------------------------
