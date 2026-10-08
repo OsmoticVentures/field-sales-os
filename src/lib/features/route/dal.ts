@@ -79,23 +79,28 @@ type AccountRow = Omit<RouteAccount, "tier" | "lead_stage">;
  * from a second view for the same reason it isn't a column on nb_accounts.
  */
 export async function listOwnerAccounts(): Promise<RouteAccount[]> {
-  const [rows, grades, stages] = await Promise.all([
-    raw<AccountRow>(
-      "nb_accounts",
-      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness" +
-        `&hubspot_owner_id=eq.${await myOwnerId()}&lat=not.is.null&closed_at=is.null&order=name.asc`,
+  const rows = await raw<AccountRow>(
+    "nb_accounts",
+    "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness" +
+      `&hubspot_owner_id=eq.${await myOwnerId()}&lat=not.is.null&closed_at=is.null&order=name.asc`,
+  );
+  // Grade and stage for exactly these accounts, a chunk of ids per request.
+  // Both views used to be read whole (first 1,000 and 2,000 rows of every
+  // rep's accounts) and matched here, which dropped a grade once the
+  // database passed 1,000 accounts.
+  const ids = rows.map((a) => a.id);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 300) chunks.push(ids.slice(i, i + 300));
+  const [grades, stages] = await Promise.all([
+    Promise.all(
+      chunks.map((c) => raw<{ account_id: string; potential_grade: Tier }>("nb_v_account_potential", `select=account_id,potential_grade&account_id=in.(${c.map(encodeURIComponent).join(",")})`)),
     ),
-    raw<{ account_id: string; potential_grade: Tier }>(
-      "nb_v_account_potential",
-      "select=account_id,potential_grade&limit=1000",
-    ),
-    raw<{ account_id: string; lead_stage: LeadStage }>(
-      "nb_v_account_lead_stage",
-      "select=account_id,lead_stage&limit=2000",
+    Promise.all(
+      chunks.map((c) => raw<{ account_id: string; lead_stage: LeadStage }>("nb_v_account_lead_stage", `select=account_id,lead_stage&account_id=in.(${c.map(encodeURIComponent).join(",")})`)),
     ),
   ]);
-  const tierById = new Map(grades.map((g) => [g.account_id, g.potential_grade]));
-  const stageById = new Map(stages.map((s) => [s.account_id, s.lead_stage]));
+  const tierById = new Map(grades.flat().map((g) => [g.account_id, g.potential_grade]));
+  const stageById = new Map(stages.flat().map((s) => [s.account_id, s.lead_stage]));
   return rows.map((a) => ({ ...a, tier: tierById.get(a.id) ?? null, lead_stage: stageById.get(a.id) ?? null }));
 }
 

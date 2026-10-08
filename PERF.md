@@ -104,3 +104,31 @@ What stands out:
 |---|---|---|---|---|---|
 | before | 415 | 195 | 5,152 | 8 | 283 |
 | after | 105 | 33 | 558 | 6 | 169 |
+
+### 2. Priority book and Route state read only the rep's rows
+
+- The priority book reads the rep's accounts first, then scopes every other
+  read to their ids, 300 ids per request: grades, orders, touches, notes,
+  corporate notes and order emails. Touches ask only for the activity kinds
+  the score uses. The order emails read used to stop at 1,000 rows; it now
+  pages through all of the rep's.
+- Route state reads grade and lead stage for the rep's mapped accounts by
+  id instead of the first 1,000 and 2,000 rows of everyone's, which also
+  stops a pin losing its grade once the database passes 1,000 accounts.
+- Same output: the shown hash of Prospect, the client view, Route state and
+  the Route map is unchanged.
+- Cost: a cold book build now waits for the accounts read before the rest
+  start, one extra in-region hop. The book is kept ten minutes per server,
+  so this lands on about one load in ten minutes.
+
+| Path | db KB before | db KB after | db requests before / after |
+|---|---|---|---|
+| /nb/prospect | 933 | 457 | 19 / 19 |
+| /nb/account/[id] (cold book) | 916 | 441 | 23 / 23 |
+| /nb/api/route/state | 368 | 314 | 8 / 10 |
+| /nb/api/route/map | 913 | 437 | 17 / 17 |
+| /nb/api/route/returns | 912 | 436 | 16 / 16 |
+
+On the synthetic seed the other rep and unowned accounts are about 60% of
+the database, so the book drops by about half. In production the drop is
+whatever share of orders and activities sits outside the rep's own book.

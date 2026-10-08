@@ -42,6 +42,17 @@ function cmp(a, b) {
   return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
 }
 
+const inSets = new Map();
+function inSet(val) {
+  let set = inSets.get(val);
+  if (!set) {
+    set = new Set(val.replace(/^\(|\)$/g, "").split(",").map(lit).map(String));
+    if (inSets.size > 200) inSets.clear();
+    inSets.set(val, set);
+  }
+  return set;
+}
+
 function test(row, col, expr) {
   let neg = false;
   if (expr.startsWith("not.")) { neg = true; expr = expr.slice(4); }
@@ -57,7 +68,7 @@ function test(row, col, expr) {
     case "lt": ok = v != null && cmp(v, val) < 0; break;
     case "lte": ok = v != null && cmp(v, val) <= 0; break;
     case "is": ok = lit(val) === null ? v == null : v === lit(val); break;
-    case "in": ok = v != null && val.replace(/^\(|\)$/g, "").split(",").map(lit).map(String).includes(String(v)); break;
+    case "in": ok = v != null && inSet(val).has(String(v)); break;
     case "like": case "ilike": {
       const re = new RegExp(`^${val.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/[*%]/g, ".*")}$`, op === "ilike" ? "is" : "s");
       ok = v != null && re.test(String(v)); break;

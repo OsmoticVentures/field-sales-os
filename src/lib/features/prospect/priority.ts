@@ -13,7 +13,7 @@ import {
 } from "./sdr-score";
 
 export type { Readiness } from "./sdr-score";
-export { buildSignals, laDay, CORP_PREFILTER, NOTE_PREFILTER } from "./sdr-score";
+export { buildSignals, laDay, CORP_PREFILTER, NOTE_PREFILTER, TOUCH_KINDS } from "./sdr-score";
 export type { RawNote, RawOrder, RawOrderEmail, RawTouch, Signals } from "./sdr-score";
 
 /**

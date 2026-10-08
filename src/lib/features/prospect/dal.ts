@@ -424,6 +424,7 @@ import {
   type RawOrder,
   type RawOrderEmail,
   type RawTouch,
+  TOUCH_KINDS,
   type Readiness,
 } from "./priority";
 
@@ -475,68 +476,101 @@ async function sbGetAll<T>(table: string, params: URLSearchParams): Promise<T[]>
   }
 }
 
+/** Ids per `in.(...)` filter: about 3 KB of URL, well under the gateway's limit. */
+const IN_CHUNK = 300;
+
+/** sbGetAll scoped to `column` in `ids`, a chunk of ids per request, all at once. */
+async function sbGetAllIn<T>(table: string, params: URLSearchParams, column: string, ids: string[]): Promise<T[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) chunks.push(ids.slice(i, i + IN_CHUNK));
+  const pages = await Promise.all(
+    chunks.map((chunk) => {
+      const p = new URLSearchParams(params);
+      p.set(column, `in.(${chunk.join(",")})`);
+      return sbGetAll<T>(table, p);
+    }),
+  );
+  return pages.flat();
+}
+
 async function readPriorityBook(): Promise<PriorityBook> {
   const empty: PriorityBook = { byId: new Map(), ranked: [], areaProspects: new Map() };
   if (!isConfigured()) return empty;
 
   const since = new Date(Date.now() - 121 * 86_400_000).toISOString().slice(0, 10);
-  const [accounts, grades, drafts, orders, touches, notes, corpNotes, orderEmails] = await Promise.all([
-    sbGetAll<{
-      id: string;
-      name: string;
-      lifecycle: string | null;
-      phone: string | null;
-      trailing_12m_revenue: number | null;
-      lifetime_revenue: number | null;
-      first_order_at: string | null;
-      last_order_at: string | null;
-      expected_reorder_days: number | null;
-      places_status: string | null;
-      closed_at: string | null;
-      do_not_visit: boolean | null;
-      area: string | null;
-      readiness: Readiness | null;
-      channel: string | null;
-      origin: string | null;
-      store_type: string | null;
-      potential_juan: string | null;
-      potential_hq: string | null;
-      locations_count: number | null;
-      places_rating_count: number | null;
-    }>(
-      "nb_accounts",
-      new URLSearchParams({
-        select:
-          "id,name,lifecycle,phone,area,trailing_12m_revenue,lifetime_revenue,first_order_at,last_order_at,expected_reorder_days,places_status,closed_at,do_not_visit,readiness,channel,origin,store_type,potential_juan,potential_hq,locations_count,places_rating_count",
-        hubspot_owner_id: `eq.${await myOwnerId()}`,
-        lifecycle: "neq.waypoint",
-        closed_at: "is.null",
-        chain_excluded: "eq.false",
-        order: "id.asc",
-      }),
-    ),
-    sbGetAll<{ account_id: string; potential_grade: string | null }>(
+  // The rep's accounts first; every other read is scoped to their ids, so the
+  // book carries only the rows it scores (it used to read every rep's).
+  const accounts = await sbGetAll<{
+    id: string;
+    name: string;
+    lifecycle: string | null;
+    phone: string | null;
+    trailing_12m_revenue: number | null;
+    lifetime_revenue: number | null;
+    first_order_at: string | null;
+    last_order_at: string | null;
+    expected_reorder_days: number | null;
+    places_status: string | null;
+    closed_at: string | null;
+    do_not_visit: boolean | null;
+    area: string | null;
+    readiness: Readiness | null;
+    channel: string | null;
+    origin: string | null;
+    store_type: string | null;
+    potential_juan: string | null;
+    potential_hq: string | null;
+    locations_count: number | null;
+    places_rating_count: number | null;
+  }>(
+    "nb_accounts",
+    new URLSearchParams({
+      select:
+        "id,name,lifecycle,phone,area,trailing_12m_revenue,lifetime_revenue,first_order_at,last_order_at,expected_reorder_days,places_status,closed_at,do_not_visit,readiness,channel,origin,store_type,potential_juan,potential_hq,locations_count,places_rating_count",
+      hubspot_owner_id: `eq.${await myOwnerId()}`,
+      lifecycle: "neq.waypoint",
+      closed_at: "is.null",
+      chain_excluded: "eq.false",
+      order: "id.asc",
+    }),
+  );
+  const ids = accounts.map((a) => a.id);
+  const [grades, drafts, orders, touches, notes, corpNotes, orderEmails] = await Promise.all([
+    sbGetAllIn<{ account_id: string; potential_grade: string | null }>(
       "nb_v_account_potential",
       new URLSearchParams({ select: "account_id,potential_grade", order: "account_id.asc" }),
+      "account_id",
+      ids,
     ),
     sbGet<{ account_id: string | null; urgency: number | null; urgency_reason: string | null }>(
       "nb_outbound_drafts",
       new URLSearchParams({ select: "account_id,urgency,urgency_reason", status: "eq.pending", limit: "500" }),
     ),
-    sbGetAll<RawOrder>("nb_orders", new URLSearchParams({ select: "account_id,ordered_at,revenue_cents", order: "id.asc" })),
-    sbGetAll<RawTouch>(
+    sbGetAllIn<RawOrder>("nb_orders", new URLSearchParams({ select: "account_id,ordered_at,revenue_cents", order: "id.asc" }), "account_id", ids),
+    sbGetAllIn<RawTouch>(
       "nb_v_activities_effective",
-      new URLSearchParams({ select: "account_id,at,effective_kind,outcome", retracted: "is.false", order: "id.asc" }),
+      new URLSearchParams({
+        select: "account_id,at,effective_kind,outcome",
+        retracted: "is.false",
+        effective_kind: `in.(${TOUCH_KINDS.join(",")})`,
+        order: "id.asc",
+      }),
+      "account_id",
+      ids,
     ),
-    sbGetAll<RawNote>(
+    sbGetAllIn<RawNote>(
       "nb_v_activities_effective",
       new URLSearchParams({ select: "account_id,at,detail", retracted: "is.false", at: `gte.${since}`, detail: `imatch.${NOTE_PREFILTER}`, order: "id.asc" }),
+      "account_id",
+      ids,
     ),
-    sbGetAll<RawNote>(
+    sbGetAllIn<RawNote>(
       "nb_v_activities_effective",
       new URLSearchParams({ select: "account_id,at,detail", retracted: "is.false", detail: `imatch.${CORP_PREFILTER}`, order: "id.asc" }),
+      "account_id",
+      ids,
     ),
-    sbGet<RawOrderEmail>("nb_order_emails", new URLSearchParams({ select: "account_id,no_charge", limit: "1000" })),
+    sbGetAllIn<RawOrderEmail>("nb_order_emails", new URLSearchParams({ select: "account_id,no_charge", order: "id.asc" }), "account_id", ids),
   ]);
 
   const gradeById = new Map(grades.map((g) => [g.account_id, g.potential_grade]));

@@ -60,6 +60,9 @@ const ERP_12M = ["2025-07-01", "2026-06-30"] as const;
 const NOTE_DAYS = 120;
 const IN_PERSON = new Set(["visit", "meeting", "sample_drop", "staff_training"]);
 const EMAILISH = new Set(["email_out", "email_in", "text"]);
+/** Every activity kind buildSignals reads from the touch list; the rest it
+ *  skips, so the read asks only for these. */
+export const TOUCH_KINDS: readonly string[] = [...IN_PERSON, "call", ...EMAILISH];
 
 const CORP_GATE =
   /corporate (buyer|buyers|buying|office|level buyer|is the one)|up to (the )?corporate|not up to (him|her|them)|regional coordinator|must route through/i;
