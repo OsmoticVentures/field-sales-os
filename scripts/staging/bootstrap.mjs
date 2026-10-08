@@ -361,6 +361,13 @@ async function main() {
   } catch (e) {
     die(`Seed failed: ${e instanceof Error ? e.message : e}`);
   }
+  // 0002_durable_search_jobs points the minute drain at production; staging's
+  // own tick drains staging (its secret is its own, so production would 401).
+  await query(
+    token,
+    `update nb_job_runner set drain_url = 'https://field-sales-os-git-staging-juanarenasrec-4192s-projects.vercel.app/nb/api/jobs/drain', updated_at = now() where id = 1`,
+  ).catch(() => console.log("nb_job_runner not present; skipped pointing the drain at staging."));
+
   const counts = await query(
     token,
     `select (select count(*) from nb_accounts where synthetic_dataset_id = ${q(DATASET)}) as accounts,
