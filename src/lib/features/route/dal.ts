@@ -13,6 +13,7 @@
  */
 import "server-only";
 import { currentUser, myOwnerId } from "../../core/user";
+import { whileOwnedRowsUnchanged } from "../../shared/owned-fingerprint";
 import type {
   CallEntry,
   CustomStop,
@@ -78,13 +79,23 @@ type AccountRow = Omit<RouteAccount, "tier" | "lead_stage">;
  * (lead_stage, migration 0073, same as portfolio's lib/dal.ts). tier comes
  * from a second view for the same reason it isn't a column on nb_accounts.
  */
-export async function listOwnerAccounts(): Promise<RouteAccount[]> {
-  const rows = await raw<AccountRow>(
-    "nb_accounts",
-    "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness" +
-      `&hubspot_owner_id=eq.${await myOwnerId()}&lat=not.is.null&closed_at=is.null&order=name.asc`,
+/** The rep's mapped accounts, reused while their rows have not moved
+ *  (lib/shared/owned-fingerprint.ts). */
+async function ownedRows(): Promise<AccountRow[]> {
+  const owner = await myOwnerId();
+  return whileOwnedRowsUnchanged("route-owned", owner, () =>
+    raw<AccountRow>(
+      "nb_accounts",
+      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness" +
+        `&hubspot_owner_id=eq.${owner}&lat=not.is.null&closed_at=is.null&order=name.asc`,
+    ),
   );
-  // Grade and stage for exactly these accounts, a chunk of ids per request.
+}
+
+export async function listOwnerAccounts(): Promise<RouteAccount[]> {
+  const rows = await ownedRows();
+  // Grade and stage for exactly these accounts, a chunk of ids per request,
+  // read fresh every time: they move with orders and touches, not the rows.
   // Both views used to be read whole (first 1,000 and 2,000 rows of every
   // rep's accounts) and matched here, which dropped a grade once the
   // database passed 1,000 accounts.

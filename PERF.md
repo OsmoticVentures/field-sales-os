@@ -152,3 +152,25 @@ whatever share of orders and activities sits outside the rep's own book.
 
 The seed's account rows are narrower than production's (no enrichment or
 sync history in the json columns), so production saves more than this.
+
+### 4. Route and Clients reuse the rep's account rows until they move
+
+Route reads the rep's mapped accounts on every open, and Clients reads the
+book's hours and metrics on every open. Those are plain `nb_accounts`
+columns, which the `accounts_touch` trigger stamps on every update. Each warm
+server now keeps the last read per rep with a fingerprint (how many accounts
+the rep owns, and the newest `updated_at`), asks for the fingerprint first,
+about a hundred bytes, and reads the rows again only when it moved
+(`lib/shared/owned-fingerprint.ts`). Grades, lead stages and the tier list
+come from other tables, so they are still read fresh every time.
+
+Checked on the seed: an edit to one account shows on the next Route read;
+a read with no edit in between returns the same JSON.
+
+`measure.mjs` now also reports `warm_db_kB`, the database bytes per request
+once the server is warm, which is what a rep opening a screen again costs.
+
+| Path | warm db KB before | warm db KB after |
+|---|---|---|
+| /nb/api/route/state | 314 | 44 |
+| /nb/clients | 168 | 67 |

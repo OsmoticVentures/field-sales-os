@@ -61,6 +61,7 @@ for (const path of TARGETS) {
   const meter = await (await fetch(`http://127.0.0.1:${DB}/__meter`)).json();
   const warm = [];
   for (let i = 0; i < 5; i++) warm.push((await get()).ms);
+  const warmMeter = await (await fetch(`http://127.0.0.1:${DB}/__meter`)).json();
   warm.sort((a, b) => a - b);
   // What the screen shows, for an equality check across a change: JSON as
   // is, a page as its visible text (build ids and script tags vary).
@@ -73,6 +74,7 @@ for (const path of TARGETS) {
   results.push({
     path, status: cold.status, coldMs: Math.round(cold.ms), warmMedianMs: Math.round(warm[2]), responseBytes: cold.bytes,
     dbRequests: meter.length, dbBytes: meter.reduce((s, m) => s + m.bytes, 0), byTable,
+    warmDbBytesPerRequest: Math.round(warmMeter.reduce((s, m) => s + m.bytes, 0) / 5),
     shownHash: createHash("sha256").update(shown).digest("hex").slice(0, 12),
   });
   process.kill(-app.pid); // the whole group: next start forks the server
@@ -82,7 +84,7 @@ for (const path of TARGETS) {
 }
 db.kill();
 
-console.log("path\tstatus\tcold_ms\twarm_ms\tresponse_kB\tdb_reqs\tdb_kB\tshown");
-for (const r of results) console.log(`${r.path}\t${r.status}\t${r.coldMs}\t${r.warmMedianMs}\t${(r.responseBytes / 1024).toFixed(1)}\t${r.dbRequests}\t${(r.dbBytes / 1024).toFixed(1)}\t${r.shownHash}`);
+console.log("path\tstatus\tcold_ms\twarm_ms\tresponse_kB\tdb_reqs\tdb_kB\twarm_db_kB\tshown");
+for (const r of results) console.log(`${r.path}\t${r.status}\t${r.coldMs}\t${r.warmMedianMs}\t${(r.responseBytes / 1024).toFixed(1)}\t${r.dbRequests}\t${(r.dbBytes / 1024).toFixed(1)}\t${(r.warmDbBytesPerRequest / 1024).toFixed(1)}\t${r.shownHash}`);
 const out = process.argv.indexOf("--json");
 if (out > 0) fs.writeFileSync(process.argv[out + 1], JSON.stringify(results, null, 2));

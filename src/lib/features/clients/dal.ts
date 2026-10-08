@@ -7,6 +7,7 @@
  */
 import "server-only";
 import { myOwnerId } from "../../core/user";
+import { whileOwnedRowsUnchanged } from "../../shared/owned-fingerprint";
 import type { Columns, NbVAccountTierRow } from "../../db/types";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
@@ -89,11 +90,12 @@ export type BookFacts = {
 };
 
 export async function getBookFacts(): Promise<BookFacts> {
-  const rows = await sbGet<Metrics & { id: string; business_hours: BusinessHours | null }>("nb_accounts", {
-    select: `id,business_hours,readiness,${METRIC_FIELDS.join(",")}`,
-    ...(await book()),
-    limit: "2000",
-  });
+  // All nb_accounts columns, so reused while the rep's rows have not moved
+  // (lib/shared/owned-fingerprint.ts); a metric or readiness save moves them.
+  const params = { select: `id,business_hours,readiness,${METRIC_FIELDS.join(",")}`, ...(await book()), limit: "2000" };
+  const rows = await whileOwnedRowsUnchanged("clients-book-facts", await myOwnerId(), () =>
+    sbGet<Metrics & { id: string; business_hours: BusinessHours | null }>("nb_accounts", params),
+  );
   const metrics: Record<string, Metrics> = {};
   const hours: Record<string, BusinessHours | null> = {};
   for (const { business_hours, ...m } of rows) {

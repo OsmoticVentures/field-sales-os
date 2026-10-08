@@ -114,6 +114,7 @@ function query(table, params) {
   }
   const offset = Number(params.get("offset") ?? 0);
   const limit = Math.min(Number(params.get("limit") ?? 1000), 1000); // PostgREST max-rows
+  const total = rows.length;
   rows = rows.slice(offset, offset + limit);
   const select = params.get("select") ?? "*";
   const items = splitTop(select);
@@ -127,7 +128,7 @@ function query(table, params) {
     }
     return o;
   });
-  return { status: 200, body: out };
+  return { status: 200, body: out, range: `${offset}-${offset + out.length - 1}/${total}` };
 }
 
 http
@@ -139,14 +140,23 @@ http
       meter = [];
       return;
     }
+    if (url.pathname === "/__touch") {
+      // Simulates the accounts_touch trigger: edit one account, stamp updated_at.
+      const a = db.nb_accounts.find((r) => r.id === url.searchParams.get("id"));
+      if (a) Object.assign(a, { name: url.searchParams.get("name") ?? a.name, updated_at: new Date().toISOString() });
+      res.end(JSON.stringify({ ok: Boolean(a) }));
+      return;
+    }
     const m = /^\/rest\/v1\/([a-z_0-9]+)$/.exec(url.pathname);
-    let status = 200, body = [];
-    if (m && (req.method === "GET" || req.method === "HEAD")) ({ status, body } = query(m[1], url.searchParams));
+    let status = 200, body = [], range;
+    if (m && (req.method === "GET" || req.method === "HEAD")) ({ status, body, range } = query(m[1], url.searchParams));
     else if (!m) status = url.pathname.startsWith("/storage/") ? 404 : 200;
     const text = JSON.stringify(body);
     if (req.method === "GET") meter.push({ table: m?.[1] ?? url.pathname, rows: Array.isArray(body) ? body.length : 0, bytes: Buffer.byteLength(text), urlBytes: req.url.length });
     req.resume();
-    res.writeHead(status, { "content-type": "application/json" });
+    const headers = { "content-type": "application/json" };
+    if (range && /count=exact/.test(req.headers.prefer ?? "")) headers["content-range"] = range;
+    res.writeHead(status, headers);
     res.end(text);
   })
   .listen(PORT, "127.0.0.1", () => console.log(`fake-postgrest on :${PORT}`));
