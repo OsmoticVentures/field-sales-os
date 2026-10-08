@@ -18,7 +18,7 @@ import { fileTripFromLinks, uploadMileagePhoto } from "../../../../lib/shared/ex
 import { hasAccess } from "../../../../lib/core/devices";
 import { hasWidgetToken } from "../../../../lib/features/route/widget-auth";
 import { captureError } from "@/lib/core/errors";
-import { ai, aiConfigured } from "../../../../lib/core/ai/client";
+import { ai, aiConfigured, isAiCap } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -27,8 +27,10 @@ const ReadSchema = z.object({
   reading: z.string().nullable().describe("The total odometer number, digits only. Null if not clearly legible, never a guess."),
 });
 
-async function readOdometer(bytes: ArrayBuffer, mimeType: string): Promise<string | null> {
-  if (!aiConfigured()) return null;
+/** The reading, or null. `capped` carries the day's AI limit sentence when
+ *  that is why it was not read: the photo still files, without a reading. */
+async function readOdometer(bytes: ArrayBuffer, mimeType: string): Promise<{ reading: string | null; capped?: string }> {
+  if (!aiConfigured()) return { reading: null };
   try {
     const base64 = Buffer.from(bytes).toString("base64");
     const { data } = await ai({
@@ -47,19 +49,25 @@ async function readOdometer(bytes: ArrayBuffer, mimeType: string): Promise<strin
       ],
       schema: ReadSchema,
     });
-    return data.reading ?? null;
-  } catch {
-    return null;
+    return { reading: data.reading ?? null };
+  } catch (err) {
+    return isAiCap(err) ? { reading: null, capped: err.message } : { reading: null };
   }
 }
 
-async function recordSide(day: string, kind: "start" | "end", side: RouteMileageSide) {
+async function recordSide(day: string, kind: "start" | "end", side: RouteMileageSide, capped?: string) {
   if (side.odo) await setLastRouteOdo(side.odo);
 
   const today = (await setRouteMileageDay(day, { [kind]: side }))[day] ?? {};
 
   if (!today.start || !today.end) {
-    return Response.json({ ok: true, filed: false, odo: side.odo, photoLink: side.photoLink });
+    return Response.json({
+      ok: true,
+      filed: false,
+      odo: side.odo,
+      photoLink: side.photoLink,
+      ...(capped ? { error: `Photo saved, odometer not read. ${capped} Enter it by hand on Expenses.` } : {}),
+    });
   }
 
   if (today.start.odo && today.end.odo) {
@@ -87,7 +95,9 @@ async function recordSide(day: string, kind: "start" | "end", side: RouteMileage
     ok: true,
     filed: false,
     odo: side.odo,
-    error: "Both sides saved. One has no odometer reading, enter it by hand on Expenses.",
+    error: capped
+      ? `Both sides saved, odometer not read. ${capped} Enter it by hand on Expenses.`
+      : "Both sides saved. One has no odometer reading, enter it by hand on Expenses.",
   });
 }
 
@@ -134,11 +144,16 @@ export async function POST(req: Request) {
     const head = new Uint8Array(bytes.slice(0, 4));
     const mimeType =
       head[0] === 0xff && head[1] === 0xd8 ? "image/jpeg" : head[0] === 0x89 && head[1] === 0x50 ? "image/png" : photo.type || "image/jpeg";
-    const [odo, uploaded] = await Promise.all([
+    const [read, uploaded] = await Promise.all([
       readOdometer(bytes, mimeType),
       uploadMileagePhoto(day, kind, { bytes, mimeType, filename: photo.name || `${kind}.jpg` }),
     ]);
-    return await recordSide(day, kind, { odo, driveFileId: uploaded.driveFileId, photoLink: uploaded.photoLink, capturedAt: new Date().toISOString() });
+    return await recordSide(
+      day,
+      kind,
+      { odo: read.reading, driveFileId: uploaded.driveFileId, photoLink: uploaded.photoLink, capturedAt: new Date().toISOString() },
+      read.capped,
+    );
   } catch (e) {
     captureError(e, "/api/widget/mileage");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Upload failed." }, { status: 500 });

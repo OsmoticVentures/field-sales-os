@@ -247,6 +247,16 @@ function enqueue(world: ReturnType<typeof fakeWorld>, over: Partial<Parameters<t
   t("8 Try now un-parks a rejected item", isDue(wake(d, w.now()), w.now()));
 }
 
+// 8b. The day's AI limit (409): the note stays on the phone, in red with the
+// limit's sentence, and is not re-sent by itself.
+{
+  const w = fakeWorld(() => ({ type: "http", status: 409, error: "Today's AI limit is reached. Try again tomorrow." }));
+  const it = enqueue(w);
+  const r = await advance(it, w.deps);
+  const d = w.disk.get(it.id)!;
+  t("8b 409 (AI limit) parks as rejected with its sentence, kept, not retried", !r.removed && d.parked === "rejected" && d.lastError === "Today's AI limit is reached. Try again tomorrow." && !isDue(d, w.now() + 3_600_000));
+}
+
 // 9. New company: the store is found near the phone, then waits, filed, for its type.
 {
   const w = fakeWorld((req, n) => {

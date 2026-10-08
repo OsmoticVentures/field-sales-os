@@ -49,7 +49,7 @@ import {
 import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
 import { draftFromVisit, type VisitOutbound } from "../outbound/from-visit";
-import { ai, aiConfigured, AiError, hashInput } from "../../core/ai/client";
+import { ai, aiConfigured, AiError, hashInput, isAiCap } from "../../core/ai/client";
 import { laDay, noteKey, once } from "../../core/once-server";
 import { currentUser } from "../../core/user";
 import { TouchpointSchema } from "./touchpoint-schema";
@@ -323,6 +323,9 @@ export async function recordTouchpoint(
     });
     parsed = data;
   } catch (err) {
+    // The daily AI cap: nothing is filed, and the route answers 409 with the
+    // cap's own sentence so the phone keeps the note and shows it in red.
+    if (isAiCap(err)) throw err;
     if (err instanceof AiError && err.kind === "invalid") return { ok: false, error: "Could not read that note. Try again." };
     return { ok: false, error: `Could not read that note: ${err instanceof Error ? err.message : String(err)}` };
   }

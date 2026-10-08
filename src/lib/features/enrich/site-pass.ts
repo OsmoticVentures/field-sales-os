@@ -15,7 +15,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured } from "../../core/ai/client";
+import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
 import {
   extractLinks,
   extractMailtos,
@@ -119,7 +119,8 @@ async function extractFromPage(
       deadline: deadline - 500,
     });
     out = res.data;
-  } catch {
+  } catch (err) {
+    if (isAiCap(err)) return { people: [], hours: null, failed: `${url}: not read for names. ${err.message}` };
     return { people: [], hours: null, failed: `${url}: the page was fetched but could not be read for names` };
   }
   // The page is the authority, not the model: every person must be printed on

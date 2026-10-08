@@ -263,8 +263,9 @@ export const SERVER_WINDOW_MS = 65_000;
 
 /** An answer that cannot turn into a yes by asking again. Everything else,
  *  including 401 (re-gated later), 422 (the note reader can miss once) and
- *  every 5xx, is retried. */
-const PERMANENT = new Set([400, 405, 413, 415]);
+ *  every 5xx, is retried. 409 is the day's AI limit (AI_CAP_STATUS): the note
+ *  stays on the phone, in red with the reason, until he taps retry. */
+const PERMANENT = new Set([400, 405, 409, 413, 415]);
 
 type FiledShape = {
   needsAccount: false;

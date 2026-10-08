@@ -13,7 +13,7 @@
 import { z } from "zod";
 import { hasAccess } from "../../../../lib/core/devices";
 import { captureError } from "@/lib/core/errors";
-import { ai, aiConfigured, AiError } from "../../../../lib/core/ai/client";
+import { ai, aiConfigured, AiError, AI_CAP_STATUS, isAiCap } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -97,6 +97,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, suggestion: data });
   } catch (err) {
+    if (isAiCap(err)) return Response.json({ ok: false, error: err.message }, { status: AI_CAP_STATUS });
     if (err instanceof AiError && (err.kind === "invalid" || err.kind === "refusal")) {
       return Response.json({ ok: false, error: "Could not read that photo." }, { status: 422 });
     }

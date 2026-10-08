@@ -16,7 +16,12 @@
  *      becomes one corrective retry, then a thrown AiError: never silent bad
  *      data.
  *   4. A RUN RECORD. Every call, pass or fail, hands one record to `log` (the
- *      server wiring writes it to nb_ai_runs for error analysis).
+ *      server wiring writes it to nb_ai_runs for error analysis), with what
+ *      it cost in USD.
+ *   5. A HARD DAILY CAP. Before every API call, retries included, its cost
+ *      ceiling is reserved against the day's total (AI_DAILY_CAP_USD, per
+ *      Pacific day, across the whole app). Refused, the call is not made and
+ *      an AiError of kind "cap" says so in a sentence a rep can read.
  *
  * PURE ON PURPOSE: no "server-only", no env reads, no relative imports, and
  * the SDK is injected, so tests/ai-client.test.mts runs this file under plain
@@ -76,10 +81,115 @@ const MIN_ATTEMPT_MS = 4_000;
 const MAX_TOKENS_CEILING = 16_000;
 
 // ---------------------------------------------------------------------------
+// spend: the daily cap, the prices, what a call cost and what it may cost
+// ---------------------------------------------------------------------------
+
+/** THE CAP: US dollars of AI spend PER DAY, across the whole app (every rep,
+ *  every task, together). The day turns over at midnight Pacific
+ *  (America/Los_Angeles, in nb_ai_spend_reserve). Change this one number to
+ *  move the limit; the next deploy uses it. */
+export const AI_DAILY_CAP_USD = 5;
+
+export const AI_CAP_MESSAGE = "Today's AI limit is reached. Try again tomorrow.";
+export const AI_LEDGER_DOWN_MESSAGE = "Today's AI spend could not be checked just now. Try again in a minute.";
+/** What a route answers when the cap stops a step. 409, because neither
+ *  phone queue (writeq-core.ts, outbox-core.ts) re-sends a 409 by itself: the
+ *  screen shows the message in red and keeps what he typed. */
+export const AI_CAP_STATUS = 409;
+
+/** USD per million tokens, from the Anthropic pricing page (2026-10-08).
+ *  cacheWrite is the 5-minute write, the only cache this app writes. */
+type Rates = { input: number; cacheWrite: number; cacheRead: number; output: number };
+export const PRICES: Record<ModelId, { base: Rates; long?: { overTokens: number; rates: Rates } }> = {
+  "claude-sonnet-5-5": { base: { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 } },
+  "claude-sonnet-5": { base: { input: 2, cacheWrite: 2.5, cacheRead: 0.2, output: 10 } },
+  // Claude Haiku 5.5 is priced by prompt length: over 100K tokens, all of it
+  // goes at the higher rates.
+  "claude-haiku-5-5": {
+    base: { input: 0.1, cacheWrite: 0.125, cacheRead: 0.01, output: 0.5 },
+    long: { overTokens: 100_000, rates: { input: 0.5, cacheWrite: 0.625, cacheRead: 0.05, output: 2.5 } },
+  },
+  "claude-haiku-4-5": { base: { input: 1, cacheWrite: 1.25, cacheRead: 0.1, output: 5 } },
+};
+/** The web search server tool: $10 per 1,000 searches, on top of tokens. */
+export const WEB_SEARCH_USD = 0.01;
+
+export type CallUsage = { input: number; output: number; cacheRead: number; cacheWrite: number; webSearches: number };
+
+function round6(n: number): number {
+  return Math.round(n * 1e6) / 1e6;
+}
+
+function ratesFor(model: ModelId, promptTokens: number): Rates {
+  const p = PRICES[model];
+  return p.long && promptTokens > p.long.overTokens ? p.long.rates : p.base;
+}
+
+/** What one API call cost, from the usage it reported. */
+export function costUsd(model: ModelId, u: CallUsage): number {
+  const r = ratesFor(model, u.input + u.cacheRead + u.cacheWrite);
+  return round6(
+    (u.input * r.input + u.cacheWrite * r.cacheWrite + u.cacheRead * r.cacheRead + u.output * r.output) / 1e6 +
+      u.webSearches * WEB_SEARCH_USD,
+  );
+}
+
+/** The estimate's assumptions, all on the high side: about 3 characters a
+ *  token (English runs nearer 4), an image at the largest size these models
+ *  read, every allowed search used and each returning a full page of results,
+ *  all input billed at the cache-write rate, and the whole max_tokens spent. */
+export const ESTIMATE = { charsPerToken: 3, imageTokens: 9_000, searchTokens: 15_000, defaultSearches: 5, overheadTokens: 600 } as const;
+
+/** A conservative ceiling on what one API call can cost, before it is made.
+ *  Reserved against the day's cap, then settled to the real cost. */
+export function estimateUsd(model: ModelId, params: Pick<CreateParams, "system" | "messages" | "tools" | "max_tokens" | "output_config">): number {
+  let chars = 0;
+  let images = 0;
+  const block = (b: unknown) => {
+    const x = b as { type?: string; text?: unknown };
+    if (x?.type === "text" && typeof x.text === "string") chars += x.text.length;
+    else if (x?.type === "image" || x?.type === "document") images += 1;
+    else chars += JSON.stringify(b ?? "").length;
+  };
+  if (typeof params.system === "string") chars += params.system.length;
+  else for (const b of params.system ?? []) block(b);
+  for (const m of params.messages) {
+    if (typeof m.content === "string") chars += m.content.length;
+    else for (const b of m.content) block(b);
+  }
+  let searches = 0;
+  for (const t of params.tools ?? []) {
+    chars += JSON.stringify(t).length;
+    const tool = t as { type?: string; max_uses?: number };
+    if (typeof tool.type === "string" && tool.type.startsWith("web_search")) searches += tool.max_uses ?? ESTIMATE.defaultSearches;
+  }
+  if (params.output_config?.format) chars += JSON.stringify(params.output_config.format).length;
+  const inputTokens =
+    Math.ceil(chars / ESTIMATE.charsPerToken) + images * ESTIMATE.imageTokens + searches * ESTIMATE.searchTokens + ESTIMATE.overheadTokens;
+  const r = ratesFor(model, inputTokens);
+  return round6((inputTokens * Math.max(r.input, r.cacheWrite) + params.max_tokens * r.output) / 1e6 + searches * WEB_SEARCH_USD);
+}
+
+/** One reservation against a day's cap: the Pacific day it was taken on and
+ *  the amount held. */
+export type SpendTicket = { day: string; usd: number };
+
+/** The day's spend counter (server: ./spend-ledger.ts, one row per day in
+ *  nb_ai_spend_days). reserve() adds `usd` atomically only while the day's
+ *  spent plus reserved plus `usd` stays within `cap`; settle() swaps the held
+ *  amount for the real cost. */
+export type Budget = {
+  reserve: (usd: number) => Promise<{ ok: true; ticket: SpendTicket } | { ok: false; reason: "cap" | "unavailable" }>;
+  settle: (ticket: SpendTicket, actualUsd: number) => Promise<void>;
+};
+
+// ---------------------------------------------------------------------------
 // errors
 // ---------------------------------------------------------------------------
 
-export type AiErrorKind = "unconfigured" | "permanent" | "transient" | "timeout" | "invalid" | "refusal";
+/** "cap": the day's AI spend limit stopped the call before it was made (or
+ *  the limit could not be checked, which stops it too). */
+export type AiErrorKind = "unconfigured" | "permanent" | "transient" | "timeout" | "invalid" | "refusal" | "cap";
 
 /** What a caller catches. `message` is plain enough to show a rep. */
 export class AiError extends Error {
@@ -91,6 +201,12 @@ export class AiError extends Error {
     this.kind = kind;
     this.detail = detail;
   }
+}
+
+/** True when the daily cap (or an unreachable spend counter) stopped the
+ *  step: the caller shows `err.message` as it is and saves nothing. */
+export function isAiCap(err: unknown): err is AiError {
+  return err instanceof AiError && err.kind === "cap";
 }
 
 type Failure = { retry: "same" | "fallback" | "never"; kind: AiErrorKind; detail: string; waitMs?: number };
@@ -152,6 +268,8 @@ export type RunRecord = {
   output_tokens: number;
   cache_read_tokens: number;
   cache_write_tokens: number;
+  /** USD, every attempt priced at the model that answered it (costUsd). */
+  cost_usd: number;
   stop_reason: string | null;
   input_hash: string;
   input_excerpt: string;
@@ -186,6 +304,9 @@ export type Deps = {
   /** client.messages.create, bound, with per-request options. */
   create: (params: CreateParams, opts: { timeout: number; maxRetries: 0 }) => Promise<Message>;
   log?: (rec: RunRecord) => Promise<void>;
+  /** The daily cap. Every API call reserves its estimate here first and is
+   *  not made when the reservation is refused. Absent only in tests. */
+  budget?: Budget;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
 };
@@ -216,7 +337,7 @@ export type AiResult<T> = {
   fallbackUsed: boolean;
 };
 
-type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number };
+type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number; costUsd: number };
 
 function systemParam(system: AiRequest<undefined>["system"], extra?: string): CreateParams["system"] {
   if (typeof system === "string" && !extra) return system;
@@ -292,7 +413,7 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
   let lastStop: string | null = null;
   let lastText: string | null = null;
   let lastError: AiError | null = null;
-  const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const usage: Usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUsd: 0 };
 
   const toFallback = (): boolean => {
     if (fallbackUsed) return false;
@@ -316,6 +437,7 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
         output_tokens: usage.output,
         cache_read_tokens: usage.cacheRead,
         cache_write_tokens: usage.cacheWrite,
+        cost_usd: round6(usage.costUsd),
         stop_reason: lastStop,
         input_hash: hashOfRequest(req),
         input_excerpt: inputExcerpt(req),
@@ -345,11 +467,44 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
     if (format && jsonMode === "grammar") outputConfig.format = { type: "json_schema", schema: format.schema };
     if (Object.keys(outputConfig).length) params.output_config = outputConfig;
 
+    // The cap, checked before every API call (a retry is a call): hold this
+    // call's ceiling against the day, or make no call at all.
+    let ticket: SpendTicket | null = null;
+    if (deps.budget) {
+      let held: Awaited<ReturnType<Budget["reserve"]>>;
+      try {
+        held = await deps.budget.reserve(estimateUsd(model, params));
+      } catch {
+        held = { ok: false, reason: "unavailable" };
+      }
+      if (!held.ok) {
+        attempts -= 1;
+        lastError =
+          held.reason === "cap"
+            ? new AiError("cap", AI_CAP_MESSAGE, `daily cap of $${AI_DAILY_CAP_USD} reached`)
+            : new AiError("cap", AI_LEDGER_DOWN_MESSAGE, "spend counter unreachable");
+        break;
+      }
+      ticket = held.ticket;
+    }
+    const settle = async (usd: number) => {
+      if (!ticket || !deps.budget) return;
+      try {
+        await deps.budget.settle(ticket, usd);
+      } catch {
+        // The day's row keeps the held amount: an over-count, never an under-count.
+      }
+    };
+    const callModel = model;
+
     let msg: Message;
     try {
-      msg = await deps.create(params, { timeout: Math.max(1_000, remaining), maxRetries: 0 });
+      msg = await deps.create(params, { timeout: Math.max(1_000, deadline - now()), maxRetries: 0 });
     } catch (err) {
       const f = classifyError(err);
+      // An error answer is not billed. A timeout may have been, partly: it
+      // keeps its whole estimate, so the day never under-counts.
+      await settle(f.kind === "timeout" && ticket ? ticket.usd : 0);
       if (jsonMode === "grammar" && isSchemaRejection(err)) {
         jsonMode = "prompt";
         lastError = new AiError("permanent", "The model could not answer just now.", f.detail);
@@ -375,6 +530,15 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
     usage.output += msg.usage?.output_tokens ?? 0;
     usage.cacheRead += msg.usage?.cache_read_input_tokens ?? 0;
     usage.cacheWrite += msg.usage?.cache_creation_input_tokens ?? 0;
+    const callCost = costUsd(callModel, {
+      input: msg.usage?.input_tokens ?? 0,
+      output: msg.usage?.output_tokens ?? 0,
+      cacheRead: msg.usage?.cache_read_input_tokens ?? 0,
+      cacheWrite: msg.usage?.cache_creation_input_tokens ?? 0,
+      webSearches: msg.usage?.server_tool_use?.web_search_requests ?? 0,
+    });
+    usage.costUsd += callCost;
+    await settle(callCost);
     lastStop = msg.stop_reason ?? null;
     const text = msg.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")

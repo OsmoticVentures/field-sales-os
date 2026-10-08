@@ -6,16 +6,19 @@
  *   const { data } = await ai({ task: "touchpoint_extract", system, messages, schema });
  *
  * Throws AiError (re-exported) when the budget is spent; a caller turns that
- * into its own plain "could not read that" line, as it did before.
+ * into its own plain "could not read that" line, as it did before. When the
+ * daily spend cap stops a call, the AiError's kind is "cap" (isAiCap) and its
+ * message is the line to show as it is.
  */
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { AiError, runAi, type AiRequest, type AiResult } from "./core";
 import { writeRunRecord } from "./run-log";
+import { spendLedger } from "./spend-ledger";
 import { currentUser } from "../user";
 
-export { AiError, hashInput } from "./core";
+export { AiError, hashInput, isAiCap, AI_CAP_MESSAGE, AI_CAP_STATUS, AI_DAILY_CAP_USD } from "./core";
 
 let client: Anthropic | null | undefined;
 
@@ -43,6 +46,7 @@ export async function ai<S extends z.ZodType | undefined = undefined>(
     {
       create: (params, opts) => c.messages.create(params, opts),
       log: writeRunRecord,
+      budget: spendLedger,
     },
     { ...req, actor },
   );

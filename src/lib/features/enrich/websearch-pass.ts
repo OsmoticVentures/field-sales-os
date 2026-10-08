@@ -13,7 +13,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured, AiError } from "../../core/ai/client";
+import { ai, aiConfigured, AiError, isAiCap } from "../../core/ai/client";
 import type { FoundPerson, Lead } from "./types";
 import { verifyCited, type Citation } from "./people-guard";
 
@@ -80,6 +80,7 @@ export async function runWebSearchPass(
       }
     }
   } catch (err) {
+    if (isAiCap(err)) return { ran: false, skipped_reason: `No web search. ${err.message}`, people: [], leads: [], query, closed_signal: null };
     const timedOut = err instanceof AiError && err.kind === "timeout";
     return { ran: false, skipped_reason: timedOut ? "The web search ran out of time." : "The web search could not run just now.", people: [], leads: [], query, closed_signal: null };
   }
@@ -98,7 +99,9 @@ export async function runWebSearchPass(
       deadline,
     });
     out = res.data;
-  } catch {
+  } catch (err) {
+    // Nothing from the search is kept unread: no half a finding.
+    if (isAiCap(err)) return { ran: false, skipped_reason: `The search ran but was not read. ${err.message}`, people: [], leads: [], query, closed_signal: null };
     return { ran: true, skipped_reason: "Could not extract structured findings.", people: [], leads: [], query, closed_signal: null };
   }
 

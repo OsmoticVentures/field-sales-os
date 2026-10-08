@@ -11,6 +11,7 @@ import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { recordTouchpoint, type ParsedTouchpoint } from "../../../../lib/features/visit/touchpoint";
 import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
+import { AI_CAP_STATUS, isAiCap } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -51,6 +52,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
     if (err instanceof NotSure) return Response.json({ ok: true, result: err.result, replayed: false });
+    if (isAiCap(err)) return Response.json({ ok: false, error: err.message }, { status: AI_CAP_STATUS });
     const status = err instanceof NotFiled ? 422 : 500;
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "That note did not file." }, { status });
   }

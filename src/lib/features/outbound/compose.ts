@@ -24,7 +24,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured } from "../../core/ai/client";
+import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
 import { EMAIL_VOICE } from "./email-voice.generated";
 import { TALKING_POINTS } from "./talking-points.generated";
 import {
@@ -454,7 +454,7 @@ Copy the habits in those examples, never their facts: their names, products and 
 
 type ComposeOut = z.infer<typeof ComposeSchema>;
 
-async function askModel(input: ComposeAskInput, rep: Rep, correction: string | null): Promise<ComposeOut | string> {
+async function askModel(input: ComposeAskInput, rep: Rep, correction: string | null): Promise<ComposeOut | string | { capped: string }> {
   const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userPrompt(input, rep) }];
   if (correction) messages.push({ role: "user", content: correction });
 
@@ -470,6 +470,7 @@ async function askModel(input: ComposeAskInput, rep: Rep, correction: string | n
     });
     return data;
   } catch (err) {
+    if (isAiCap(err)) return { capped: err.message };
     return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
 }
@@ -495,6 +496,7 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const out = await askModel(input, rep, correction);
     if (typeof out === "string") return { written: false, reason: `Not written: ${out}.` };
+    if ("capped" in out) return { written: false, reason: `Not written. ${out.capped}` };
 
     if (!out.writable || !out.body.trim() || !out.subject.trim()) {
       return {

@@ -16,7 +16,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured } from "../../core/ai/client";
+import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
 import { withIdempotency } from "../../core/idempotency";
 import { Held, once } from "../../core/once-server";
 import { loadAskInputs } from "./actions";
@@ -55,7 +55,10 @@ Only what the note says counts. Never invent an email he did not mention or a cu
 
 type Decision = { email_needed: boolean; ask: string; today: boolean };
 
-async function decide(note: VisitNote): Promise<Decision | string> {
+/** The decision could not be made because the day's AI limit is reached. */
+const CAPPED = Symbol("capped");
+
+async function decide(note: VisitNote): Promise<Decision | string | { [CAPPED]: string }> {
   // What the visit parse already caught is the decision, with no model call.
   if (note.outreachAsks.length > 0) {
     return { email_needed: true, ask: note.outreachAsks.join("; "), today: true };
@@ -75,6 +78,7 @@ async function decide(note: VisitNote): Promise<Decision | string> {
     });
     return { email_needed: data.email_needed, ask: data.ask.trim(), today: data.today };
   } catch (err) {
+    if (isAiCap(err)) return { [CAPPED]: err.message };
     return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
 }
@@ -93,6 +97,7 @@ async function run(note: VisitNote): Promise<VisitOutbound> {
 
   const decision = await decide(note);
   if (typeof decision === "string") return { status: "not_written", reason: `Email not drafted: ${decision}.` };
+  if (CAPPED in decision) return { status: "not_written", reason: `Email not drafted. ${decision[CAPPED]}` };
   if (!decision.email_needed) return { status: "none" };
 
   const ask = groundedAsk(decision.ask, note);
@@ -108,7 +113,7 @@ async function run(note: VisitNote): Promise<VisitOutbound> {
     voice,
   });
   if (!composed.written) {
-    return { status: "not_written", reason: composed.reason.replace(/^Not written:\s*/i, "Email not drafted: ") };
+    return { status: "not_written", reason: composed.reason.replace(/^Not written([:.])\s*/i, "Email not drafted$1 ") };
   }
 
   const row = await insertAskDraft({

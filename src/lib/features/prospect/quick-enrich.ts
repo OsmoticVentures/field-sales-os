@@ -20,7 +20,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured } from "../../core/ai/client";
+import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
 import {
   applyQuickEnrichment,
   getAccount,
@@ -220,6 +220,7 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
 
   let toolOut: z.infer<typeof EnrichSchema> | null = null;
   let modelFailed = false;
+  let capReason: string | null = null;
   try {
     const res = await ai({
       task: "prospect_quick_enrich",
@@ -241,8 +242,12 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
     });
     toolOut = res.data;
   } catch (err) {
-    console.error("quick enrich model call failed", err);
-    captureError(err, "lib/prospect/quick-enrich");
+    if (isAiCap(err)) {
+      capReason = err.message;
+    } else {
+      console.error("quick enrich model call failed", err);
+      captureError(err, "lib/prospect/quick-enrich");
+    }
     modelFailed = true;
     // The site's own structured hours and Places still stand without the
     // model; only the angle summary needs it.
@@ -279,7 +284,9 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
     impact: report.gap_summary ? (toolOut?.impact ?? null) : account.impact,
     wroteHours: report.business_hours?.status === "filled" || report.business_hours?.status === "updated",
     wroteSummary: report.gap_summary?.status === "filled",
-    skippedReason: modelFailed
+    skippedReason: capReason
+      ? `Hours were checked; the angle was not written. ${capReason}`
+      : modelFailed
       ? "The angle could not be written just now; try again in a minute."
       : report.business_hours?.status === "skipped_stronger_tier"
         ? "Hours already on file came from a stronger source (a logged call or the website), so the Places reading was not used."
