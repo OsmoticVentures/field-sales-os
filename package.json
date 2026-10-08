@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types tests/people-guard.test.mts && node --experimental-strip-types tests/head-hunter-tiers.test.mts && node --experimental-strip-types tests/outbox.test.mts"
+    "test": "node --experimental-strip-types tests/people-guard.test.mts && node --experimental-strip-types tests/head-hunter-tiers.test.mts && node --experimental-strip-types tests/outbox.test.mts && node --experimental-strip-types tests/durable-jobs.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
