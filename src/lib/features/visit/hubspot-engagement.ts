@@ -31,6 +31,7 @@ import {
 } from "./dal";
 import { assertOwnBook, batchRead, request, type HubspotFeature } from "./hubspot";
 import { currentUser } from "../../core/user";
+import { Held, once } from "../../core/once-server";
 
 export class Blocked extends Error {}
 
@@ -483,32 +484,48 @@ export async function runEngagement(
     throw new Blocked(`portal company ${companyId} (${account.name}) has hubspot_owner_id ${dropped?.owner ?? "(none)"}, not ${me.ownerName}'s ${me.ownerId}. DROPPED, nothing written.`);
   }
 
-  await ensureHubspotContacts(companyId, matched, opts.feature);
-  const contactIds = matched.map((m) => m.contact.hubspot_contact_id).filter((v): v is string => Boolean(v));
+  // ONE WRITER PER ACTIVITY (core/once.ts). The marker search below cannot
+  // see a record HubSpot created a second ago (its search index lags), so two
+  // filings of the same activity at once, a Visit-screen retry racing the
+  // outbox's refile, would both POST. The claim lets exactly one through; the
+  // other waits for its note id, or reports it still filing, and never writes.
+  let filed: { noteId: string; wrote: boolean };
+  try {
+    ({ result: filed } = await once(`hubspot:engagement:${activityId}`, async () => {
+      await ensureHubspotContacts(companyId, matched, opts.feature);
+      const contactIds = matched.map((m) => m.contact.hubspot_contact_id).filter((v): v is string => Boolean(v));
 
-  const dup = await alreadyFiled(activityId, otype);
-  let noteId: string;
-  if (dup) {
-    noteId = dup;
-  } else {
-    const assoc = [
-      { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_COMPANY[otype] }] },
-      ...contactIds.map((cid) => ({ to: { id: cid }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_CONTACT[otype] }] })),
-    ];
-    const props = typedProperties(otype, activity, body, lines.join("\n"), me.ownerId);
-    const writeProps = Object.fromEntries(Object.entries(props).filter(([, v]) => v !== null));
-    const res = await request<{ id?: string }>({
-      method: "POST",
-      path: `/crm/v3/objects/${ENGAGEMENT_OBJECT[otype]}`,
-      body: { properties: writeProps, associations: assoc },
-      entity: ENGAGEMENT_OBJECT[otype],
-      operation: "create",
-      feature: opts.feature,
-    });
-    if (!res.id) throw new Blocked(`HubSpot accepted the ${otype.toLowerCase()} but returned no id; refusing to stamp.`);
-    noteId = res.id;
+      const dup = await alreadyFiled(activityId, otype);
+      let noteId: string;
+      if (dup) {
+        noteId = dup;
+      } else {
+        const assoc = [
+          { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_COMPANY[otype] }] },
+          ...contactIds.map((cid) => ({ to: { id: cid }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_CONTACT[otype] }] })),
+        ];
+        const props = typedProperties(otype, activity, body, lines.join("\n"), me.ownerId);
+        const writeProps = Object.fromEntries(Object.entries(props).filter(([, v]) => v !== null));
+        const res = await request<{ id?: string }>({
+          method: "POST",
+          path: `/crm/v3/objects/${ENGAGEMENT_OBJECT[otype]}`,
+          body: { properties: writeProps, associations: assoc },
+          entity: ENGAGEMENT_OBJECT[otype],
+          operation: "create",
+          feature: opts.feature,
+        });
+        if (!res.id) throw new Blocked(`HubSpot accepted the ${otype.toLowerCase()} but returned no id; refusing to stamp.`);
+        noteId = res.id;
+      }
+
+      await stampActivityEngagementId(activityId, noteId);
+      return { noteId, wrote: !dup };
+    }));
+  } catch (e) {
+    if (!(e instanceof Held)) throw e;
+    const now = await getActivityById(activityId);
+    if (!now?.hubspot_engagement_id) throw new Blocked("Still being filed to HubSpot.");
+    filed = { noteId: now.hubspot_engagement_id, wrote: false };
   }
-
-  await stampActivityEngagementId(activityId, noteId);
-  return { status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype, lines, matchedNames, alreadyFiledId: null, wrote: !dup, noteId };
+  return { status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype, lines, matchedNames, alreadyFiledId: filed.wrote ? null : filed.noteId, wrote: filed.wrote, noteId: filed.noteId };
 }

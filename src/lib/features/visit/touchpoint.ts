@@ -49,7 +49,9 @@ import {
 import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
 import { draftFromVisit, type VisitOutbound } from "../outbound/from-visit";
-import { ai, aiConfigured, AiError } from "../../core/ai/client";
+import { ai, aiConfigured, AiError, hashInput } from "../../core/ai/client";
+import { laDay, noteKey, once } from "../../core/once-server";
+import { currentUser } from "../../core/user";
 import { TouchpointSchema } from "./touchpoint-schema";
 
 export type HubspotFilingReport = {
@@ -344,39 +346,46 @@ async function continueTouchpoint(
     const noteAccountId = accountIdHint || (parsed.account_confidence === "high" ? parsed.account_id : null);
     const noteAccount = candidates.find((a) => a.id === noteAccountId);
 
-    const tp = await insertTouchpoint({
-      account_id: noteAccountId ?? null,
-      raw_text: text,
-      status: "parsed",
-      account_match_confidence: accountIdHint ? "high" : parsed.account_confidence,
-      parsed,
-    });
-    const fieldNote = await insertFieldNote({
-      account_id: noteAccountId ?? null,
-      touchpoint_id: tp.id,
-      detail: parsed.activity.detail,
-      raw_text: text,
-    });
-    await insertReturnDirectives(
-      returnVisitDirectiveRows(parsed.calendar_actions, fieldNote?.id ?? null, noteAccountId ?? null, noteAccount?.name ?? null),
-    );
+    // Once per rep, store, note and day: a double tap or a retry with a new
+    // header files one field note, and the second caller gets the first's result.
+    const actor = await currentUser().then((u) => u.id).catch(() => "unknown");
+    const key = `fieldnote:${hashInput(actor, noteAccountId ?? "", noteKey(text), laDay())}`;
+    const { result } = await once(key, async (): Promise<FiledTouchpoint> => {
+      const tp = await insertTouchpoint({
+        account_id: noteAccountId ?? null,
+        raw_text: text,
+        status: "parsed",
+        account_match_confidence: accountIdHint ? "high" : parsed.account_confidence,
+        parsed,
+      });
+      const fieldNote = await insertFieldNote({
+        account_id: noteAccountId ?? null,
+        touchpoint_id: tp.id,
+        detail: parsed.activity.detail,
+        raw_text: text,
+      });
+      await insertReturnDirectives(
+        returnVisitDirectiveRows(parsed.calendar_actions, fieldNote?.id ?? null, noteAccountId ?? null, noteAccount?.name ?? null),
+      );
 
-    return {
-      ok: true,
-      touchpoint_id: tp.id,
-      accountName: noteAccount?.name ?? null,
-      accountId: noteAccount?.id ?? null,
-      activityId: null,
-      needsAccount: false,
-      isFieldNote: true,
-      summary: parsed.activity.detail,
-      peopleAdded: 0,
-      peopleUpdated: 0,
-      hubspotFiled: false,
-      hubspotNoteId: null,
-      hubspotError: null,
-      accountFacts: null,
-    };
+      return {
+        ok: true,
+        touchpoint_id: tp.id,
+        accountName: noteAccount?.name ?? null,
+        accountId: noteAccount?.id ?? null,
+        activityId: null,
+        needsAccount: false,
+        isFieldNote: true,
+        summary: parsed.activity.detail,
+        peopleAdded: 0,
+        peopleUpdated: 0,
+        hubspotFiled: false,
+        hubspotNoteId: null,
+        hubspotError: null,
+        accountFacts: null,
+      };
+    });
+    return result;
   }
 
   const accountId = opts.forceNewAccount ? null : accountIdHint || (parsed.account_confidence === "high" ? parsed.account_id : null);
@@ -415,13 +424,33 @@ async function continueTouchpoint(
   });
 }
 
-async function finishTouchpoint(input: {
+type FinishInput = {
   accountId: string;
   accountName: string | null;
   parsed: ParsedTouchpoint;
   rawText: string;
   accountMatchConfidence: string | null;
-}): Promise<FiledTouchpoint> {
+};
+
+/**
+ * Once per rep, account, note and day (core/once.ts). The route's own
+ * Idempotency-Key covers a retry of one tap; this covers two taps that each
+ * minted a key, a phone retry racing its own first try, and two server
+ * instances: one activity, one HubSpot record, one outbound draft. The
+ * second caller gets the first caller's result; if that one did not reach
+ * HubSpot, the HubSpot filing (deduped per activity) is tried again here.
+ */
+async function finishTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
+  const actor = await currentUser().then((u) => u.id).catch(() => "unknown");
+  const key = `touchpoint:${hashInput(actor, input.accountId, noteKey(input.rawText), laDay())}`;
+  const { result, replayed } = await once(key, () => fileTouchpoint(input));
+  if (replayed && result.activityId && !result.hubspotFiled && !isNeverFiledKind(input.parsed.activity.kind)) {
+    return { ...result, ...(await autoFileEngagement(result.activityId)) };
+  }
+  return result;
+}
+
+async function fileTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
   const { accountId, accountName, parsed } = input;
 
   // A retry of a note whose first try got as far as its touchpoint row: the

@@ -11,13 +11,14 @@
  * draft that fails must not fail the note.
  *
  * Once per touchpoint. A retry of the same note replays the first outcome
- * (withIdempotency), and an ask already queued for the account, in any
+ * (once + withIdempotency), and an ask already queued for the account, in any
  * status, is never queued twice (asksCollide).
  */
 import "server-only";
 import { z } from "zod";
 import { ai, aiConfigured } from "../../core/ai/client";
 import { withIdempotency } from "../../core/idempotency";
+import { Held, once } from "../../core/once-server";
 import { loadAskInputs } from "./actions";
 import { asksCollide, composeAsk } from "./compose";
 import { insertAskDraft } from "./dal";
@@ -130,14 +131,22 @@ class Refused extends Error {
 
 export async function draftFromVisit(note: VisitNote): Promise<VisitOutbound> {
   try {
-    const { result } = await withIdempotency(`outbound:visit:${note.touchpointId}`, async () => {
-      const out = await run(note);
-      if (out.status === "not_written") throw new Refused(out);
-      return out;
+    // once() makes it atomic across a double tap and two instances (the
+    // ask-collision check alone reads before either has written); the inner
+    // withIdempotency keeps replaying outcomes stored before once() existed.
+    const key = `outbound:visit:${note.touchpointId}`;
+    const { result } = await once(key, async () => {
+      const { result: inner } = await withIdempotency(key, async () => {
+        const out = await run(note);
+        if (out.status === "not_written") throw new Refused(out);
+        return out;
+      });
+      return inner;
     });
     return result;
   } catch (err) {
     if (err instanceof Refused) return err.outcome;
+    if (err instanceof Held) return { status: "already_queued" };
     return { status: "not_written", reason: `Email not drafted: ${err instanceof Error ? err.message : String(err)}.` };
   }
 }
