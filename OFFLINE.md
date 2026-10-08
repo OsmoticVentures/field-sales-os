@@ -21,8 +21,10 @@ lines, built from the app's own build output, and has nothing to upgrade.
 
 ## How it works
 
-**The worker** (`scripts/sw.template.js`, built into `public/sw.js` by
-`scripts/build-sw.mjs` as part of `pnpm build`, registered by
+**The worker** (`scripts/sw.template.js`, filled with the build's file list
+and served at `/nb/sw.js` by `src/app/sw.js/route.ts`, rendered once at
+build time; a file written to `public/` after `next build` is not deployed,
+so it is a static route instead. Registered by
 `lib/core/sw-register.tsx`, scope `/nb` via the `Service-Worker-Allowed`
 header in `next.config.ts`):
 

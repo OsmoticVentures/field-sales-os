@@ -5,7 +5,7 @@
   "packageManager": "pnpm@9.15.9+sha512.68046141893c66fad01c079231128e9afb89ef87e2691d69e4d40eee228988295fd4682181bae55b58418c3a253bde65a505ec7c5f9403ece5cc3cd37dcf2531",
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/build-sw.mjs",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "test": "node --experimental-strip-types tests/people-guard.test.mts && node --experimental-strip-types tests/head-hunter-tiers.test.mts && node --experimental-strip-types tests/outbox.test.mts && node --experimental-strip-types tests/durable-jobs.test.mts && node --experimental-strip-types tests/stage.test.mts && node --experimental-strip-types tests/error-capture.test.mts && node --experimental-strip-types tests/writeq.test.mts && node --experimental-strip-types tests/ai-client.test.mts && node --experimental-strip-types tests/once.test.mts && node --experimental-strip-types tests/evals.test.mts"

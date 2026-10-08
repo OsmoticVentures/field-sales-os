@@ -1,7 +1,7 @@
 /*
- * THE SERVICE WORKER. Generated: scripts/build-sw.mjs fills the three
- * constants below from the build and writes public/sw.js. Edit this
- * template, never public/sw.js. Decision and reasoning: OFFLINE.md.
+ * THE SERVICE WORKER. Served at /nb/sw.js by src/app/sw.js/route.ts, which
+ * fills the three constants below from the build at build time. Decision
+ * and reasoning: OFFLINE.md.
  *
  * What it does, per request under /nb:
  *  - /_next/static/*     cache first. Every file of the build is fetched at

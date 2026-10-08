@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { BASE_PATH } from "./api";
 
 /**
- * Registers the service worker (public/sw.js, built from
+ * Registers the service worker (/nb/sw.js, src/app/sw.js/route.ts, from
  * scripts/sw.template.js; OFFLINE.md says why) on whichever screen the app
  * opens to, and checks for a newer one when the app comes back to the front,
  * at most every half hour. Production only: in dev it would serve stale
