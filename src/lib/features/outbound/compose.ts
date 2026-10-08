@@ -23,7 +23,8 @@
  * own file headers).
  */
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { ai, aiConfigured } from "../../core/ai/client";
 import { EMAIL_VOICE } from "./email-voice.generated";
 import { TALKING_POINTS } from "./talking-points.generated";
 import {
@@ -356,41 +357,15 @@ export function groundingFailure(
 // The composition itself.
 // ---------------------------------------------------------------------------
 
-const COMPOSE_TOOL = {
-  name: "write_outreach_email",
-  description:
-    "Write the follow-up email for one thing a customer asked for, or report that it cannot be written from what is known.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      writable: {
-        type: "boolean",
-        description:
-          "true only when the note says enough to write an email the rep could send as-is, and the ask is something HE sends. false when the ask is something the other side will send him, when it is an internal reminder rather than a message, or when writing it would need a fact nobody stated.",
-      },
-      reason: {
-        type: "string",
-        description:
-          "When writable is false, one plain sentence naming what is missing or why this is not an email he sends, addressed to the rep as 'you'. Empty string when writable is true.",
-      },
-      contact_id: {
-        type: ["string", "null"],
-        description:
-          "The id of the ONE person this email is addressed to, from the contacts list given. The person who made the ask when the note names them. Null when no listed contact is the right recipient.",
-      },
-      subject: {
-        type: "string",
-        description:
-          "A short, plain subject naming what this email is about, in sentence case: only proper nouns and product names are capitalized. A noun phrase, never marketing copy, never internal words like 'next step' or 'follow-up action'. Good: 'Chlorella and Defense Plus', 'Order list, per Susan', 'Getting Kim looped in on Clarity+'. Empty string when writable is false.",
-      },
-      body: {
-        type: "string",
-        description: "The email, greeting to sign-off. Empty string when writable is false.",
-      },
-    },
-    required: ["writable", "reason", "contact_id", "subject", "body"],
-  },
-};
+/** What the model returns for one ask. The descriptions are prompt text,
+ *  kept word for word from the forced tool this replaced. */
+const ComposeSchema = z.object({
+  writable: z.boolean().describe("true only when the note says enough to write an email the rep could send as-is, and the ask is something HE sends. false when the ask is something the other side will send him, when it is an internal reminder rather than a message, or when writing it would need a fact nobody stated."),
+  reason: z.string().describe("When writable is false, one plain sentence naming what is missing or why this is not an email he sends, addressed to the rep as 'you'. Empty string when writable is true."),
+  contact_id: z.string().nullable().describe("The id of the ONE person this email is addressed to, from the contacts list given. The person who made the ask when the note names them. Null when no listed contact is the right recipient."),
+  subject: z.string().describe("A short, plain subject naming what this email is about, in sentence case: only proper nouns and product names are capitalized. A noun phrase, never marketing copy, never internal words like 'next step' or 'follow-up action'. Good: 'Chlorella and Defense Plus', 'Order list, per Susan', 'Getting Kim looped in on Clarity+'. Empty string when writable is false."),
+  body: z.string().describe("The email, greeting to sign-off. Empty string when writable is false."),
+});
 
 function systemPrompt(rep: Rep): string {
   return `You write one short follow-up email for ${rep.full}, NutriBiotic's ${rep.region} field sales rep, from a note he typed after a visit or a call.
@@ -477,41 +452,25 @@ ${pairs}
 Copy the habits in those examples, never their facts: their names, products and numbers belong to other customers.`;
 }
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-
-type ComposeOut = {
-  writable: boolean;
-  reason: string;
-  contact_id: string | null;
-  subject: string;
-  body: string;
-};
+type ComposeOut = z.infer<typeof ComposeSchema>;
 
 async function askModel(input: ComposeAskInput, rep: Rep, correction: string | null): Promise<ComposeOut | string> {
   const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: userPrompt(input, rep) }];
   if (correction) messages.push({ role: "user", content: correction });
 
   try {
-    const call = () =>
-      client!.messages.create({
-        model: "claude-sonnet-5",
-        max_tokens: 900,
-        system: systemPrompt(rep),
-        messages,
-        tools: [COMPOSE_TOOL],
-        tool_choice: { type: "tool", name: "write_outreach_email" },
-      });
-    // One more try on an overloaded, rate-limited or dropped call: a rep at a
-    // stop should not get "not written" for a blip.
-    const msg = await call().catch(async () => {
-      await new Promise((r) => setTimeout(r, 1500));
-      return call();
+    // Timeouts, the retry on an overloaded or dropped call, and the schema
+    // check all live in the shared client: a rep at a stop should not get
+    // "not written" for a blip, nor a draft built from a malformed reply.
+    const { data } = await ai({
+      task: "outbound_compose",
+      system: { cached: systemPrompt(rep) },
+      messages,
+      schema: ComposeSchema,
     });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return "the draft came back empty";
-    return toolUse.input as ComposeOut;
+    return data;
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
 }
 
@@ -524,7 +483,7 @@ async function askModel(input: ComposeAskInput, rep: Rep, correction: string | n
  * from it.
  */
 export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
-  if (!client) return { written: false, reason: "Not written: no model is configured on this deployment." };
+  if (!aiConfigured()) return { written: false, reason: "Not written: no model is configured on this deployment." };
   const rep = input.rep ?? (await currentRep());
 
   const sources = [input.ask, input.noteText, input.account.name, input.account.city ?? "", TALKING_POINT_TEXT];

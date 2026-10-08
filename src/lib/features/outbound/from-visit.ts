@@ -15,7 +15,8 @@
  * status, is never queued twice (asksCollide).
  */
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { ai, aiConfigured } from "../../core/ai/client";
 import { withIdempotency } from "../../core/idempotency";
 import { loadAskInputs } from "./actions";
 import { asksCollide, composeAsk } from "./compose";
@@ -39,32 +40,13 @@ type VisitNote = {
 /** Kinds that are not a customer conversation, or are the email itself. */
 const NEVER_DRAFTED = new Set(["field_note", "email_out", "newsletter"]);
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-
-const DECIDE_TOOL = {
-  name: "decide_outbound_email",
-  description: "Decide whether this visit note leaves an email the rep owes the customer.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      email_needed: {
-        type: "boolean",
-        description:
-          "true when the note says the rep will, should or needs to email the customer, or send them something by email (a thank-you, a price sheet, a catalog, terms, product info, an order confirmation), or the customer asked for something to be emailed to them. false when the next step is only a call, a text, a WhatsApp, a return visit, or nothing; when the other side will send HIM something; or when the email is internal (to HQ, the orders desk, himself).",
-      },
-      ask: {
-        type: "string",
-        description:
-          "When email_needed: what the email must say or carry, in the rep's own words from the note, kept close to verbatim (e.g. 'send him an email tonight saying thank you so much for the visit and go cobra Kai'). Every item the customer asked for goes in this one string. Empty when not needed.",
-      },
-      today: {
-        type: "boolean",
-        description: "true when the note says the email goes out today, tonight, now or right away, or states no later time. false when it states a later time ('in a week').",
-      },
-    },
-    required: ["email_needed", "ask", "today"],
-  },
-};
+/** The descriptions are prompt text, kept word for word from the forced
+ *  tool this replaced. */
+const DecideSchema = z.object({
+  email_needed: z.boolean().describe("true when the note says the rep will, should or needs to email the customer, or send them something by email (a thank-you, a price sheet, a catalog, terms, product info, an order confirmation), or the customer asked for something to be emailed to them. false when the next step is only a call, a text, a WhatsApp, a return visit, or nothing; when the other side will send HIM something; or when the email is internal (to HQ, the orders desk, himself)."),
+  ask: z.string().describe("When email_needed: what the email must say or carry, in the rep's own words from the note, kept close to verbatim (e.g. 'send him an email tonight saying thank you so much for the visit and go cobra Kai'). Every item the customer asked for goes in this one string. Empty when not needed."),
+  today: z.boolean().describe("true when the note says the email goes out today, tonight, now or right away, or states no later time. false when it states a later time ('in a week')."),
+});
 
 const DECIDE_SYSTEM = `You read one note a field sales rep just logged about a customer and decide one thing: does it leave an email he owes that customer?
 
@@ -77,11 +59,10 @@ async function decide(note: VisitNote): Promise<Decision | string> {
   if (note.outreachAsks.length > 0) {
     return { email_needed: true, ask: note.outreachAsks.join("; "), today: true };
   }
-  if (!client) return "no model is configured on this deployment";
+  if (!aiConfigured()) return "no model is configured on this deployment";
   try {
-    const msg = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
+    const { data } = await ai({
+      task: "outbound_decide",
       system: DECIDE_SYSTEM,
       messages: [
         {
@@ -89,15 +70,11 @@ async function decide(note: VisitNote): Promise<Decision | string> {
           content: `NOTE:\n${note.rawText}\n\nNEXT STEP AS FILED: ${note.nextStep ?? "(none stated)"}`,
         },
       ],
-      tools: [DECIDE_TOOL],
-      tool_choice: { type: "tool", name: "decide_outbound_email" },
+      schema: DecideSchema,
     });
-    const tool = msg.content.find((b) => b.type === "tool_use");
-    if (!tool || tool.type !== "tool_use") return "the decision came back empty";
-    const d = tool.input as Partial<Decision>;
-    return { email_needed: Boolean(d.email_needed), ask: String(d.ask ?? "").trim(), today: d.today !== false };
+    return { email_needed: data.email_needed, ask: data.ask.trim(), today: data.today };
   } catch (err) {
-    return err instanceof Error ? err.message : String(err);
+    return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
 }
 
