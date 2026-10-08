@@ -29,8 +29,9 @@ export const onRequestError: Instrumentation.onRequestError = async (err, reques
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   try {
     const e = err as Error & { digest?: string };
-    const { captureNow } = await import("./lib/core/errors");
+    const { captureNow, repFromCookieHeader } = await import("./lib/core/errors");
     await captureNow({
+      rep: await repFromCookieHeader(request.headers.cookie),
       kind: "server",
       message: `${e.name ?? "Error"}: ${e.message ?? ""}`,
       stack: e.stack,

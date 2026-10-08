@@ -26,7 +26,7 @@
 import "server-only";
 import { after } from "next/server";
 import { fingerprint, makeAdmitter, normalizeRoute, topFrame, type ErrorKind } from "./error-fingerprint";
-import { readAuthCookies, readDeviceToken, readSessionUser } from "./session";
+import { COOKIE, DEVICE_COOKIE, readAuthCookies, readDeviceToken, readSessionUser } from "./session";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -48,10 +48,35 @@ export type Captured = {
   rep?: string | null;
 };
 
+/** The rep a raw Cookie header names, or null. onRequestError has the
+ *  request's headers but runs outside the scope cookies() needs. */
+export async function repFromCookieHeader(header: string | string[] | undefined): Promise<string | null> {
+  try {
+    const raw = Array.isArray(header) ? header.join("; ") : header ?? "";
+    const jar = new Map(
+      raw.split(";").map((p) => {
+        const at = p.indexOf("=");
+        return [p.slice(0, at).trim(), decodeURIComponent(p.slice(at + 1).trim())] as [string, string];
+      }),
+    );
+    return await repFrom(jar.get(COOKIE), jar.get(DEVICE_COOKIE));
+  } catch {
+    return null;
+  }
+}
+
 /** The rep a request's cookies name, or null. Never a default rep. */
 export async function repFromCookies(): Promise<string | null> {
   try {
     const { session, device } = await readAuthCookies();
+    return await repFrom(session, device);
+  } catch {
+    return null;
+  }
+}
+
+async function repFrom(session: string | undefined, device: string | undefined): Promise<string | null> {
+  try {
     const fromSession = await readSessionUser(session);
     if (fromSession) return fromSession;
     const claimed = await readDeviceToken(device);
