@@ -11,7 +11,8 @@
  * (portfolio/src/app/nutribiotic/expenses/ExpensesClient.tsx). Business
  * logic (classification handling, date detection, pairing, filing) is
  * unchanged; each write now carries an Idempotency-Key so a retry never
- * files twice (PORTING.md).
+ * files twice (PORTING.md), and goes through the write queue (writeq.ts):
+ * with no signal it is kept on the phone and sent when signal returns.
  *
  * AUTO-SORT IS A SUGGESTION, NEVER A SILENT SUBMIT. Every field the
  * classifier proposes lands in an editable field. Filing is always a
@@ -19,6 +20,8 @@
  */
 
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
+import { UnsentList } from "@/lib/core/unsent";
+import { submitWrite, type WqItem } from "@/lib/core/writeq";
 import { useEffect, useRef, useState } from "react";
 import { Card, Ico, SuccessNote, displayFace, eyebrowCls, ghostBtn, inputCls, labelCls, primaryBtn } from "../../../lib/core/ui";
 
@@ -163,7 +166,8 @@ function PhotosCard() {
         message: s.confidence === "low" ? "Low confidence, check every field." : undefined,
       });
     } catch {
-      update(card.id, { status: "error", message: "Could not classify. Pick a type by hand." });
+      // No signal: the card is still fileable by hand, and filing queues it.
+      update(card.id, { status: "ready", message: "Could not classify. Pick a type by hand." });
     }
   }
 
@@ -193,29 +197,31 @@ function PhotosCard() {
 
   async function fileReceipt(card: PhotoCard): Promise<boolean> {
     update(card.id, { status: "filing" });
-    const form = new FormData();
-    form.append("photo", card.file);
-    form.append("date", batchDate);
-    form.append("merchant", card.merchant);
-    form.append("purpose", card.purpose);
-    form.append("amount", card.amount);
-    form.append("companyCard", String(card.companyCard));
     try {
-      const res = await apiFetch("/api/expenses/receipt", {
-        method: "POST",
-        headers: { "Idempotency-Key": card.id },
-        body: form,
+      const r = await submitWrite({
+        screen: "expenses/photos",
+        label: [card.merchant || "Receipt", card.amount ? `$${card.amount}` : "", batchDate].filter(Boolean).join(", "),
+        path: "/api/expenses/receipt",
+        key: card.id,
+        fields: {
+          date: batchDate,
+          merchant: card.merchant,
+          purpose: card.purpose,
+          amount: card.amount,
+          companyCard: String(card.companyCard),
+        },
+        files: [{ field: "photo", file: card.file }],
       });
-      const j = await res.json();
-      if (!j.ok) {
-        update(card.id, { status: "ready", message: j.error });
+      if (r.status === "failed") {
+        update(card.id, { status: "ready", message: r.error });
         return false;
       }
+      // Landed, or kept on the phone to send with signal (shown below).
       update(card.id, { status: "filed" });
       setTimeout(() => remove(card.id), 1200);
       return true;
     } catch {
-      update(card.id, { status: "ready", message: "Network error." });
+      update(card.id, { status: "ready", message: "Could not save that on the phone." });
       return false;
     }
   }
@@ -223,24 +229,27 @@ function PhotosCard() {
   async function fileTripPair(start: PhotoCard, end: PhotoCard, purpose: string): Promise<boolean> {
     update(start.id, { status: "filing" });
     update(end.id, { status: "filing" });
-    const form = new FormData();
-    form.append("start_photo", start.file);
-    form.append("end_photo", end.file);
-    form.append("date", batchDate);
-    form.append("end_date", batchDate);
-    form.append("start_odo", start.odo);
-    form.append("end_odo", end.odo);
-    form.append("purpose", purpose);
     try {
-      const res = await apiFetch("/api/expenses/trip", {
-        method: "POST",
-        headers: { "Idempotency-Key": `${start.id}:${end.id}` },
-        body: form,
+      const r = await submitWrite({
+        screen: "expenses/photos",
+        label: `Trip ${start.odo} to ${end.odo}, ${batchDate}`,
+        path: "/api/expenses/trip",
+        key: `${start.id}:${end.id}`,
+        fields: {
+          date: batchDate,
+          end_date: batchDate,
+          start_odo: start.odo,
+          end_odo: end.odo,
+          purpose,
+        },
+        files: [
+          { field: "start_photo", file: start.file },
+          { field: "end_photo", file: end.file },
+        ],
       });
-      const j = await res.json();
-      if (!j.ok) {
-        update(start.id, { status: "ready", message: j.error });
-        update(end.id, { status: "ready", message: j.error });
+      if (r.status === "failed") {
+        update(start.id, { status: "ready", message: r.error });
+        update(end.id, { status: "ready", message: r.error });
         return false;
       }
       update(start.id, { status: "filed" });
@@ -251,8 +260,8 @@ function PhotosCard() {
       }, 1200);
       return true;
     } catch {
-      update(start.id, { status: "ready", message: "Network error." });
-      update(end.id, { status: "ready", message: "Network error." });
+      update(start.id, { status: "ready", message: "Could not save that on the phone." });
+      update(end.id, { status: "ready", message: "Could not save that on the phone." });
       return false;
     }
   }
@@ -381,6 +390,7 @@ function PhotosCard() {
           </button>
         </div>
       )}
+      <UnsentList screen="expenses/photos" />
     </Card>
   );
 }
@@ -622,22 +632,45 @@ function HoursCard() {
     }
   }
 
+  /** A queued entry he wants to fix: back into the form, same key. */
+  function editQueued(it: WqItem) {
+    const b = (it.json ?? {}) as { date?: string; clock_in?: string; clock_out?: string; break_min?: number; notes?: string };
+    setDate(b.date ?? todayPT());
+    setClockIn(b.clock_in ?? "");
+    setClockOut(b.clock_out ?? "");
+    setBreakMin(String(b.break_min ?? 0));
+    setNotes(b.notes ?? "");
+    setPendingKey(it.key);
+    setMessage(it.failed ? { kind: "error", text: it.failed } : null);
+  }
+
   async function submit() {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await apiFetch("/api/expenses/hours", {
-        method: "POST",
-        headers: { "content-type": "application/json", "Idempotency-Key": pendingKey },
-        body: JSON.stringify({ date, clock_in: clockIn, clock_out: clockOut, break_min: Number(breakMin || 0), notes }),
+      const r = await submitWrite({
+        screen: "expenses/hours",
+        label: `Hours ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${timeLabel(clockIn)} to ${timeLabel(clockOut)}`,
+        path: "/api/expenses/hours",
+        key: pendingKey,
+        json: { date, clock_in: clockIn, clock_out: clockOut, break_min: Number(breakMin || 0), notes },
       });
-      const j = await res.json();
-      if (!j.ok) {
-        setMessage({ kind: "error", text: j.error });
+      if (r.status === "failed") {
+        setMessage({ kind: "error", text: r.error });
         return;
       }
+      if (r.status === "queued") {
+        // Kept on the phone, shown under the form until it lands.
+        setClockIn("");
+        setClockOut("");
+        setBreakMin("0");
+        setNotes("");
+        setPendingKey(newId());
+        return;
+      }
+      const j = { result: r.result as { status?: string; why?: string; hoursWorked?: number; boundaryWeek?: boolean; sevenDayWeek?: boolean } };
       if (j.result.status === "duplicate") {
-        setMessage({ kind: "warn", text: j.result.why });
+        setMessage({ kind: "warn", text: j.result.why ?? "" });
         return;
       }
       const flags: string[] = [];
@@ -654,7 +687,7 @@ function HoursCard() {
       setPendingKey(newId());
       if (!flags.length) setTimeout(() => setMessage((m) => (m?.text.startsWith("Filed") ? null : m)), 1200);
     } catch {
-      setMessage({ kind: "error", text: "Network error." });
+      setMessage({ kind: "error", text: "Could not save that on the phone." });
     } finally {
       setBusy(false);
     }
@@ -745,6 +778,7 @@ function HoursCard() {
           <SuccessNote title="Hours filed" detail={message.text} />
         </div>
       )}
+      <UnsentList screen="expenses/hours" onEdit={editQueued} />
     </Card>
   );
 }

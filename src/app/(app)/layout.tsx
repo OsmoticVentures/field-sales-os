@@ -1,5 +1,6 @@
 import { PhoneSync } from "../../lib/core/phone-sync-mount";
 import { ScrollKeeper } from "../../lib/core/scroll-keeper";
+import { UnsentStatus } from "../../lib/core/unsent";
 import { SidebarNav, TabBar, type NavItem } from "./Nav";
 
 /**
@@ -57,6 +58,7 @@ export default function AppLayout({ children, modal }: { children: React.ReactNo
 
         <ScrollKeeper />
         <PhoneSync />
+        <UnsentStatus />
 
         <TabBar items={NAV} />
       </div>
