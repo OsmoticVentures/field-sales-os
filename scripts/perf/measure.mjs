@@ -21,6 +21,7 @@ const TARGETS = [
   "/nb/api/route/state",
   "/nb/api/route/map",
   "/nb/api/route/returns",
+  "/nb/api/account/snapshot",
 ];
 
 const b64url = (b) => b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -63,7 +64,7 @@ for (const path of TARGETS) {
   warm.sort((a, b) => a - b);
   // What the screen shows, for an equality check across a change: JSON as
   // is, a page as its visible text (build ids and script tags vary).
-  const shown = path.includes("/api/") ? cold.text : cold.text.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const shown = path.includes("/api/") ? cold.text.replace(/"builtAt":"[^"]*"/g, "") : cold.text.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
   const byTable = {};
   for (const m of meter) {
     const t = (byTable[m.table] ??= { reqs: 0, rows: 0, bytes: 0, maxUrl: 0 });

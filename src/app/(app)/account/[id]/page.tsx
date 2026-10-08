@@ -3,7 +3,7 @@
  * From inside the app it opens as a slide-over instead (@modal), so the
  * screen underneath stays mounted.
  */
-import { getClientAccount } from "../../../../lib/features/clients/dal";
+import { getClientAccountName } from "../../../../lib/features/clients/dal";
 import { requireAccess } from "../../../../lib/core/devices";
 import { AccountContent } from "./AccountContent";
 
@@ -15,6 +15,6 @@ export default async function AccountPage({ params }: { params: Promise<{ id: st
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
-  const account = await getClientAccount((await params).id).catch(() => null);
-  return { title: `${account?.name ?? "Client"} · ClientOS` };
+  const name = await getClientAccountName((await params).id).catch(() => null);
+  return { title: `${name ?? "Client"} · ClientOS` };
 }

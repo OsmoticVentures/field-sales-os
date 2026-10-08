@@ -193,9 +193,20 @@ export type ClientAccount = {
   potential_juan: string | null;
 };
 
+const CLIENT_ACCOUNT_SELECT =
+  "id,readiness,hubspot_owner_id,name,channel,street,city,postal,phone,website,email,instagram_url,facebook_url,linkedin_url," +
+  "lifecycle,last_order_at,lifetime_revenue,trailing_12m_revenue,expected_reorder_at,quirks,current_state,future_state,impact," +
+  "business_hours,hubspot_company_id,potential_hq,potential_juan";
+
 export async function getClientAccount(id: string): Promise<ClientAccount | null> {
-  const rows = await sbGet<ClientAccount>("nb_accounts", { select: "*", id: `eq.${id}`, limit: "1" });
+  const rows = await sbGet<ClientAccount>("nb_accounts", { select: CLIENT_ACCOUNT_SELECT, id: `eq.${id}`, limit: "1" });
   return rows[0] ?? null;
+}
+
+/** Just the name, for a page title. */
+export async function getClientAccountName(id: string): Promise<string | null> {
+  const rows = await sbGet<{ name: string }>("nb_accounts", { select: "name", id: `eq.${id}`, limit: "1" });
+  return rows[0]?.name ?? null;
 }
 
 export type ClientContact = {

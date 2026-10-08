@@ -132,3 +132,23 @@ What stands out:
 On the synthetic seed the other rep and unowned accounts are about 60% of
 the database, so the book drops by about half. In production the drop is
 whatever share of orders and activities sits outside the rep's own book.
+
+### 3. Client view and the twice-daily download name their columns
+
+- The account payload (one client, and the whole-book download the phone
+  takes twice a day) read `nb_accounts` and `nb_contacts` with `select=*`
+  and then kept only the keys it draws. It now asks for those keys, plus
+  readiness and lead status.
+- The full client page's title read the whole account row a second time;
+  it now reads the name.
+- `getClientAccount` (outbound drafting) asks for its typed columns only.
+- Same output: the download is equal field for field once its build
+  timestamps are set aside, and the page title is unchanged.
+
+| Path | db KB before | db KB after |
+|---|---|---|
+| /nb/api/account/snapshot | 1,804 | 1,370 |
+| /nb/account/[id] | 441 | 438 |
+
+The seed's account rows are narrower than production's (no enrichment or
+sync history in the json columns), so production saves more than this.

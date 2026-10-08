@@ -100,6 +100,13 @@ const CONTACT_KEYS: (keyof ClientContact)[] = [
   "linkedin_url",
 ];
 
+/** The nb_accounts columns a payload is built from: the account's own keys,
+ *  plus readiness and lead status (warmth, leadStatus). Never `*`: the row
+ *  also carries enrichment and sync bookkeeping the phone never draws. */
+const ACCOUNT_SELECT = [...ACCOUNT_KEYS, "readiness", "lead_status"].join(",");
+/** account_id groups the rows; the payload keeps CONTACT_KEYS. */
+const CONTACT_SELECT = ["account_id", ...CONTACT_KEYS].join(",");
+
 type Row = Record<string, unknown>;
 
 function pick<T>(row: Row, keys: (keyof T)[]): T {
@@ -164,7 +171,7 @@ function groupBy<T extends { account_id: string }>(rows: T[]): Map<string, T[]> 
   return m;
 }
 
-/** The payloads for these account rows (nb_accounts, select=*). */
+/** The payloads for these account rows (nb_accounts, ACCOUNT_SELECT). */
 async function assemble(accountRows: Row[]): Promise<Record<string, AccountPayload>> {
   const ids = accountRows.map((a) => String(a.id));
   if (ids.length === 0) return {};
@@ -172,7 +179,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
   const [contacts, activities, orders, lines, book] = await Promise.all([
     sbGetAllFor<Row & { account_id: string }>(
       "nb_contacts",
-      { select: "*", order: "account_id.asc,is_decision_maker.desc,last_name.asc,id.asc" },
+      { select: CONTACT_SELECT, order: "account_id.asc,is_decision_maker.desc,last_name.asc,id.asc" },
       ids,
     ),
     // Internal rows (corrections, geocode and import notes) never happened
@@ -241,7 +248,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
 /** One client, fresh. Null when there is no such account. */
 export async function readAccountPayload(id: string): Promise<AccountPayload | null> {
   if (!configured()) return null;
-  const rows = await sbGet<Row>("nb_accounts", new URLSearchParams({ select: "*", id: `eq.${id}`, limit: "1" }));
+  const rows = await sbGet<Row>("nb_accounts", new URLSearchParams({ select: ACCOUNT_SELECT, id: `eq.${id}`, limit: "1" }));
   if (rows.length === 0) return null;
   return (await assemble(rows))[id] ?? null;
 }
@@ -251,7 +258,7 @@ export async function readBookPayloads(): Promise<Record<string, AccountPayload>
   if (!configured()) return {};
   const rows: Row[] = [];
   for (let page = 0; page < 20; page++) {
-    const p = new URLSearchParams({ select: "*", ...(await book()), order: "id.asc", limit: "1000", offset: String(page * 1000) });
+    const p = new URLSearchParams({ select: ACCOUNT_SELECT, ...(await book()), order: "id.asc", limit: "1000", offset: String(page * 1000) });
     const batch = await sbGet<Row>("nb_accounts", p);
     rows.push(...batch);
     if (batch.length < 1000) break;
