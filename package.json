@@ -8,7 +8,7 @@
     "build": "next build && node scripts/build-sw.mjs",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types tests/people-guard.test.mts && node --experimental-strip-types tests/head-hunter-tiers.test.mts && node --experimental-strip-types tests/outbox.test.mts && node --experimental-strip-types tests/durable-jobs.test.mts && node --experimental-strip-types tests/stage.test.mts && node --experimental-strip-types tests/error-capture.test.mts && node --experimental-strip-types tests/writeq.test.mts && node --experimental-strip-types tests/ai-client.test.mts"
+    "test": "node --experimental-strip-types tests/people-guard.test.mts && node --experimental-strip-types tests/head-hunter-tiers.test.mts && node --experimental-strip-types tests/outbox.test.mts && node --experimental-strip-types tests/durable-jobs.test.mts && node --experimental-strip-types tests/stage.test.mts && node --experimental-strip-types tests/error-capture.test.mts && node --experimental-strip-types tests/writeq.test.mts && node --experimental-strip-types tests/ai-client.test.mts && node --experimental-strip-types tests/once.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
