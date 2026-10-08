@@ -24,7 +24,7 @@ export const PRODUCTION_SUPABASE_REF = "giodrtaddvmkgvmzomxv";
 /** Every project that holds the reps' live data: the Montreal project and,
  *  from the region move of 2026-10-08, its us-west-1 copy (the old one stays
  *  as the fallback). Staging refuses all of them. */
-export const PRODUCTION_SUPABASE_REFS: readonly string[] = [PRODUCTION_SUPABASE_REF];
+export const PRODUCTION_SUPABASE_REFS: readonly string[] = [PRODUCTION_SUPABASE_REF, "oxxnwmknawhnxffwppik"];
 
 type Env = Record<string, string | undefined>;
 
