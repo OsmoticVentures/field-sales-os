@@ -21,6 +21,11 @@ export type Stage = "production" | "staging" | "preview" | "local";
  *  (src/instrumentation.ts) and the bootstrap script refuses to touch it. */
 export const PRODUCTION_SUPABASE_REF = "giodrtaddvmkgvmzomxv";
 
+/** Every project that holds the reps' live data: the Montreal project and,
+ *  from the region move of 2026-10-08, its us-west-1 copy (the old one stays
+ *  as the fallback). Staging refuses all of them. */
+export const PRODUCTION_SUPABASE_REFS: readonly string[] = [PRODUCTION_SUPABASE_REF];
+
 type Env = Record<string, string | undefined>;
 
 export function stage(env: Env = process.env): Stage {
@@ -52,7 +57,7 @@ export function hubspotStageRefusal(env: Env = process.env): string | null {
 export function assertStagingDatabase(env: Env = process.env): void {
   if (stage(env) !== "staging") return;
   const url = env.NB_SUPABASE_URL ?? "";
-  if (url.includes(PRODUCTION_SUPABASE_REF)) {
+  if (PRODUCTION_SUPABASE_REFS.some((ref) => url.includes(ref))) {
     throw new Error(
       "Staging refuses to start: NB_SUPABASE_URL points at the production Supabase project. " +
         "Set the staging project's URL and service key for the staging branch.",
