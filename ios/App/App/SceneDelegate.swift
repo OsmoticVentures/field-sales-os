@@ -32,11 +32,12 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 }
 
 /// On the Mac the app opens on the map (the Route screen); the phone keeps Visit.
+/// The server URL stays /nb, which is what keeps every other screen in the app
+/// instead of handing it to the browser, so Route is loaded over the first page.
 final class BridgeViewController: CAPBridgeViewController {
-    override func instanceDescriptor() -> InstanceDescriptor {
-        let d = super.instanceDescriptor()
-        if ProcessInfo.processInfo.isiOSAppOnMac { d.serverURL = DeepLink.web + "/route" }
-        return d
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        if ProcessInfo.processInfo.isiOSAppOnMac, let webView { DeepLink.load(webView, "/route") }
     }
 }
 
