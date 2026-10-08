@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ClientOS</title>
+<!-- Bundled in the app (capacitor.config.ts server.errorPath): shown only when
+     the live app cannot load and the service worker has nothing kept yet,
+     e.g. the very first launch in a dead zone. See OFFLINE.md. -->
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+         background: #F7F6F1; color: #14201B;
+         font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; }
+  main { padding: 24px; text-align: center; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 18px; }
+  button { min-height: 44px; padding: 0 22px; border: 0; border-radius: 10px; background: #14201B;
+           color: #fff; font: inherit; font-weight: 500; }
+  button:active { transform: scale(0.97); }
+</style>
+</head>
+<body>
+<main>
+  <h1>No connection</h1>
+  <button type="button" id="retry">Try again</button>
+</main>
+<script>
+  var APP = "https://osmoticventures.com/nb/visit";
+  function go() { window.location.replace(APP); }
+  document.getElementById("retry").addEventListener("click", go);
+  window.addEventListener("online", go);
+</script>
+</body>
+</html>
