@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces } from "next/font/google";
 import { OutboxRunner } from "../lib/core/outbox-runner";
+import { stage } from "../lib/core/stage";
 import "./globals.css";
 
 // Display-only, self-hosted at build time (next/font needs no extra
@@ -16,8 +17,13 @@ const fraunces = Fraunces({
   display: "swap",
 });
 
+// Staging reads "Staging" at the front of every tab title,
+// so it is never mistaken for the app the reps use. Production keeps its
+// plain titles untouched.
+const STAGING = stage() === "staging";
+
 export const metadata: Metadata = {
-  title: "ClientOS",
+  title: STAGING ? { default: "Staging ClientOS", template: "Staging %s" } : "ClientOS",
   description: "ClientOS",
   robots: { index: false, follow: false },
   appleWebApp: { capable: true, statusBarStyle: "default" },
