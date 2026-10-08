@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import WebKit
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -37,8 +38,54 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 final class BridgeViewController: CAPBridgeViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        if ProcessInfo.processInfo.isiOSAppOnMac, let webView { DeepLink.load(webView, "/route") }
+        guard ProcessInfo.processInfo.isiOSAppOnMac, let webView else { return }
+        webView.configuration.userContentController.addUserScript(
+            WKUserScript(source: Self.largerText, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        DeepLink.load(webView, "/route")
     }
+
+    /// Every font one point larger on the Mac: each px or rem font size in the
+    /// page's stylesheets, Tailwind's --text-* sizes, and the body default.
+    /// Spacing stays as it is. Stylesheets a later screen brings in get the
+    /// same pass as they load.
+    private static let largerText = """
+    (function () {
+      if (window.__largerText) return; window.__largerText = true;
+      var done = new WeakSet();
+      function bump(rules) {
+        for (var i = 0; i < rules.length; i++) {
+          var r = rules[i];
+          if (r.cssRules) bump(r.cssRules);
+          var s = r.style; if (!s) continue;
+          var fs = s.getPropertyValue('font-size').trim();
+          var m = /^([0-9.]+)(px|rem)$/.exec(fs);
+          if (m) s.setProperty('font-size', m[2] === 'px' ? (parseFloat(m[1]) + 1) + 'px' : 'calc(' + fs + ' + 1px)', s.getPropertyPriority('font-size'));
+          for (var j = 0; j < s.length; j++) {
+            var p = s[j];
+            if (/^--text-[a-z0-9]+$/.test(p)) {
+              var v = s.getPropertyValue(p).trim();
+              if (/^[0-9.]+(px|rem)$/.test(v)) s.setProperty(p, 'calc(' + v + ' + 1px)');
+            }
+          }
+        }
+      }
+      function run() {
+        for (var i = 0; i < document.styleSheets.length; i++) {
+          var sh = document.styleSheets[i];
+          if (done.has(sh)) continue;
+          try { bump(sh.cssRules); done.add(sh); } catch (e) {}
+        }
+      }
+      var base = document.createElement('style');
+      base.textContent = 'body { font-size: 17px; }';
+      document.head.prepend(base);
+      done.add(base.sheet);
+      run();
+      document.addEventListener('load', function (e) { if (e.target.tagName === 'LINK') run(); }, true);
+      new MutationObserver(run).observe(document.head, { childList: true });
+      window.addEventListener('load', run);
+    })();
+    """
 }
 
 /// The Mac window opens large, centered, once per launch. A raised minimum
