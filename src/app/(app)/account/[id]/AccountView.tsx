@@ -309,7 +309,7 @@ function AddToSdr({ accountId }: { accountId: string }) {
   );
 }
 
-type DraftPitchResult = { status: "drafted" | "already_queued" | "not_written"; reason?: string };
+export type DraftPitchResult = { status: "drafted" | "already_queued" | "not_written"; reason?: string };
 
 /**
  * Draft outreach, on the spot. Ported from the NutriBiotic OS's account
@@ -326,7 +326,8 @@ type DraftPitchResult = { status: "drafted" | "already_queued" | "not_written"; 
  * own, he taps it himself, so a successful draft instead shows a link he
  * can tap into Outbound, in this same tab, on his own time.
  */
-function DraftOutreachButton({ accountId }: { accountId: string }) {
+/** The draft call, shared by the button below and the side panel's tile. */
+export function useDraftOutreach(accountId: string) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DraftPitchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -350,6 +351,12 @@ function DraftOutreachButton({ accountId }: { accountId: string }) {
       setBusy(false);
     }
   }
+
+  return { busy, result, error, run };
+}
+
+function DraftOutreachButton({ accountId }: { accountId: string }) {
+  const { busy, result, error, run } = useDraftOutreach(accountId);
 
   if (result?.status === "drafted" || result?.status === "already_queued") {
     return (

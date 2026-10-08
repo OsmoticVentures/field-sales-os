@@ -68,6 +68,7 @@ export const ICONS: Record<string, ReactNode> = {
   ),
   plus: <path d="M8 2.8v10.4M2.8 8h10.4" />,
   "chevron-left": <path d="m10 3-5 5 5 5" />,
+  "chevron-right": <path d="m6 3 5 5-5 5" />,
   "chevron-up": <path d="m4 10 4-4 4 4" />,
   "chevron-down": <path d="m4 6 4 4 4-4" />,
   pin: (
@@ -124,8 +125,9 @@ export const ICONS: Record<string, ReactNode> = {
   edit: <path d="M9.6 3.2 12.8 6.4 5.6 13.6 2.4 14l.4-3.2Z" />,
   hubspot: (
     <>
-      <circle cx="8" cy="8" r="2.2" />
-      <path d="M8 2.6v3.2M11.4 5.4 9 7M11.4 10.6 9 9M4.6 10.6 7 9M4.6 5.4 7 7" />
+      <rect x="2.4" y="3" width="11.2" height="10" rx="1.6" />
+      <circle cx="6" cy="7" r="1.2" />
+      <path d="M4.2 10.8c.4-1 1-1.4 1.8-1.4s1.4.4 1.8 1.4M9.6 6.4h2.2M9.6 8.8h2.2" />
     </>
   ),
   send: <path d="M2 8 13.6 2.4 8.4 13.6l-1.6-4.4L2 8Zm4.8 1.2L11.2 4.8" />,

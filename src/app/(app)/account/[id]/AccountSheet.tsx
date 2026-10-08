@@ -3,27 +3,27 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { holdScroll } from "../../../../lib/core/scroll-keeper";
+import { project, runSpring } from "../../../../lib/core/spring";
 import { Ico } from "../../../../lib/core/ui";
 
 const EDGE = 28; // px of the left edge that starts the swipe
 const COMMIT_DISTANCE = 0.35; // share of the width that commits on its own
-const DECEL = 0.998; // apple-design momentum projection
 
 const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const project = (v: number) => ((v / 1000) * DECEL) / (1 - DECEL);
 
 /**
  * The client view as a slide-over. It follows the finger from the left edge,
  * springs back if released early, and closes with router.back() so the screen
  * Juan came from returns exactly as he left it. Reduced motion swaps the
- * slide for a fade.
+ * slide for a fade. With `onClose` (opened over the side panel) it hands back
+ * to that instead of leaving the route.
  */
-export function AccountSheet({ children }: { children: React.ReactNode }) {
+export function AccountSheet({ children, onClose }: { children: React.ReactNode; onClose?: () => void }) {
   const router = useRouter();
   const sheet = useRef<HTMLDivElement>(null);
   const scrim = useRef<HTMLDivElement>(null);
   const x = useRef(0);
-  const raf = useRef(0);
+  const stop = useRef<(() => void) | null>(null);
   const closing = useRef(false);
   const drag = useRef<{ id: number; startX: number; samples: { t: number; x: number }[] } | null>(null);
 
@@ -41,27 +41,17 @@ export function AccountSheet({ children }: { children: React.ReactNode }) {
   // Critically damped spring from the live position with the finger's velocity.
   const spring = useCallback(
     (target: number, velocity: number, done?: () => void) => {
-      cancelAnimationFrame(raf.current);
-      const omega = (2 * Math.PI) / 0.38; // response 0.38s, damping 1
-      let pos = x.current;
-      let vel = velocity;
-      let last = performance.now();
-      const step = (now: number) => {
-        const dt = Math.min(0.032, (now - last) / 1000);
-        last = now;
-        const disp = pos - target;
-        const acc = -omega * omega * disp - 2 * omega * vel;
-        vel += acc * dt;
-        pos += vel * dt;
-        paint(pos);
-        if (Math.abs(pos - target) < 0.4 && Math.abs(vel) < 8) {
+      stop.current?.();
+      stop.current = runSpring({
+        from: x.current,
+        to: target,
+        velocity,
+        onFrame: paint,
+        onDone: () => {
           paint(target);
           done?.();
-          return;
-        }
-        raf.current = requestAnimationFrame(step);
-      };
-      raf.current = requestAnimationFrame(step);
+        },
+      });
     },
     [paint],
   );
@@ -70,14 +60,14 @@ export function AccountSheet({ children }: { children: React.ReactNode }) {
     (velocity = 0) => {
       if (closing.current) return;
       closing.current = true;
-      const finish = () => router.back();
+      const finish = () => (onClose ? onClose() : router.back());
       if (reduced()) {
         sheet.current?.animate({ opacity: [1, 0] }, { duration: 150, fill: "forwards" }).finished.then(finish, finish);
         return;
       }
       spring(window.innerWidth, velocity, finish);
     },
-    [router, spring],
+    [router, spring, onClose],
   );
 
   // Enter from the right (fade under reduced motion), before first paint.
@@ -88,7 +78,7 @@ export function AccountSheet({ children }: { children: React.ReactNode }) {
     }
     paint(window.innerWidth);
     spring(0, 0);
-    return () => cancelAnimationFrame(raf.current);
+    return () => stop.current?.();
   }, [paint, spring]);
 
   useEffect(() => holdScroll(), []);
@@ -102,7 +92,7 @@ export function AccountSheet({ children }: { children: React.ReactNode }) {
   const onDown = (e: React.PointerEvent) => {
     if (closing.current) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    cancelAnimationFrame(raf.current);
+    stop.current?.();
     drag.current = { id: e.pointerId, startX: e.clientX - x.current, samples: [{ t: e.timeStamp, x: e.clientX }] };
   };
   const onMove = (e: React.PointerEvent) => {
