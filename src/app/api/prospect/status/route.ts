@@ -17,8 +17,13 @@ export async function POST(req: Request) {
   const key = idempotencyKey(req);
   if (!key) return Response.json({ ok: false, error: "Idempotency-Key header is required." }, { status: 400 });
 
-  const body = await req.json();
-  if (!body.id || !["pending", "done", "skipped"].includes(body.status)) {
+  let body: { id: string; status: "pending" | "done" | "skipped" };
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ ok: false, error: "Expected JSON." }, { status: 400 });
+  }
+  if (!body || !body.id || !["pending", "done", "skipped"].includes(body.status)) {
     return Response.json({ ok: false, error: "Missing id or status." }, { status: 400 });
   }
   try {
