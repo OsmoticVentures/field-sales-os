@@ -4,8 +4,8 @@
  * the gap-selling summary he's about to read are not stale or blank.
  *
  * PORTED UNCHANGED from the NutriBiotic OS
- * (portfolio/src/app/nutribiotic/lib/quick-enrich.ts): same tool schema,
- * same system prompt, same sourcing rules. Per this port's own feature
+ * (portfolio/src/app/nutribiotic/lib/quick-enrich.ts): same schema
+ * descriptions, same system prompt, same sourcing rules. Per this port's own feature
  * inventory (m1), the deck's "business scout" that writes an opening angle
  * for a cold, never-contacted business is deck-only, not built anywhere in
  * the source app; this is the real, adjacent capability, an angle for an
@@ -14,12 +14,13 @@
  *
  * No fabrication: the model sees only what these three sources actually
  * returned (the business's own website, Google Places, our own order
- * history) and is told, in the tool schema itself, to return null rather
+ * history) and is told, in the output schema itself, to return null rather
  * than a plausible-sounding guess. applyQuickEnrichment then enforces the
  * tier ladder and blank-fill rule on the write side.
  */
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { ai, aiConfigured } from "../../core/ai/client";
 import {
   applyQuickEnrichment,
   getAccount,
@@ -42,8 +43,6 @@ import {
 } from "../../shared/web-page";
 import { captureError } from "@/lib/core/errors";
 
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-
 export type QuickEnrichResult = {
   ok: boolean;
   error?: string;
@@ -57,53 +56,37 @@ export type QuickEnrichResult = {
   skippedReason?: string;
 };
 
-const ENRICH_TOOL = {
-  name: "quick_enrich_account",
-  description:
-    "Extract accurate business hours from the website text if explicitly stated there, and write a grounded gap-selling summary from the evidence given. Every field must come only from that evidence; return null rather than invent anything.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      hours_found_on_website: {
-        type: "boolean",
-        description: "True only if the website text block explicitly states operating hours.",
-      },
-      hours: {
-        type: ["object", "null"],
-        description:
-          "Only when hours_found_on_website is true: one key per day (mon,tue,wed,thu,fri,sat,sun), each an array of [open,close] 24-hour HH:MM pairs, an empty array for a day stated as closed. Include every day the website states; omit a day it says nothing about. Null when hours_found_on_website is false.",
-        additionalProperties: {
-          type: "array",
-          items: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
-        },
-      },
-      current_state: {
-        type: ["string", "null"],
-        description:
-          "One sentence naming the actual angle a rep opens the call with: what kind of business this really is and the specific context that changes how to sell it, grounded only in the evidence given, meetings and calls weighted highest and used first whenever any exist. Never a restatement of a Places business-status flag or a bare order-count fact. Null if the evidence is too thin to say anything a rep couldn't already see on this screen.",
-      },
-      future_state: {
-        type: ["string", "null"],
-        description:
-          "One sentence naming a specific opportunity implied directly by a gap in the evidence given. Never a generic pitch line, and never just that they have zero orders so there is upside. Null if no specific gap is evidenced.",
-      },
-      impact: {
-        type: ["string", "null"],
-        description:
-          "One sentence on what closing that gap is worth, grounded in the numbers already given where available, otherwise tied to a concrete detail in the evidence. Null if current_state and future_state are both null, or if all that's left to say is a generic line.",
-      },
-    },
-    required: ["hours_found_on_website", "hours", "current_state", "future_state", "impact"],
-  },
-};
+/** One day of hours: [open,close] pairs. Null is a day the website says
+ *  nothing about (sanitizeHours skips it), the schema's way of omitting it. */
+const day = () => z.array(z.array(z.string())).nullable();
 
-type EnrichToolOutput = {
-  hours_found_on_website: boolean;
-  hours: Record<string, string[][]> | null;
-  current_state: string | null;
-  future_state: string | null;
-  impact: string | null;
-};
+const EnrichSchema = z.object({
+  hours_found_on_website: z.boolean().describe("True only if the website text block explicitly states operating hours."),
+  hours: z
+    .object({ mon: day(), tue: day(), wed: day(), thu: day(), fri: day(), sat: day(), sun: day() })
+    .nullable()
+    .describe(
+      "Only when hours_found_on_website is true: one key per day (mon,tue,wed,thu,fri,sat,sun), each an array of [open,close] 24-hour HH:MM pairs, an empty array for a day stated as closed. Include every day the website states; omit a day it says nothing about. Null when hours_found_on_website is false.",
+    ),
+  current_state: z
+    .string()
+    .nullable()
+    .describe(
+      "One sentence naming the actual angle a rep opens the call with: what kind of business this really is and the specific context that changes how to sell it, grounded only in the evidence given, meetings and calls weighted highest and used first whenever any exist. Never a restatement of a Places business-status flag or a bare order-count fact. Null if the evidence is too thin to say anything a rep couldn't already see on this screen.",
+    ),
+  future_state: z
+    .string()
+    .nullable()
+    .describe(
+      "One sentence naming a specific opportunity implied directly by a gap in the evidence given. Never a generic pitch line, and never just that they have zero orders so there is upside. Null if no specific gap is evidenced.",
+    ),
+  impact: z
+    .string()
+    .nullable()
+    .describe(
+      "One sentence on what closing that gap is worth, grounded in the numbers already given where available, otherwise tied to a concrete detail in the evidence. Null if current_state and future_state are both null, or if all that's left to say is a generic line.",
+    ),
+});
 
 function exactDate(iso: string): string {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -213,7 +196,7 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
   const siteText = site?.text ?? null;
   const siteUrl = site?.url ?? account.website;
 
-  if (!client) {
+  if (!aiConfigured()) {
     const placesHours = place?.businessHours ?? null;
     return { ok: false, error: "Enrich further is not set up on this server yet.", ...EMPTY_RESULT, businessHours: placesHours, hoursSource: placesHours ? "places" : null };
   }
@@ -235,12 +218,11 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
       : "No executive summary on file yet.",
   ].join("\n\n");
 
-  let toolOut: EnrichToolOutput | null = null;
+  let toolOut: z.infer<typeof EnrichSchema> | null = null;
   let modelFailed = false;
   try {
-    const msg = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 700,
+    const res = await ai({
+      task: "prospect_quick_enrich",
       system:
         "You are doing a 30-second field-rep lookup on one account right before a call, using ONLY the evidence blocks in the " +
         "user message. Never invent a fact, hour, product, or opportunity that is not present in that evidence. Extract hours " +
@@ -254,11 +236,10 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
         "If the evidence (beyond a meeting) gives you nothing more specific than that, return null, never that generic sentence. " +
         "If you name a date in any field, write it the way a rep would say it out loud (e.g. 'Feb 16, 2026'), never as digits-and-dashes.",
       messages: [{ role: "user", content: evidence }],
-      tools: [ENRICH_TOOL],
-      tool_choice: { type: "tool", name: "quick_enrich_account" },
-    }, { timeout: Math.max(8_000, deadline - Date.now()), maxRetries: 1 });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (toolUse && toolUse.type === "tool_use") toolOut = toolUse.input as EnrichToolOutput;
+      schema: EnrichSchema,
+      deadline,
+    });
+    toolOut = res.data;
   } catch (err) {
     console.error("quick enrich model call failed", err);
     captureError(err, "lib/prospect/quick-enrich");

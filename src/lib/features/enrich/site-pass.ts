@@ -3,7 +3,7 @@
  * enforces (team/about page first, the homepage second) and the same
  * structural facts read off the same pages (a mailto link, a tel: link, a
  * social profile), but the person-and-role read is done here by Anthropic
- * with a forced tool schema and verbatim-only instructions, per this
+ * with a strict output schema and verbatim-only instructions, per this
  * milestone's brief, rather than headhunter.py's regex engine, which this
  * app cannot run (no Mac, no Python).
  *
@@ -14,7 +14,8 @@
  * link, or a 10-digit text match), never asked of the model.
  */
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { ai, aiConfigured } from "../../core/ai/client";
 import {
   extractLinks,
   extractMailtos,
@@ -32,8 +33,6 @@ import {
 import { bestPhone, contactPageCandidates, extractJsonLd, hoursSnippets, isScriptShell, sanitizeHours, visibleText } from "../../shared/web-page";
 import { verifyPerson } from "./people-guard";
 import type { FoundPerson, SourceTier } from "./types";
-
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
 export type SitePassResult = {
   ran: boolean;
@@ -60,54 +59,45 @@ const EMPTY: SitePassResult = {
   socials: {},
 };
 
-const EXTRACT_TOOL = {
-  name: "extract_site_people",
-  description:
-    "Extract every named person and the role the page prints for them, and business hours if explicitly stated. Verbatim only: never invent a name, a title, or an hour not printed on the page text given.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      people: {
-        type: "array",
-        description:
-          "Every distinct human this page names, each with the role the page prints beside them, on the line under them, or in their own bio sentence. A heading that is a business name, a section title, or a button (e.g. 'Book Now', 'Our Services') is not a person. Empty array if the page names nobody.",
-        items: {
-          type: "object",
-          properties: {
-            name: { type: "string", description: "The person's name exactly as printed, e.g. 'Hannah Hunt'." },
-            title: {
-              type: ["string", "null"],
-              description:
-                "The role as the page states it, e.g. 'Owner', 'Practice Manager', 'Stylist, PA-C'. A credential alone (RN, DDS) is not a role; if the page states both a role and a credential, include both as the page phrases it. Null if the page names this person but states no role for them anywhere near their name.",
-            },
-            is_decision_maker: {
-              type: "boolean",
-              description: "True only if the title states or clearly implies ownership or management (owner, founder, manager, director, president, buyer). False otherwise, including for a blank title.",
-            },
-            source_text: { type: "string", description: "The exact line or short phrase, copied verbatim, that names this person and states their role." },
-          },
-          required: ["name", "title", "is_decision_maker", "source_text"],
-        },
-      },
-      hours_stated: {
-        type: "boolean",
-        description: "True only if the page text explicitly states operating hours.",
-      },
-      hours: {
-        type: ["object", "null"],
-        description:
-          "Only when hours_stated is true: one key per day (mon,tue,wed,thu,fri,sat,sun), each an array of [open,close] 24-hour HH:MM pairs, empty array for a day stated closed. Null when hours_stated is false.",
-      },
-    },
-    required: ["people", "hours_stated", "hours"],
-  },
-};
+/** One day of hours: [open,close] pairs. Null is a day the page says nothing
+ *  about (sanitizeHours skips it), so the model never has to call it closed. */
+const day = () => z.array(z.array(z.string())).nullable();
 
-type ExtractOutput = {
-  people: { name: string; title: string | null; is_decision_maker: boolean; source_text: string }[];
-  hours_stated: boolean;
-  hours: Record<string, string[][]> | null;
-};
+const ExtractSchema = z.object({
+  people: z
+    .array(
+      z.object({
+        name: z.string().describe("The person's name exactly as printed, e.g. 'Hannah Hunt'."),
+        title: z
+          .string()
+          .nullable()
+          .describe(
+            "The role as the page states it, e.g. 'Owner', 'Practice Manager', 'Stylist, PA-C'. A credential alone (RN, DDS) is not a role; if the page states both a role and a credential, include both as the page phrases it. Null if the page names this person but states no role for them anywhere near their name.",
+          ),
+        is_decision_maker: z
+          .boolean()
+          .describe("True only if the title states or clearly implies ownership or management (owner, founder, manager, director, president, buyer). False otherwise, including for a blank title."),
+        source_text: z.string().describe("The exact line or short phrase, copied verbatim, that names this person and states their role."),
+      }),
+    )
+    .describe(
+      "Every distinct human this page names, each with the role the page prints beside them, on the line under them, or in their own bio sentence. A heading that is a business name, a section title, or a button (e.g. 'Book Now', 'Our Services') is not a person. Empty array if the page names nobody.",
+    ),
+  hours_stated: z.boolean().describe("True only if the page text explicitly states operating hours."),
+  hours: z
+    .object({ mon: day(), tue: day(), wed: day(), thu: day(), fri: day(), sat: day(), sun: day() })
+    .nullable()
+    .describe(
+      "Only when hours_stated is true: one key per day (mon,tue,wed,thu,fri,sat,sun), each an array of [open,close] 24-hour HH:MM pairs, empty array for a day stated closed. Null when hours_stated is false.",
+    ),
+});
+
+const SYSTEM =
+  "You read one page of a business's own website, marked with a control character before every heading so you can tell a heading from body text. " +
+  "Extract only what the page states. A person needs a real name (not a title alone like 'The Owner') and, ideally, a role stated on the page; if a " +
+  "capitalized heading could be a section title or a business name rather than a person, leave it out. Never guess a role from a name or a photo caption." +
+  // The old extraction tool's own instruction, the only place hours were asked for.
+  " Extract every named person and the role the page prints for them, and business hours if explicitly stated. Verbatim only: never invent a name, a title, or an hour not printed on the page text given.";
 
 async function extractFromPage(
   text: string,
@@ -115,36 +105,29 @@ async function extractFromPage(
   tier: SourceTier,
   deadline: number,
 ): Promise<{ people: FoundPerson[]; hours: Record<string, string[][]> | null; failed?: string }> {
-  if (!client) return { people: [], hours: null, failed: `${url}: names were not read, no model key is configured here` };
+  if (!aiConfigured()) return { people: [], hours: null, failed: `${url}: names were not read, no model key is configured here` };
   if (!text.trim()) return { people: [], hours: null };
   const timeout = deadline - Date.now() - 500;
   if (timeout < 4000) return { people: [], hours: null, failed: `${url}: no time left to read it` };
-  let out: ExtractOutput | null = null;
+  let out: z.infer<typeof ExtractSchema>;
   try {
-    const msg = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 1200,
-      system:
-        "You read one page of a business's own website, marked with a control character before every heading so you can tell a heading from body text. " +
-        "Extract only what the page states. A person needs a real name (not a title alone like 'The Owner') and, ideally, a role stated on the page; if a " +
-        "capitalized heading could be a section title or a business name rather than a person, leave it out. Never guess a role from a name or a photo caption.",
+    const res = await ai({
+      task: "enrich_site_people",
+      system: SYSTEM,
       messages: [{ role: "user", content: text }],
-      tools: [EXTRACT_TOOL],
-      tool_choice: { type: "tool", name: "extract_site_people" },
-    }, { timeout, maxRetries: 1 });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (toolUse && toolUse.type === "tool_use") out = toolUse.input as ExtractOutput;
+      schema: ExtractSchema,
+      deadline: deadline - 500,
+    });
+    out = res.data;
   } catch {
     return { people: [], hours: null, failed: `${url}: the page was fetched but could not be read for names` };
   }
-  if (!out) return { people: [], hours: null };
   // The page is the authority, not the model: every person must be printed on
   // the page text they were read from, with the quoted line and the title, and
   // decision-maker status is read off the title here (people-guard.ts).
   const people: FoundPerson[] = [];
   const dropped: string[] = [];
-  for (const p of Array.isArray(out.people) ? out.people : []) {
-    if (!p || typeof p.name !== "string") continue;
+  for (const p of out.people) {
     const v = verifyPerson(p, text);
     if (!v.ok) {
       dropped.push(v.reason);
