@@ -174,3 +174,17 @@ once the server is warm, which is what a rep opening a screen again costs.
 |---|---|---|
 | /nb/api/route/state | 314 | 44 |
 | /nb/clients | 168 | 67 |
+
+## Looked at, left as is
+
+- **Splitting the map and other big client pieces into lazy chunks.** The
+  whole Route screen costs 33 KB gzip over the shared framework, and the map
+  has no library behind it. A lazy chunk would also be one more file the
+  phone must have fetched before it can draw the screen with no signal, so it
+  trades offline safety for a few KB on the first load after a deploy.
+- **Vercel region.** Already beside the database (see above).
+- **New indexes.** Every scoped read filters a table of about a thousand
+  accounts or reads by `account_id`, which the baseline indexes cover; none of
+  the changes above needs a new one.
+- **Production timings.** Screens behind the PIN are measured on the seed,
+  not in production: no rep session or production key is used for this work.
