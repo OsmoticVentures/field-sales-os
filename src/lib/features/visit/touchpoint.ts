@@ -1,5 +1,5 @@
 /**
- * Record a touchpoint: Juan types what just happened, one forced-tool-schema
+ * Record a touchpoint: Juan types what just happened, one schema-checked
  * model call turns it into structured field-sales data, and it files into
  * the OS and (when that feature's own write flag is "true") into HubSpot as a
  * Note/Call/Meeting. Ported from
@@ -29,7 +29,6 @@
  * that needs hubspot-company.ts, not ported here.
  */
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
 import {
   applyAccountFacts,
   getAccount,
@@ -50,8 +49,8 @@ import {
 import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
 import { draftFromVisit, type VisitOutbound } from "../outbound/from-visit";
-
-const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+import { ai, aiConfigured, AiError } from "../../core/ai/client";
+import { TouchpointSchema } from "./touchpoint-schema";
 
 export type HubspotFilingReport = {
   hubspotFiled: boolean;
@@ -189,170 +188,21 @@ export type ParsedTouchpoint = {
 };
 
 // ---------------------------------------------------------------------------
-// EXTRACTION: tool schema and system prompt, kept exactly (see file header)
+// EXTRACTION: the schema (./touchpoint-schema.ts) and system prompt, kept
+// exactly (see file header). The prompt is split so the long stable part, the
+// rules and the book's account list, is cached across notes, and only the
+// reference time changes per call.
 // ---------------------------------------------------------------------------
 
-const EXTRACT_TOOL = {
-  name: "extract_touchpoint",
-  description: "Extract structured field-sales data from a rep's raw note about one account visit/call/interaction.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      account_id: {
-        type: ["string", "null"],
-        description: "id of the best-matching account from the candidate list, or null if no confident match",
-      },
-      account_confidence: { type: "string", enum: ["high", "low", "none"] },
-      business_name_guess: {
-        type: ["string", "null"],
-        description: "the business/store name AS STATED in the note, verbatim, even when account_confidence is low or none. Null only if no business name was said at all.",
-      },
-      activity: {
-        type: "object",
-        properties: {
-          kind: {
-            type: "string",
-            enum: [
-              "visit", "call", "text", "email_out", "email_in", "linkedin",
-              "newsletter", "meeting", "note", "order", "sample_drop", "staff_training",
-              "field_note",
-            ],
-            description: "An in-person stop at a store or office, walked in or dropped by, is 'visit', even when the rep talks to or 'meets with' someone while there. Use 'meeting' only when the text itself frames it as a scheduled, formal meeting or appointment, not just a conversation that happened in person. This is what titles the HubSpot record ('Visit' vs 'Meeting'), and almost everything a rep dictates from the field is a visit. 'field_note' is the one kind that is NOT a customer contact: no store was called, walked into, emailed or texted. It covers an observation about a market or a storefront the rep only looked at, a note to self about how the work should go, and an instruction aimed at his own agency. A field note never reaches HubSpot, so choosing it wrongly hides real customer contact, and choosing anything else for a note to self invents a customer contact that never happened.",
-          },
-          direction: { type: "string", enum: ["outbound", "inbound", "internal"] },
-          outcome: {
-            type: ["string", "null"],
-            enum: ["reached", "no_decision_maker", "closed", "declined", "reschedule", "no_answer", "left_sample", null],
-            description: "Use 'closed' only when the text says the BUSINESS ITSELF has shut down for good (out of business, permanently closed, the space is empty or another business is in it). Not for a deal being closed or won, and not for a store that merely happened to be closed at the time the rep stopped by, which is 'no_answer'.",
-          },
-          detail: {
-            type: "string",
-            description: "what the rep said, kept in the rep's own first-person words ('I called...', not 'The rep called...'). Trim filler words and clean up punctuation/capitalization/structure, but never paraphrase into third person and never drop a stated fact. This is the full record kept in the OS, not what gets written to HubSpot.",
-          },
-          hubspot_summary: {
-            type: "string",
-            description: "For the shared HubSpot record. Same first-person voice as detail ('I visited...', never 'Visited...' or 'The rep...') and the same no-fabrication rule. You may tighten repetition and filler words for readability, but never drop a fact the rep stated, including small color like where someone is from or what they said about themselves. This is not a shorter, lossier version of detail; it is the same account, in the rep's voice, cleaned up.",
-          },
-        },
-        required: ["kind", "direction", "detail", "hubspot_summary"],
-      },
-      people: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            first_name: { type: ["string", "null"] },
-            last_name: { type: ["string", "null"] },
-            title: { type: ["string", "null"] },
-            role_tag: {
-              type: ["string", "null"],
-              enum: ["buyer", "owner", "manager", "clerk", "other", null],
-              description: "What the text actually calls this person, not a default. 'owner' requires the text to say or clearly imply they own/run the store. 'buyer' means they were called the buyer or place/decide orders, never a fallback guess for an unspecified role. Null when no role is stated.",
-            },
-            is_decision_maker: { type: "boolean" },
-            email: { type: ["string", "null"] },
-            phone: { type: ["string", "null"] },
-            preferences: {
-              type: ["string", "null"],
-              description: "communication or relationship preference literally stated, e.g. 'prefers texts after 2pm'",
-            },
-          },
-          required: ["is_decision_maker"],
-        },
-      },
-      calendar_actions: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            kind: { type: "string", enum: ["meeting", "reminder", "visit"] },
-            title: { type: "string" },
-            when_iso: {
-              type: ["string", "null"],
-              description: "resolved absolute RFC3339 datetime with America/Los_Angeles offset, or null if no time was stated",
-            },
-            duration_minutes: { type: ["integer", "null"] },
-            notes: { type: ["string", "null"] },
-            quote: {
-              type: ["string", "null"],
-              description: "The exact short clause or sentence, copied verbatim from the note, that states the return ask (e.g. \"come back next Friday\"). Not a paraphrase or a summary, the rep's own words only. Null if the note never states one as a distinct phrase.",
-            },
-          },
-          required: ["kind", "title"],
-        },
-      },
-      directives: {
-        type: "array",
-        description: "Instructions the rep aimed at his own agency rather than content about a customer: 'go find their email from the website', 'build me an agent that...', 'draft an action plan and put it on my desktop'. An instruction inside a dictated note is not content for the note. Extract each one verbatim. Empty array is the normal answer; most notes carry none.",
-        items: {
-          type: "object",
-          properties: {
-            directive: {
-              type: "string",
-              description: "the instruction as the rep said it, verbatim, lightly cleaned for filler only. Never re-worded into a task title.",
-            },
-            target: {
-              type: ["string", "null"],
-              description: "who should act, when the text makes it obvious: 'nutribiotic-enricher' (find a missing website/phone/decision maker), 'nutribiotic-route-planner' (go back, go see, plan a day), 'nutribiotic-account-analyst' (who is overdue, what do they buy, scoring), 'head-nutribiotic' (the sales OS itself), 'agent-maker' (build a new agent), 'head-pm' (plan a project). Null when it is not clear.",
-            },
-            scope: {
-              type: "string",
-              enum: ["nutribiotic", "agency"],
-              description: "'nutribiotic' when it is about this territory, its accounts, or this sales OS. 'agency' when it is about Juan's wider operation.",
-            },
-          },
-          required: ["directive", "scope"],
-        },
-      },
-      outreach_asks: {
-        type: "array",
-        description: "Something the customer explicitly asked to be sent, or was promised, by email: pricing, a catalog, product/samples info, an order form, being added to a mailing list. Extract only when the text says the CUSTOMER asked for or was promised something to follow up on, in the rep's own words. IT MUST BE SOMETHING THE REP SENDS THEM. A thing the other side will send HIM is not an outreach ask however real it is. Empty array is the normal answer; most notes carry none.",
-        items: {
-          type: "object",
-          properties: {
-            ask: {
-              type: "string",
-              description: "what the customer asked for or was promised, in the rep's own words, lightly cleaned for filler only. Never re-worded into an email subject or a task title.",
-            },
-          },
-          required: ["ask"],
-        },
-      },
-      account_facts: {
-        type: "object",
-        description: "Facts about the BUSINESS itself, only when explicitly stated about the store/office as a whole, never inferred from a person's own contact info in people[]. Null fields are the common case, most visits state none of this.",
-        properties: {
-          business_hours: {
-            type: ["object", "null"],
-            description: "The business's stated hours, as a 7-key object (mon/tue/wed/thu/fri/sat/sun), each value an array of [\"HH:MM\",\"HH:MM\"] 24-hour windows (empty array for a closed day, e.g. a lunch break means two windows in one day). Only include a day the text actually covers; if the note states weekday hours but says nothing about the weekend, still return all 7 keys, empty array for the days not mentioned, rather than guessing they're closed. Null entirely if no hours were stated at all.",
-          },
-          phone: {
-            type: ["string", "null"],
-            description: "The business's own general/store phone number, only if stated as the store's number, not a specific person's direct line (that belongs in people[].phone).",
-          },
-          email: {
-            type: ["string", "null"],
-            description: "The business's own general/ordering email, only if stated as the store's address (e.g. 'their email is orders@...'), not a specific person's email (that belongs in people[].email).",
-          },
-        },
-        required: ["business_hours", "phone", "email"],
-      },
-      next_step: {
-        type: ["string", "null"],
-        description: "The concrete next action for this account, in plain words, written so a different rep could act on it without rereading the note (e.g. \"Call back Thursday about the reorder\", \"Drop off a GSE sample on the next visit\", \"No follow-up, he is not interested\", \"Nothing further, he is all stocked up\"). Fill this whenever the text states or clearly implies what happens next, INCLUDING an explicit statement that nothing further is needed. IT MUST NAME WHAT HAPPENS. A bare \"follow up\", \"check in\", \"touch base\", \"keep in touch\", \"revisit\", or \"stay on it\" with no object is not a next action and must be left null, even though the rep said the words, because it tells the next reader nothing he could act on. Leave it null ONLY when the text says nothing at all about what comes next for this account, or says only something that vague, which is common and expected: never invent one to fill this field, and never sharpen a vague phrase into a specific-sounding action the rep did not state.",
-      },
-    },
-    required: ["account_confidence", "business_name_guess", "activity", "people", "calendar_actions", "account_facts", "next_step", "directives", "outreach_asks"],
-  },
-};
-
-function systemPrompt(nowIso: string, candidates: AccountCandidate[]): string {
-  return `You extract structured field-sales data from one raw note a rep just typed about a store visit, call, or other touchpoint.
-
-Reference time (America/Los_Angeles): ${nowIso}. Resolve every relative date/time ("Thursday", "next week", "in a month") against this reference.
+function systemPrompt(nowIso: string, candidates: AccountCandidate[]): { cached: string; tail: string } {
+  // Sorted, so the same book renders the same bytes and the cache holds.
+  const book = [...candidates].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return {
+    tail: `Reference time (America/Los_Angeles): ${nowIso}. Resolve every relative date/time ("Thursday", "next week", "in a month") against this reference.`,
+    cached: `You extract structured field-sales data from one raw note a rep just typed about a store visit, call, or other touchpoint.
 
 Candidate accounts (id · name · city), pick the single best match or null:
-${candidates.map((c) => `${c.id} · ${c.name} · ${c.city ?? "unknown city"}`).join("\n")}
+${book.map((c) => `${c.id} · ${c.name} · ${c.city ?? "unknown city"}`).join("\n")}
 
 RULES, all absolute:
 - Extract only what the text states or directly implies. Never invent a name, title, email, phone, date, or outcome that is not in the text.
@@ -369,7 +219,8 @@ RULES, all absolute:
 - directives carry instructions aimed at the agency, verbatim, and those same words must NOT appear in hubspot_summary. A note can be a real customer visit AND carry a directive; extract both. A note that is nothing but an instruction is a field_note whose detail is the instruction's own content.
 - account_facts is for a fact about the BUSINESS as a whole, not a person: hours, a general store phone, a general ordering email. Only fill a field when the text states it about the store/office itself ("their hours are...", "the store's number is..."); a person's own phone or email belongs in people[], never here. Most visits state none of this, null is the normal answer.
 - outreach_asks is for something the CUSTOMER asked for or was promised (pricing, a catalog, samples info, an order form), not something the rep decided to go do on his own, and not something the other side is going to send HIM. Only extract it when the text actually says the customer asked or was told something would be sent, by the rep. Do not put the same content in both outreach_asks and directives; directives are the rep's own instructions to his agency, outreach_asks are about the customer.
-- next_step is a short, concrete statement of what happens with this account next, written so a different rep could act on it without rereading the note. Fill it whenever the text states or clearly implies a next action, INCLUDING an explicit "no follow-up" ("he said no", "nothing further, not interested", "all set for now"). The bar is that it NAMES the action: "bring a GSE sample Thursday", "call Maria back about case pricing", "email the catalog to the buyer". A vague "follow up", "check in", "touch base" or "circle back" with no stated object is NOT a next action, and is left null so the rep gets asked directly rather than shipped a line nobody can act on. Leave it null when the text is silent, or only that vague; the rep is asked one short question and answers in his own words, which is always better than a guess. Never invent a next step, and never turn a vague phrase into a specific-sounding one.`;
+- next_step is a short, concrete statement of what happens with this account next, written so a different rep could act on it without rereading the note. Fill it whenever the text states or clearly implies a next action, INCLUDING an explicit "no follow-up" ("he said no", "nothing further, not interested", "all set for now"). The bar is that it NAMES the action: "bring a GSE sample Thursday", "call Maria back about case pricing", "email the catalog to the buyer". A vague "follow up", "check in", "touch base" or "circle back" with no stated object is NOT a next action, and is left null so the rep gets asked directly rather than shipped a line nobody can act on. Leave it null when the text is silent, or only that vague; the rep is asked one short question and answers in his own words, which is always better than a guess. Never invent a next step, and never turn a vague phrase into a specific-sounding one.`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -455,25 +306,22 @@ export async function recordTouchpoint(
   if (opts.parsed && accountIdHint && isParsedTouchpoint(opts.parsed)) {
     return continueTouchpoint(text, opts.parsed, candidates, accountIdHint, opts);
   }
-  if (!client) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
+  if (!aiConfigured()) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
 
   const now = new Date();
   let parsed: ParsedTouchpoint;
   try {
-    const msg = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 1500,
+    // Structured output against TouchpointSchema: a reply that does not
+    // validate is retried once with the reason, then refused, never filed.
+    const { data } = await ai({
+      task: "touchpoint_extract",
       system: systemPrompt(now.toISOString(), candidates),
       messages: [{ role: "user", content: text }],
-      tools: [EXTRACT_TOOL],
-      tool_choice: { type: "tool", name: "extract_touchpoint" },
+      schema: TouchpointSchema,
     });
-    const toolUse = msg.content.find((b) => b.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use" || !isParsedTouchpoint(toolUse.input)) {
-      return { ok: false, error: "Could not read that note. Try again." };
-    }
-    parsed = toolUse.input;
+    parsed = data;
   } catch (err) {
+    if (err instanceof AiError && err.kind === "invalid") return { ok: false, error: "Could not read that note. Try again." };
     return { ok: false, error: `Could not read that note: ${err instanceof Error ? err.message : String(err)}` };
   }
 
