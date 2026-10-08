@@ -309,3 +309,93 @@ const res = await apiFetch("/api/visit/log", { method: "POST", headers, body });
 
 Same for any `<img src>`, `<a href>` you build by hand, or a Scriptable/widget
 URL: build it with `apiPath()` from the same module.
+
+## Staging
+
+Staging is a second, always-on copy of ClientOS that runs the same code
+against its own Supabase project full of fake accounts. Two reps use
+production every day, so anything risky (a migration, a rework of a write
+path, a new screen) runs on staging first.
+
+**Branch flow.** Push risky work to the `staging` git branch. Vercel builds
+it as a Preview with a stable alias,
+`https://field-sales-os-git-staging-juanarenasrec-4192s-projects.vercel.app/nb`.
+Sign in there with a staging PIN, try the change, and check
+`/nb/api/health` reads `"stage":"staging"`. When it holds up, merge to
+`main`; production deploys from `main` as before.
+
+`lib/core/stage.ts` decides which deployment a process is:
+`NB_STAGE=staging` wins, then `VERCEL_ENV=production` is production, a
+Preview built from branch `staging` is staging, any other Preview is
+preview, and everything else (`next dev`, `next start`) is local. A staging
+tab reads "Staging" in front of its title.
+
+**Safety rails.**
+
+1. HubSpot is hard off on staging and on every preview.
+   `writeEnabled()` and `request()` in `lib/features/visit/hubspot.ts` ask
+   `hubspotWritesAllowedHere()` first, so no env flag can turn a push on
+   there; the refusal says which deployment refused. Production and local
+   keep their flag-driven behavior. `tests/stage.test.mts` covers it.
+2. Staging refuses to start against the production database.
+   `src/instrumentation.ts` runs once per server instance; if the stage is
+   staging and `NB_SUPABASE_URL` names the production project
+   (`giodrtaddvmkgvmzomxv`), it throws and every request answers 500. The
+   build still goes green, so a dead staging deploy shows as 500s, not as
+   a failed build. It never throws in production, preview or local.
+
+The env script adds two smaller ones: staging gets its own session secret
+(a production cookie never opens it) and Expenses' Google credentials are
+set to a value Google rejects (a staging expense never lands in the real
+Drive folder or sheet). Other preview branches still read the production
+database through the all-branch Preview env; HubSpot is off there, but
+treat their database writes as real.
+
+**Bootstrap a new staging project, end to end.** From the agency root,
+once a staging Supabase project exists:
+
+```
+# 1. Look at the plan first. Offline, touches nothing.
+node osmotic-ventures/field-sales-os/scripts/staging/bootstrap.mjs --ref <staging-ref> --dry-run
+
+# 2. Apply every migration and seed the fake data. The management token
+#    comes from SUPABASE_ACCESS_TOKEN in nutribiotic/.env (or
+#    STAGING_SUPABASE_ACCESS_TOKEN). Pick two staging PINs, not the
+#    production ones. Rerunning skips what is already applied.
+STAGING_PIN_JUAN=<pin> STAGING_PIN_KYLE=<other pin> \
+  node osmotic-ventures/field-sales-os/scripts/staging/bootstrap.mjs --ref <staging-ref>
+
+# 3. Point branch `staging` at it (Preview vars scoped to that branch only).
+python3 osmotic-ventures/field-sales-os/scripts/staging/vercel_staging_env.py --ref <staging-ref> --scope juanarenasrec-4192s-projects
+
+# 4. Create and push the branch, then check health on the alias.
+git -C osmotic-ventures/field-sales-os push origin main:staging
+curl -s https://field-sales-os-git-staging-juanarenasrec-4192s-projects.vercel.app/nb/api/health
+```
+
+The bootstrap refuses the production ref, runs each migration together
+with the row that records it in `staging_migrations`, and stops on the
+first failure with the file name. Step 3 runs on a machine whose `vercel`
+CLI can see Juan's personal team, the same as `scripts/vercel_env_sync.py`.
+If Vercel's deployment protection covers previews, the curl in step 4
+answers with Vercel's login; open the URL in a browser signed in to Vercel
+instead.
+
+**Anonymization rule.** Staging never holds a real customer row, name,
+phone or address. The seed is two reps (`juan`, `kyle`, with their real
+HubSpot owner ids so the book scoping works) and 30 accounts named
+"Staging Market 01" onward, at jittered city-center coordinates, with
+555-01xx phone numbers and no HubSpot company id. Every seeded row is
+origin `synthetic` under dataset `staging-seed-v1`, so deleting that one
+`nb_synthetic_datasets` row purges them all. A migration that inserts a
+literal row into any table other than settings and labels stops the
+bootstrap until someone reviews it and adds a neutralizer; 0029's
+home-base row (a real street address) is replaced by a synthetic waypoint.
+Never copy production rows into staging to make a test feel real.
+
+**Current blocker.** There is no staging Supabase project yet. Juan's
+Supabase account already has its two free active projects (nutribiotic,
+stoke-club), so a third free one cannot be created there. The options: a
+separate Supabase account for Osmotic Ventures, which gets its own two free
+projects, or pausing one of the two existing projects. Everything above is
+ready to run the moment a project ref exists.
