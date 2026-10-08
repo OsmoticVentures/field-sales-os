@@ -1,6 +1,7 @@
 -- Indexes for the hot paths pg_stat_statements and the Performance Advisor named
 -- on 2026-10-08. Additive only. Each CREATE INDEX CONCURRENTLY runs on its own
 -- (it cannot share a transaction), so apply this file statement by statement.
+-- The staging bootstrap drops CONCURRENTLY, since its database is empty.
 
 -- The nightly sync-log prune asks for the newest id older than a cutoff per
 -- direction. Without this it walked the primary key backwards through every

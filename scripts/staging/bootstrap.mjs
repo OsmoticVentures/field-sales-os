@@ -90,7 +90,7 @@ if (!existsSync(NB_DIR)) die(`Migrations folder not found: ${NB_DIR}. Set STAGIN
  *  labels, never a customer, a contact, an order or a person. Inserts inside
  *  function bodies that only take parameters (voice_lessons, nb_app_errors)
  *  are listed too, since the scan cannot tell a body from a top-level row. */
-const SAFE_INSERT_TABLES = new Set(["nb_ui_prefs", "nb_search_groups", "voice_lessons", "nb_app_errors", "nb_job_runner"]);
+const SAFE_INSERT_TABLES = new Set(["nb_ui_prefs", "nb_search_groups", "voice_lessons", "nb_app_errors", "nb_job_runner", "nb_pin_attempts"]);
 
 /** Rewrites for migrations that carry a real row. Each must match exactly
  *  once, so a migration edited later stops the run instead of slipping past. */
@@ -119,7 +119,10 @@ function loadMigrations() {
   ];
   const findings = [];
   for (const m of list) {
-    let sql = readFileSync(m.path, "utf8");
+    /* CREATE INDEX CONCURRENTLY cannot run inside the one transaction each
+       migration is applied in here; on an empty staging database a plain
+       CREATE INDEX does the same job without the wait. */
+    let sql = readFileSync(m.path, "utf8").replace(/\bindex\s+concurrently\b/gi, "index");
     const n = NEUTRALIZERS[m.name];
     if (n) {
       const hits = sql.match(n.pattern)?.length ?? 0;

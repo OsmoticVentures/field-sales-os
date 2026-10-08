@@ -1,6 +1,6 @@
 /**
  * PIN lockout shared by every serverless instance (nb_pin_attempts, migration
- * 20261008090200). Two counters: one per address (five tries, then fifteen
+ * supabase/0005_pin_attempts.sql). Two counters: one per address (five tries, then fifteen
  * minutes), and one ceiling across every address, so spreading guesses over
  * many addresses still hits a wall.
  *

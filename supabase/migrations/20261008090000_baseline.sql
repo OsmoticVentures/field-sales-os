@@ -2,6 +2,8 @@
 -- read from project giodrtaddvmkgvmzomxv by scripts/dump_schema.py. Idempotent: every
 -- statement is IF NOT EXISTS or OR REPLACE, so it runs clean on production.
 -- History before this point: agency repo nutribiotic/supabase/migrations 0001-0097.
+-- A snapshot, not a step: staging builds from those plus supabase/000N_*.sql here
+-- (scripts/staging/bootstrap.mjs), and new ClientOS migrations go in that chain.
 -- Regenerate with `python3 scripts/dump_schema.py --out <file>`; check drift
 -- with `--check`. Grants are left at Supabase's defaults and not captured;
 -- a migration that narrows one (revoke/grant) states it itself.
