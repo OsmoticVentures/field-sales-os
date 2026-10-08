@@ -175,6 +175,38 @@ once the server is warm, which is what a rep opening a screen again costs.
 | /nb/api/route/state | 314 | 44 |
 | /nb/clients | 168 | 67 |
 
+### 5. The tier view computes the fit metrics once
+
+`nb_v_account_tier` feeds the Clients list, Search's book match,
+`nb_accounts_near`, `nb_v_cadence_due` and `nb_v_pipeline_stale`. It joined
+`nb_v_fit_metrics`, then `nb_v_account_potential`, which joined
+`nb_v_fit_metrics` again, so the per-owner medians and every account's fit ran
+twice per read. Worse, the scoring config is a 14 KB jsonb stored compressed,
+and each `weights -> ...` in a per-account expression unpacked all of it again.
+
+`supabase/0008_tier_view_single_fit_pass.sql`: the fit metrics read their four
+weights once, and a new `nb_v_account_grade_basis` joins the fit metrics once
+and computes the grade once. `nb_v_account_potential` and `nb_v_account_tier`
+are now thin selects over it, same columns and types, so no app code changed.
+The old definitions sit in the migration as comments for a rollback.
+
+Measured in production with `EXPLAIN (ANALYZE, BUFFERS, TIMING OFF)`, the
+Clients list query for Juan's book (`hubspot_owner_id = 36242368`, ordered by
+tier, `limit 500`), three runs each:
+
+| Query | ms before | ms after | buffers before | buffers after |
+|---|---|---|---|---|
+| Clients list on `nb_v_account_tier` | 808 to 848 | 30 to 31 | 64,409 | 10,934 |
+| `select * from nb_v_fit_metrics` | 490 to 511 | 7 | | 331 |
+| `select * from nb_v_account_potential` | 411 | 25 to 30 | | 10,746 |
+
+Same results: before applying, old and new ran in one rolled back transaction
+on production and were compared with `EXCEPT ALL` both ways over every row:
+zero rows different in `nb_v_fit_metrics` (768), `nb_v_account_potential`
+(826), `nb_v_account_tier` (826), `nb_v_cadence_due` (569) and
+`nb_v_pipeline_stale` (0). The real apply ran the same check inside its
+transaction and would have aborted on any difference.
+
 ## Looked at, left as is
 
 - **Splitting the map and other big client pieces into lazy chunks.** The
