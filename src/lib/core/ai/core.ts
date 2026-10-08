@@ -69,6 +69,9 @@ export const TASKS = {
 export type TaskName = keyof typeof TASKS;
 
 export const MAX_ATTEMPTS = 3;
+/** Structured outputs: at most 16 parameters with a union type (anyOf or a
+ *  type array, so every nullable field) across a request's schemas. */
+export const MAX_UNION_PARAMS = 16;
 const MIN_ATTEMPT_MS = 4_000;
 const MAX_TOKENS_CEILING = 16_000;
 
@@ -215,11 +218,25 @@ export type AiResult<T> = {
 
 type Usage = { input: number; output: number; cacheRead: number; cacheWrite: number };
 
-function systemParam(system: AiRequest<undefined>["system"]): CreateParams["system"] {
-  if (typeof system === "string") return system;
-  const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: system.cached, cache_control: { type: "ephemeral" } }];
-  if (system.tail) blocks.push({ type: "text", text: system.tail });
+function systemParam(system: AiRequest<undefined>["system"], extra?: string): CreateParams["system"] {
+  if (typeof system === "string" && !extra) return system;
+  const blocks: Anthropic.TextBlockParam[] =
+    typeof system === "string"
+      ? [{ type: "text", text: system }]
+      : [{ type: "text", text: system.cached, cache_control: { type: "ephemeral" } }];
+  if (typeof system !== "string" && system.tail) blocks.push({ type: "text", text: system.tail });
+  if (extra) blocks.push({ type: "text", text: extra });
   return blocks;
+}
+
+function promptSchemaLine(schema: Json): string {
+  return `Answer with only one JSON object, no other text, matching this JSON schema exactly (every field present; null where the schema allows it and the text states nothing):\n${JSON.stringify(schema)}`;
+}
+
+/** A 400 that names the output schema: the grammar could not be built. */
+function isSchemaRejection(err: unknown): boolean {
+  const e = err as { status?: unknown; message?: unknown };
+  return e?.status === 400 && typeof e.message === "string" && /schema|output_config|format|grammar|compil/i.test(e.message);
 }
 
 function inputExcerpt(req: AiRequest<z.ZodType | undefined>): string {
@@ -260,6 +277,11 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
   const started = now();
   const deadline = Math.min(started + cfg.timeoutMs, req.deadline ?? Infinity);
   const format = req.schema ? { schema: strictJsonSchema(req.schema) } : null;
+  // Grammar mode (structured outputs) when the schema fits the API's limits;
+  // otherwise, or when the API rejects the schema, the same schema goes in
+  // the prompt and zod alone holds the reply to it. Either way the reply is
+  // validated below, so a rejected schema costs one attempt, not the step.
+  let jsonMode: "grammar" | "prompt" | null = format ? (unionCount(format.schema) <= MAX_UNION_PARAMS ? "grammar" : "prompt") : null;
 
   let model: ModelId = tier.primary;
   let maxTokens: number = cfg.maxTokens;
@@ -314,13 +336,13 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
     const params: CreateParams = {
       model,
       max_tokens: maxTokens,
-      system: systemParam(req.system),
+      system: systemParam(req.system, jsonMode === "prompt" && format ? promptSchemaLine(format.schema) : undefined),
       messages,
       ...(req.tools ? { tools: req.tools } : {}),
     };
     const outputConfig: Anthropic.OutputConfig = {};
     if (MODELS[model].effort) outputConfig.effort = cfg.effort;
-    if (format) outputConfig.format = { type: "json_schema", schema: format.schema };
+    if (format && jsonMode === "grammar") outputConfig.format = { type: "json_schema", schema: format.schema };
     if (Object.keys(outputConfig).length) params.output_config = outputConfig;
 
     let msg: Message;
@@ -328,6 +350,11 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
       msg = await deps.create(params, { timeout: Math.max(1_000, remaining), maxRetries: 0 });
     } catch (err) {
       const f = classifyError(err);
+      if (jsonMode === "grammar" && isSchemaRejection(err)) {
+        jsonMode = "prompt";
+        lastError = new AiError("permanent", "The model could not answer just now.", f.detail);
+        continue;
+      }
       lastError = new AiError(f.kind, f.kind === "timeout" ? "The model ran out of time." : "The model could not answer just now.", f.detail);
       if (f.retry === "never") break;
       if (f.retry === "fallback" && !toFallback()) {
@@ -430,7 +457,24 @@ export function strictJsonSchema(schema: z.ZodType): Json {
     }
     return out;
   };
-  return walk(toJSONSchema(schema, { target: "draft-2020-12" })) as Json;
+  // io "input": a field that reads "" back as null is a plain string to the model.
+  return walk(toJSONSchema(schema, { target: "draft-2020-12", io: "input" })) as Json;
+}
+
+/** Parameters whose schema is a union (anyOf, or a type array like
+ *  ["string","null"]), counted the way the structured-outputs limit counts. */
+export function unionCount(schema: unknown): number {
+  let n = 0;
+  const walk = (node: unknown, isParam: boolean) => {
+    if (!node || typeof node !== "object") return;
+    const o = node as Json;
+    if (isParam && (Array.isArray(o.anyOf) || Array.isArray(o.type))) n += 1;
+    if (o.properties) for (const v of Object.values(o.properties as Json)) walk(v, true);
+    if (o.items) walk(o.items, false);
+    if (Array.isArray(o.anyOf)) for (const v of o.anyOf) walk(v, false);
+  };
+  walk(schema, false);
+  return n;
 }
 
 /** Parse and check a structured reply. Exported for the offline evals. */
@@ -444,6 +488,16 @@ export function validate<S extends z.ZodType>(
   try {
     raw = JSON.parse(text);
   } catch {
+    // Prompt mode can wrap the object in prose or a code fence.
+    const a = text.indexOf("{");
+    const b = text.lastIndexOf("}");
+    try {
+      raw = a >= 0 && b > a ? JSON.parse(text.slice(a, b + 1)) : undefined;
+    } catch {
+      raw = undefined;
+    }
+  }
+  if (raw === undefined) {
     return { ok: false, issue: "the answer was not valid JSON" };
   }
   const parsed = schema.safeParse(raw);

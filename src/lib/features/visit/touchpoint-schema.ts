@@ -11,6 +11,17 @@ import { z } from "zod";
 
 const hhmmWindows = z.array(z.array(z.string()));
 
+/** A string the model leaves empty when the note states none, read back as
+ *  null. Structured outputs allow 16 nullable (union) fields per request and
+ *  this schema has 19 that matter, so the four lowest-stakes ones (a stated
+ *  preference, a calendar note, a quote, a directive target) carry "none" as
+ *  an empty string instead. Nothing downstream can tell the difference. */
+const emptyIsNull = (description: string) =>
+  z
+    .string()
+    .describe(`${description} Empty string when there is none.`)
+    .transform((v) => (v.trim() && v.trim().toLowerCase() !== "null" ? v : null));
+
 export const TouchpointSchema = z.object({
   account_id: z.string().nullable().describe("id of the best-matching account from the candidate list, or null if no confident match"),
   account_confidence: z.enum(["high", "low", "none"]),
@@ -40,7 +51,7 @@ export const TouchpointSchema = z.object({
       is_decision_maker: z.boolean(),
       email: z.string().nullable(),
       phone: z.string().nullable(),
-      preferences: z.string().nullable().describe("communication or relationship preference literally stated, e.g. 'prefers texts after 2pm'"),
+      preferences: emptyIsNull("communication or relationship preference literally stated, e.g. 'prefers texts after 2pm'"),
     }),
   ),
   calendar_actions: z.array(
@@ -49,15 +60,15 @@ export const TouchpointSchema = z.object({
       title: z.string(),
       when_iso: z.string().nullable().describe("resolved absolute RFC3339 datetime with America/Los_Angeles offset, or null if no time was stated"),
       duration_minutes: z.number().int().nullable(),
-      notes: z.string().nullable(),
-      quote: z.string().nullable().describe("The exact short clause or sentence, copied verbatim from the note, that states the return ask (e.g. \"come back next Friday\"). Not a paraphrase or a summary, the rep's own words only. Null if the note never states one as a distinct phrase."),
+      notes: emptyIsNull("Any detail about this calendar action worth keeping, as stated."),
+      quote: emptyIsNull("The exact short clause or sentence, copied verbatim from the note, that states the return ask (e.g. \"come back next Friday\"). Not a paraphrase or a summary, the rep's own words only. Null if the note never states one as a distinct phrase."),
     }),
   ),
   directives: z
     .array(
       z.object({
         directive: z.string().describe("the instruction as the rep said it, verbatim, lightly cleaned for filler only. Never re-worded into a task title."),
-        target: z.string().nullable().describe("who should act, when the text makes it obvious: 'nutribiotic-enricher' (find a missing website/phone/decision maker), 'nutribiotic-route-planner' (go back, go see, plan a day), 'nutribiotic-account-analyst' (who is overdue, what do they buy, scoring), 'head-nutribiotic' (the sales OS itself), 'agent-maker' (build a new agent), 'head-pm' (plan a project). Null when it is not clear."),
+        target: emptyIsNull("who should act, when the text makes it obvious: 'nutribiotic-enricher' (find a missing website/phone/decision maker), 'nutribiotic-route-planner' (go back, go see, plan a day), 'nutribiotic-account-analyst' (who is overdue, what do they buy, scoring), 'head-nutribiotic' (the sales OS itself), 'agent-maker' (build a new agent), 'head-pm' (plan a project). Null when it is not clear."),
         scope: z.enum(["nutribiotic", "agency"]).describe("'nutribiotic' when it is about this territory, its accounts, or this sales OS. 'agency' when it is about Juan's wider operation."),
       }),
     )

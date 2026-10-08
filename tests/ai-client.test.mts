@@ -3,7 +3,8 @@
 // and the run record. No network, no spend.
 // Run: node --experimental-strip-types tests/ai-client.test.mts
 import { z } from "zod";
-import { AiError, MODELS, TASKS, TIERS, backoffMs, classifyError, runAi, strictJsonSchema, validate, type Deps, type RunRecord } from "../src/lib/core/ai/core.ts";
+import { AiError, MAX_UNION_PARAMS, MODELS, TASKS, TIERS, backoffMs, classifyError, runAi, strictJsonSchema, unionCount, validate, type Deps, type RunRecord } from "../src/lib/core/ai/core.ts";
+import { TouchpointSchema } from "../src/lib/features/visit/touchpoint-schema.ts";
 
 let failures = 0;
 const t = (name: string, ok: boolean, info?: unknown) => {
@@ -232,6 +233,33 @@ t("no dated model ids", Object.keys(MODELS).every((m) => !/\d{8}$/.test(m)));
   t("description kept", js.includes('"description":"D"'));
   t("numeric bounds and $schema dropped", !js.includes("minimum") && !js.includes("$schema"));
   t("nested objects closed", (js.match(/"additionalProperties":false/g) ?? []).length === 2);
+}
+
+// the API's schema limits, and what happens past them
+{
+  const tp = strictJsonSchema(TouchpointSchema);
+  t("touchpoint schema fits the union limit", unionCount(tp) <= MAX_UNION_PARAMS, unionCount(tp));
+  const sample = {
+    account_id: null, account_confidence: "none", business_name_guess: null,
+    activity: { kind: "visit", direction: "outbound", outcome: null, detail: "I visited", hubspot_summary: "I visited" },
+    people: [{ first_name: "Ana", last_name: null, title: null, role_tag: null, is_decision_maker: false, email: null, phone: null, preferences: "" }],
+    calendar_actions: [{ kind: "visit", title: "Return", when_iso: null, duration_minutes: null, notes: "", quote: "come back Friday" }],
+    directives: [], outreach_asks: [], account_facts: { business_hours: null, phone: null, email: null }, next_step: null,
+  };
+  const v = validate(TouchpointSchema, JSON.stringify(sample), "end_turn");
+  t("an empty low-stakes string reads back as null", v.ok && v.value.people[0].preferences === null && v.value.calendar_actions[0].notes === null && v.value.calendar_actions[0].quote === "come back Friday");
+}
+{
+  const Wide = z.object(Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`f${i}`, z.string().nullable()])));
+  const f = fake([{ text: JSON.stringify(Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`f${i}`, null]))) }]);
+  await runAi(f.deps, { ...base, schema: Wide });
+  const sys = f.calls[0].system as { text: string }[];
+  t("past the union limit: schema in the prompt, no grammar", f.calls[0].output_config?.format === undefined && Array.isArray(sys) && /JSON schema/.test(sys[sys.length - 1].text));
+}
+{
+  const f = fake([{ throw: apiError(400, "output_config.format.schema: Schema is too complex for compilation.") }, { text: "```json\n" + good + "\n```" }]);
+  const r = await runAi(f.deps, base);
+  t("a rejected schema falls back to prompt JSON on the same model", r.data.kind === "visit" && f.calls[1].output_config?.format === undefined && f.calls[1].model === TIERS.standard.primary);
 }
 
 // pure helpers
