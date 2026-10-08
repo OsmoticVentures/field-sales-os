@@ -7,6 +7,7 @@
  */
 import "server-only";
 import { myOwnerId } from "../../core/user";
+import type { Columns, NbVAccountTierRow } from "../../db/types";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -39,7 +40,8 @@ async function sbGet<T>(table: string, params: Record<string, string>): Promise<
   }
 }
 
-export type TierRow = {
+export type TierRow = Columns<TierFields, NbVAccountTierRow>;
+type TierFields = {
   account_id: string;
   name: string;
   lifecycle: string;

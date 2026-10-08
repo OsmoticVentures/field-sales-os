@@ -18,6 +18,7 @@
  */
 import "server-only";
 import { DEFAULT_USER, currentUser, myOwnerId } from "../../core/user";
+import type { Columns, NbHubspotSyncLogInsert } from "../../db/types";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -518,7 +519,8 @@ export async function insertReturnDirectives(
 // HubSpot call log (best-effort, mirrors the source's logHubspotCall)
 // ---------------------------------------------------------------------------
 
-export type HubspotLogRow = {
+export type HubspotLogRow = Columns<HubspotLogFields, NbHubspotSyncLogInsert>;
+type HubspotLogFields = {
   direction: "pull" | "push";
   entity: string;
   operation: string;

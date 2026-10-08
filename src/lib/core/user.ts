@@ -21,6 +21,7 @@
 import "server-only";
 import { readAuthCookies, readDeviceToken, readSessionUser, timingSafeEqual } from "./session";
 import { flagsFor } from "./flags";
+import type { NbUsersRow } from "../db/types";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -34,17 +35,10 @@ export type User = {
   features: string[] | null;
 };
 
-type Row = {
-  id: string;
-  name: string;
-  hubspot_owner_id: string;
-  owner_name: string;
-  pin_salt: string;
-  pin_hash: string;
-  prefs_id: number;
-  features: string[] | null;
-  disabled_at: string | null;
-};
+type Row = Pick<
+  NbUsersRow,
+  "id" | "name" | "hubspot_owner_id" | "owner_name" | "pin_salt" | "pin_hash" | "prefs_id" | "features" | "disabled_at"
+>;
 
 export const DEFAULT_USER = "juan";
 
