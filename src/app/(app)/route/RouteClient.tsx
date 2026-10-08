@@ -298,12 +298,18 @@ function RouteDay({
 
   const [depart, setDepart] = useState(nowHHMM);
   const [prefs, setPrefsLocal] = useState<RouteSchedulePrefs>({ ...data.prefs, depart });
-  useEffect(() => setPrefsLocal({ ...data.prefs, depart }), [data.prefs, depart]);
+  // Saved prefs or a new departure time reset the local prefs, during render.
+  const [prefsFrom, setPrefsFrom] = useState({ prefs: data.prefs, depart });
+  if (prefsFrom.prefs !== data.prefs || prefsFrom.depart !== depart) {
+    setPrefsFrom({ prefs: data.prefs, depart });
+    setPrefsLocal({ ...data.prefs, depart });
+  }
 
   const [busy, setBusy] = useState(false);
   const [legs, setLegs] = useState<DriveLeg[] | null>(null);
   const [coords, setCoords] = useState<[number, number][] | null>(null);
-  const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">("loading");
+  const pointCount = (start ? 1 : 0) + stops.length + (end ? 1 : 0);
+  const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">(() => (pointCount < 2 ? "ok" : "loading"));
   const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
 
@@ -389,16 +395,24 @@ function RouteDay({
     [stops, start, end],
   );
 
-  useEffect(() => {
-    const points = [...(start ? [start] : []), ...stops, ...(end ? [end] : [])];
-    if (points.length < 2) {
+  /* A new path clears or marks the drive legs during render; the effect
+     below only fetches them. */
+  const [legsFor, setLegsFor] = useState(pathKey);
+  if (legsFor !== pathKey) {
+    setLegsFor(pathKey);
+    if (pointCount < 2) {
       setLegs(null);
       setCoords(null);
       setLegState("ok");
-      return;
+    } else {
+      setLegState("loading");
     }
+  }
+
+  useEffect(() => {
+    const points = [...(start ? [start] : []), ...stops, ...(end ? [end] : [])];
+    if (points.length < 2) return;
     let live = true;
-    setLegState("loading");
     apiFetch("/api/route/drive", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -643,7 +657,7 @@ function RouteDay({
               ) : (
                 <span className="font-medium">{w.name}</span>
               )}{" "}
-              won't fit, {w.reason}
+              won&apos;t fit, {w.reason}
             </li>
           ))}
         </ul>

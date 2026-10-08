@@ -21,7 +21,7 @@
 
 import { WarmthPicker } from "../../../lib/features/clients/WarmthPicker";
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
@@ -675,12 +675,34 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
      moved to another client checks this first, so a slow answer about the
      last client can never repaint the panel of the next one. */
   const showing = useRef(item.account_id);
-  showing.current = item.account_id;
+  useLayoutEffect(() => {
+    showing.current = item.account_id;
+  }, [item.account_id]);
 
-  useEffect(() => {
+  /* A new account clears the last one's panel in the same render, before
+     its own load starts. */
+  const [panelFor, setPanelFor] = useState(item.account_id);
+  if (panelFor !== item.account_id) {
+    setPanelFor(item.account_id);
     setPanel(null);
     setEnrichResult(null);
     setLoadError(null);
+  }
+
+  /** The account's people as HubSpot has them now, merges followed. Asked for
+   *  after the panel paints, so a slow portal never holds up the account. */
+  async function liveContacts(accountId: string) {
+    try {
+      const res = await apiFetch(`/api/prospect/account/${accountId}/contacts`);
+      const j = await res.json();
+      if (!j.ok || showing.current !== accountId) return;
+      setPanel((p) => (p && p.id === accountId ? { ...p, contacts: j.contacts } : p));
+    } catch {
+      // best effort: the panel already shows what the OS had
+    }
+  }
+
+  useEffect(() => {
     if (!item.account_id) return;
     const accountId = item.account_id;
     let cancelled = false;
@@ -701,19 +723,6 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.account_id]);
-
-  /** The account's people as HubSpot has them now, merges followed. Asked for
-   *  after the panel paints, so a slow portal never holds up the account. */
-  async function liveContacts(accountId: string) {
-    try {
-      const res = await apiFetch(`/api/prospect/account/${accountId}/contacts`);
-      const j = await res.json();
-      if (!j.ok || showing.current !== accountId) return;
-      setPanel((p) => (p && p.id === accountId ? { ...p, contacts: j.contacts } : p));
-    } catch {
-      // best effort: the panel already shows what the OS had
-    }
-  }
 
   /** Find Contacts writes straight to the OS; this is how its panel gets
    *  back into the call card without a full page reload. Best effort: the
@@ -1044,6 +1053,40 @@ function RankedList({ ranked, onView }: { ranked: RankedAccount[]; onView: (r: R
 // The screen
 // ---------------------------------------------------------------------------
 
+/** The card to open for a focused account: its pending card from the
+ *  schedule, else an unscheduled call card when the name is known. */
+function focusTarget(
+  initialItems: ScheduleItem[],
+  todayIso: string,
+  focusAccountId: string | null | undefined,
+  focusAccountName: string | null | undefined,
+  focusAccountPhone: string | null | undefined,
+): ScheduleItem | null {
+  if (!focusAccountId) return null;
+  const existing = initialItems.find((it) => it.account_id === focusAccountId && it.status === "pending");
+  if (existing) return existing;
+  if (!focusAccountName) return null;
+  return {
+    id: `unscheduled:${focusAccountId}`,
+    account_id: focusAccountId,
+    prospect_name: null,
+    prospect_phone: null,
+    kind: "call",
+    scheduled_date: todayIso,
+    status: "pending",
+    priority: null,
+    rescheduled_at: null,
+    displayName: focusAccountName,
+    displayPhone: focusAccountPhone ?? null,
+    area: null,
+    businessHours: null,
+    priorityScore: null,
+    priorityReason: null,
+    priorityBand: null,
+  };
+}
+
+
 export function ProspectClient({
   initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, topRanked,
 }: {
@@ -1058,7 +1101,9 @@ export function ProspectClient({
 }) {
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
-  const [active, setActive] = useState<ScheduleItem | null>(null);
+  const [active, setActive] = useState<ScheduleItem | null>(() =>
+    focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone),
+  );
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1067,34 +1112,14 @@ export function ProspectClient({
   }, [active?.id]);
 
 
-  useEffect(() => {
-    if (!focusAccountId) return;
-    const existing = initialItems.find((it) => it.account_id === focusAccountId && it.status === "pending");
-    if (existing) {
-      setActive(existing);
-      return;
-    }
-    if (!focusAccountName) return;
-    setActive({
-      id: `unscheduled:${focusAccountId}`,
-      account_id: focusAccountId,
-      prospect_name: null,
-      prospect_phone: null,
-      kind: "call",
-      scheduled_date: todayIso,
-      status: "pending",
-      priority: null,
-      rescheduled_at: null,
-      displayName: focusAccountName,
-      displayPhone: focusAccountPhone ?? null,
-      area: null,
-      businessHours: null,
-      priorityScore: null,
-      priorityReason: null,
-      priorityBand: null,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusAccountId]);
+  /* The account the page was opened on (?account=) becomes the active card,
+     set during render when the focus changes so the panel opens with it. */
+  const [focusedFor, setFocusedFor] = useState(focusAccountId);
+  if (focusedFor !== focusAccountId) {
+    setFocusedFor(focusAccountId);
+    const target = focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone);
+    if (target) setActive(target);
+  }
 
   const dayIsos = useMemo(() => {
     const out: string[] = [];

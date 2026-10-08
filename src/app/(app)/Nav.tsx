@@ -88,9 +88,13 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
   const rest = items.filter((n) => !n.tab);
   const restActive = rest.some((n) => isActive(pathname, n.href));
 
-  useEffect(() => {
+  // Close the sheet when the route changes, adjusted during render so the
+  // new screen never paints with the sheet still up.
+  const [sheetPath, setSheetPath] = useState(pathname);
+  if (sheetPath !== pathname) {
+    setSheetPath(pathname);
     setMoreOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!moreOpen) return;

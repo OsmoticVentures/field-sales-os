@@ -10,7 +10,12 @@ import { draftFromVisit } from "../src/lib/features/outbound/from-visit";
 const SB_URL = process.env.NB_SUPABASE_URL!;
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY!;
 
-type Tp = { id: string; account_id: string | null; raw_text: string; parsed: Record<string, any> | null };
+type Parsed = {
+  activity?: { kind?: string };
+  next_step?: string | null;
+  outreach_asks?: { ask: string }[];
+};
+type Tp = { id: string; account_id: string | null; raw_text: string; parsed: Parsed | null };
 
 async function main() {
   const ids = process.argv.slice(2);

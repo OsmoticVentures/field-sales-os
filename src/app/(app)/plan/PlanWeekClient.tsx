@@ -131,7 +131,7 @@ function DayCard({ day, onUsed }: { day: PlannedDay; onUsed: () => void }) {
   const [existingCount, setExistingCount] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  async function useThisDay(mode?: "replace" | "add") {
+  async function applyThisDay(mode?: "replace" | "add") {
     setPhase("busy");
     setErrorMsg(null);
     try {
@@ -201,17 +201,17 @@ function DayCard({ day, onUsed }: { day: PlannedDay; onUsed: () => void }) {
               {existingCount} stop{existingCount === 1 ? "" : "s"} already on this day.
             </p>
             <div className="flex gap-2">
-              <button type="button" className={`${ghostBtn} flex-1`} onClick={() => useThisDay("add")}>
+              <button type="button" className={`${ghostBtn} flex-1`} onClick={() => applyThisDay("add")}>
                 Add around them
               </button>
-              <button type="button" className={`${primaryBtn} flex-1`} onClick={() => useThisDay("replace")}>
+              <button type="button" className={`${primaryBtn} flex-1`} onClick={() => applyThisDay("replace")}>
                 Replace day
               </button>
             </div>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <button type="button" className={primaryBtn} disabled={phase === "busy"} onClick={() => useThisDay()}>
+            <button type="button" className={primaryBtn} disabled={phase === "busy"} onClick={() => applyThisDay()}>
               {phase === "busy" ? "Using this day..." : "Use this day"}
             </button>
             {phase === "error" && errorMsg && <p className="text-[12px] text-[#8A2E2E]">{errorMsg}</p>}

@@ -16,12 +16,25 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, Card, primaryBtn, ghostBtn, inputCls, labelCls, eyebrowCls } from "../../../lib/core/ui";
-import type { ReportDraft, ReportHqNote } from "../../../lib/features/reports/dal";
+import type { ReportDraft, ReportHqNote, ReportStop } from "../../../lib/features/reports/dal";
 import { stopGist } from "../../../lib/features/reports/stop-gist";
 
 const HQ_CATEGORIES = ["FORMULATION & PRODUCT", "DISCOUNTS & PRICING", "ENTERPRISE & HQ ACCESS", "COMPETITIVE INTEL", "OTHER"];
 
 type StopEdit = { hidden: boolean; call_only: boolean; message_only: boolean };
+
+function stopEditsFrom(stops: ReportStop[]): Record<string, StopEdit> {
+  return Object.fromEntries(
+    stops.map((s) => [
+      String(s.n),
+      { hidden: Boolean(s.hidden), call_only: Boolean(s.is_call_only), message_only: Boolean(s.is_message_only) },
+    ]),
+  );
+}
+
+function milesText(payload: ReportDraft["payload"] | null): string {
+  return payload?.miles_override != null ? String(payload.miles_override) : "";
+}
 
 /** A move-earlier/move-later chevron. Local to this feature: lib/core/ui.tsx's
  *  Ico set (shared, not edited by this port) has no chevron today. */
@@ -181,23 +194,20 @@ function DailyReport({
   const stops = useMemo(() => payload?.stops ?? [], [payload]);
 
   const [hqNotes, setHqNotes] = useState<ReportHqNote[]>(payload?.hq_notes ?? []);
-  const [miles, setMiles] = useState<string>(payload?.miles_override != null ? String(payload.miles_override) : "");
-  const [stopEdits, setStopEdits] = useState<Record<string, StopEdit>>({});
-  const [order, setOrder] = useState<number[]>([]);
+  const [miles, setMiles] = useState<string>(milesText(payload));
+  const [stopEdits, setStopEdits] = useState<Record<string, StopEdit>>(() => stopEditsFrom(stops));
+  const [order, setOrder] = useState<number[]>(() => stops.map((s) => s.n ?? 0));
 
-  useEffect(() => {
+  /* A new draft (a rebuild, a save, another day) resets the editor to it,
+     during render so the old draft's edits never paint against the new one. */
+  const [editing, setEditing] = useState(payload);
+  if (editing !== payload) {
+    setEditing(payload);
     setHqNotes(payload?.hq_notes ?? []);
-    setMiles(payload?.miles_override != null ? String(payload.miles_override) : "");
-    setStopEdits(
-      Object.fromEntries(
-        stops.map((s) => [
-          String(s.n),
-          { hidden: Boolean(s.hidden), call_only: Boolean(s.is_call_only), message_only: Boolean(s.is_message_only) },
-        ]),
-      ),
-    );
+    setMiles(milesText(payload));
+    setStopEdits(stopEditsFrom(stops));
     setOrder(stops.map((s) => s.n ?? 0));
-  }, [payload, stops]);
+  }
 
   const orderedStops = order.map((n) => stops.find((s) => s.n === n)).filter((s): s is NonNullable<typeof s> => Boolean(s));
 

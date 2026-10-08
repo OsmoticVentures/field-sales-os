@@ -103,14 +103,17 @@ export function FuelClient() {
       .catch(() => {});
   }, []);
 
-  /* Keep the handles inside this car's tank. */
-  useEffect(() => {
+  /* Keep the handles inside this car's tank, re-clamped during render
+     whenever the tank changes. */
+  const [clampedTank, setClampedTank] = useState(tank);
+  if (clampedTank !== tank) {
+    setClampedTank(tank);
     setPrefs((p) => {
       if (p.fillTo <= tank && p.now < p.fillTo) return p;
       const fillTo = Math.min(p.fillTo, tank);
       return { ...p, fillTo, now: Math.min(p.now, fillTo - GALLON_STEP) };
     });
-  }, [tank]);
+  }
 
   useEffect(() => {
     try {

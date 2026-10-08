@@ -62,6 +62,9 @@ function load(): Promise<Me | null> {
 export function useMe(): Me | null {
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => {
+    // localStorage exists only in the browser, so the remembered rep loads
+    // after hydration; reading it during render would mismatch the server HTML.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMe(remembered());
     let live = true;
     void load().then((m) => {

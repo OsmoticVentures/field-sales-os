@@ -19,7 +19,7 @@ import { Geolocation } from "@capacitor/geolocation";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico } from "@/lib/core/ui";
 import { useFlag } from "@/lib/core/me";
-import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
+import { loadGoogleMaps, useGoogleMapsAuthFailed } from "@/lib/shared/google-maps-loader";
 import { dayLabel } from "@/lib/features/route/field-week";
 import {
   accountType,
@@ -449,24 +449,9 @@ export function AccountsMap({
     setFilters(next);
   }
 
-  // Google reports a rejected key through this global hook after the
-  // script itself loaded fine.
-  useEffect(() => {
-    const w = window as unknown as { gm_authFailure?: () => void; __gmAuthFailed?: boolean };
-    if (w.__gmAuthFailed) {
-      setFailed(true);
-      return;
-    }
-    const prev = w.gm_authFailure;
-    w.gm_authFailure = () => {
-      w.__gmAuthFailed = true;
-      prev?.();
-      setFailed(true);
-    };
-    return () => {
-      if (w.gm_authFailure && !w.__gmAuthFailed) w.gm_authFailure = prev;
-    };
-  }, []);
+  // A rejected key reaches us through Google's global hook; without it the
+  // card sits blank.
+  const authFailed = useGoogleMapsAuthFailed();
 
   useEffect(() => {
     if (!apiKey || !containerRef.current) return;
@@ -683,12 +668,21 @@ export function AccountsMap({
     });
   }, [me, loaded]);
 
+  /* A focused account opens its pin card once the map is up, chosen during
+     render; the effect below only moves the map. */
+  const focusOnMap = loaded ? (focus ?? null) : null;
+  const [selectedFor, setSelectedFor] = useState(focusOnMap);
+  if (selectedFor !== focusOnMap) {
+    setSelectedFor(focusOnMap);
+    const a = focusOnMap ? accountsById.get(focusOnMap.id) : undefined;
+    if (a) setSelected(a);
+  }
+
   useEffect(() => {
     const map = mapRef.current;
     if (!focus || !map || !loaded) return;
     const a = accountsById.get(focus.id);
     if (a) {
-      setSelected(a);
       map.panTo({ lat: a.lat, lng: a.lng });
       map.setZoom(14);
       return;
@@ -702,7 +696,7 @@ export function AccountsMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, loaded]);
 
-  if (!apiKey || failed) {
+  if (!apiKey || failed || authFailed) {
     return (
       <div className="flex min-h-11 items-center gap-2 rounded-lg border border-[#E2DFD5] bg-white px-4 py-3 text-[13px] text-[#8A928C]">
         Map unavailable

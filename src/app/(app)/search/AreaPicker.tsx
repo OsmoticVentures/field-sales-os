@@ -25,7 +25,7 @@
  * via lib/shared/google-maps-loader.ts, which needs no package.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
 import { Ico } from "../../../lib/core/ui";
 import { loadGoogleMaps } from "../../../lib/shared/google-maps-loader";
@@ -110,9 +110,13 @@ export function AreaPicker({
   const pinsRef = useRef(pins);
   const disabledRef = useRef(disabled);
   const onChangeRef = useRef(onChange);
-  pinsRef.current = pins;
-  disabledRef.current = disabled;
-  onChangeRef.current = onChange;
+  // The map's listeners are bound once and read the latest props through
+  // these refs, refreshed on every commit before any tap can land.
+  useLayoutEffect(() => {
+    pinsRef.current = pins;
+    disabledRef.current = disabled;
+    onChangeRef.current = onChange;
+  });
 
   const path = useMemo(() => pins.map((p) => ({ lat: p.lat, lng: p.lng })), [pins]);
 

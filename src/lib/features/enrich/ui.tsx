@@ -24,11 +24,14 @@ const TIER_LABELS = ["Reading the site", "Checking Google Places", "Searching th
 
 function useCyclingLabel(active: boolean): string {
   const [i, setI] = useState(0);
+  // Back to the first label as soon as the pass ends, set during render.
+  const [wasActive, setWasActive] = useState(active);
+  if (wasActive !== active) {
+    setWasActive(active);
+    if (!active) setI(0);
+  }
   useEffect(() => {
-    if (!active) {
-      setI(0);
-      return;
-    }
+    if (!active) return;
     const id = setInterval(() => setI((n) => (n + 1) % TIER_LABELS.length), 2200);
     return () => clearInterval(id);
   }, [active]);

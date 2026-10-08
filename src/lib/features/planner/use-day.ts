@@ -23,7 +23,7 @@ export type UseDayResult =
   | { status: "conflict"; existingCount: number }
   | { status: "error"; error: string };
 
-export async function useDay(input: {
+export async function applyDay(input: {
   date: string;
   accountIds: string[];
   directiveIds: string[];

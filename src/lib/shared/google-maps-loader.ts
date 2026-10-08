@@ -7,6 +7,7 @@
  * google.maps.Map/Marker/Polygon/Polyline) with zero new npm dependencies.
  * One script tag per page, one promise, whichever feature asks first.
  */
+import { useSyncExternalStore } from "react";
 
 /** Untyped on purpose: this repo carries no @types/google.maps package (see
  *  this module's own header comment), so the SDK's surface is `any` at this
@@ -41,4 +42,33 @@ export function loadGoogleMaps(apiKey: string): Promise<GoogleNamespace> {
   });
 
   return loadPromise;
+}
+
+type AuthWindow = { gm_authFailure?: () => void; __gmAuthFailed?: boolean };
+
+/** Google reports a rejected key (referrer, billing) through one global hook,
+ *  gm_authFailure, after the script itself loaded fine. Each subscriber
+ *  chains onto whatever hook was there and restores it on unmount, unless the
+ *  failure already fired (it is final for the page). */
+function subscribeAuthFailure(onFail: () => void): () => void {
+  const w = window as unknown as AuthWindow;
+  if (w.__gmAuthFailed) return () => {};
+  const prev = w.gm_authFailure;
+  w.gm_authFailure = () => {
+    w.__gmAuthFailed = true;
+    prev?.();
+    onFail();
+  };
+  return () => {
+    if (w.gm_authFailure && !w.__gmAuthFailed) w.gm_authFailure = prev;
+  };
+}
+
+/** True once Google has rejected this page's Maps key; false on the server. */
+export function useGoogleMapsAuthFailed(): boolean {
+  return useSyncExternalStore(
+    subscribeAuthFailure,
+    () => Boolean((window as unknown as AuthWindow).__gmAuthFailed),
+    () => false,
+  );
 }

@@ -14,7 +14,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
-import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
+import { loadGoogleMaps, useGoogleMapsAuthFailed } from "@/lib/shared/google-maps-loader";
 import type { RouteEndpoint, RouteStopView } from "@/lib/features/route/types";
 
 const FALLBACK_CENTER = { lat: 34.0195, lng: -118.4912 };
@@ -62,24 +62,9 @@ export function RouteMap({
   const meRef = useRef<G>(null);
   const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Google reports a rejected key (referrer, billing) through this one global
-  // hook after the script itself loaded fine; without it the card sits blank.
-  useEffect(() => {
-    const w = window as unknown as { gm_authFailure?: () => void; __gmAuthFailed?: boolean };
-    if (w.__gmAuthFailed) {
-      setFailed(true);
-      return;
-    }
-    const prev = w.gm_authFailure;
-    w.gm_authFailure = () => {
-      w.__gmAuthFailed = true;
-      prev?.();
-      setFailed(true);
-    };
-    return () => {
-      if (w.gm_authFailure && !w.__gmAuthFailed) w.gm_authFailure = prev;
-    };
-  }, []);
+  // A rejected key reaches us through Google's global hook; without it the
+  // card sits blank.
+  const authFailed = useGoogleMapsAuthFailed();
 
   useEffect(() => {
     if (!apiKey || !containerRef.current) return;
@@ -218,7 +203,7 @@ export function RouteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, loaded]);
 
-  if (!apiKey || failed) {
+  if (!apiKey || failed || authFailed) {
     return (
       <div className="flex min-h-11 items-center gap-2 rounded-lg border border-[#E2DFD5] bg-white px-4 py-3 text-[13px] text-[#8A928C]">
         Map unavailable

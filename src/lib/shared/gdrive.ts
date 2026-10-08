@@ -17,6 +17,7 @@
  * into first.
  */
 import "server-only";
+import { Readable } from "node:stream";
 import { google } from "googleapis";
 
 const OWNER_EMAIL = "juan@nutribiotic.com";
@@ -96,7 +97,6 @@ export async function uploadFile(
 }
 
 function bufferToStream(buf: Buffer) {
-  const { Readable } = require("node:stream") as typeof import("node:stream");
   return Readable.from(buf);
 }
 

@@ -398,6 +398,9 @@ export function SearchClient() {
   useEffect(() => {
     const localCats = readPast(PAST_CATEGORY_KEY);
     const localChains = readPast(PAST_CHAIN_KEY);
+    // localStorage exists only in the browser, so the saved lists load after
+    // hydration; reading them during render would mismatch the server HTML.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPastCategories(localCats);
     setPastChains(localChains);
     // The shared list is the truth; this device's copy is a cache that also
@@ -583,6 +586,8 @@ export function SearchClient() {
   }, []);
 
   useEffect(() => {
+    // loadGroups sets state only after its fetch resolves, never synchronously.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadGroups();
     (async () => {
       try {
@@ -1363,9 +1368,15 @@ function PlaceFallback({ q }: { q: string }) {
   const [adding, setAdding] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
+  // A new query clears the last one's answer during render.
+  const [hitsFor, setHitsFor] = useState(q);
+  if (hitsFor !== q) {
+    setHitsFor(q);
     setHits(null);
     setErr(null);
+  }
+
+  useEffect(() => {
     const t = setTimeout(async () => {
       try {
         const res = await apiFetch("/api/search/place", {

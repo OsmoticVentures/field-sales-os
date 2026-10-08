@@ -4,7 +4,7 @@
  * flaky connection at a stop, a doubled tap) never re-resolves a directive
  * or duplicates a day's stops.
  */
-import { useDay } from "../../../../lib/features/planner/use-day";
+import { applyDay } from "../../../../lib/features/planner/use-day";
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { captureError } from "@/lib/core/errors";
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
 
   try {
     const { result, replayed } = await withIdempotency(`planner:use-day:${key}`, () =>
-      useDay({
+      applyDay({
         date: body.date!,
         accountIds: body.accountIds!.filter((id): id is string => typeof id === "string"),
         directiveIds: Array.isArray(body.directiveIds) ? body.directiveIds.filter((id): id is string => typeof id === "string") : [],

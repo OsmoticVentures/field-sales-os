@@ -86,10 +86,9 @@ export function DayMoveMenu({
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
 
   useLayoutEffect(() => {
-    if (!open) {
-      setMenuPos(null);
-      return;
-    }
+    // Closed, the menu is not rendered (see below); the next open re-places
+    // it here before paint, so a stale position never shows.
+    if (!open) return;
     function place() {
       const r = triggerRef.current?.getBoundingClientRect();
       if (!r) return;
@@ -126,7 +125,8 @@ export function DayMoveMenu({
       >
         <RowIco name="chevrons-right" />
       </button>
-      {menuPos &&
+      {open &&
+        menuPos &&
         createPortal(
           <div
             ref={menuRef}
