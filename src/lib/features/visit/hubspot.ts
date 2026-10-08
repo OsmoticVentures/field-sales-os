@@ -21,6 +21,7 @@ import "server-only";
 import { payloadHash } from "./hubspot-hash";
 import { logHubspotCall } from "./dal";
 import { myOwnerId } from "../../core/user";
+import { hubspotStageRefusal, hubspotWritesAllowedHere } from "../../core/stage";
 
 const BASE = "https://api.hubapi.com";
 const BATCH_MAX = 100;
@@ -44,9 +45,11 @@ const FEATURE_FLAG_ENV: Record<HubspotFeature, string> = {
 
 /** Writes are off unless that feature's own flag is explicitly "true".
  *  Anything else, including unset, leaves this path read-only, so a typo
- *  fails safe. */
+ *  fails safe. Staging and every preview deployment are hard off on top of
+ *  that (lib/core/stage.ts), whatever the flags say: the portal is shared
+ *  with HQ and the other rep, and a test write there is a real write. */
 export const writeEnabled = (feature: HubspotFeature): boolean =>
-  process.env[FEATURE_FLAG_ENV[feature]] === "true";
+  hubspotWritesAllowedHere() && process.env[FEATURE_FLAG_ENV[feature]] === "true";
 
 export class HubSpotError extends Error {
   constructor(readonly status: number, readonly body: string, method: string, path: string) {
@@ -87,6 +90,10 @@ export async function request<T = Record<string, unknown>>(opts: RequestOpts): P
   if (direction === "push") {
     if (!feature) {
       throw new ScopeError(`Refusing ${method} ${path}: no feature named for this push, cannot check its write flag.`);
+    }
+    const stageRefusal = hubspotStageRefusal();
+    if (stageRefusal) {
+      throw new ScopeError(`Refusing ${method} ${path}: ${stageRefusal}`);
     }
     if (!writeEnabled(feature)) {
       throw new ScopeError(
