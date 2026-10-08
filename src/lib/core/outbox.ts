@@ -12,13 +12,18 @@
  * missing). Every write it sends carries a key derived from the item id, so a
  * retry of a write that did land is replayed by the server, never redone.
  *
+ * ONE REP'S NOTES. Each note names the rep who logged it, and this worker
+ * loads, shows and files only the signed-in rep's. The other rep's notes stay
+ * on the phone untouched until that rep signs back in here.
+ *
  * BOUND: the store holds only unconfirmed notes; each leaves on confirmation
  * or a tapped discard.
  */
 
 import { useSyncExternalStore } from "react";
 import { apiFetch } from "./api";
-import { all, del, durable, put } from "./phone-store";
+import { all, currentRep, del, durable, put } from "./phone-store";
+import { isMine } from "./writeq-core";
 import {
   advance,
   isComplete,
@@ -74,7 +79,8 @@ function emit() {
 function load(): Promise<void> {
   if (!loaded) {
     loaded = all<OutboxItem>(STORE).then((rows) => {
-      for (const { key, value } of rows) if (value && !discarded.has(key)) cache.set(key, value);
+      const rep = currentRep();
+      for (const { key, value } of rows) if (value && !discarded.has(key) && isMine(value, rep)) cache.set(key, value);
       emit();
     });
   }
@@ -83,7 +89,8 @@ function load(): Promise<void> {
 
 async function reload() {
   const rows = await all<OutboxItem>(STORE);
-  cache = new Map(rows.filter((r) => r.value && !discarded.has(r.key)).map((r) => [r.key, r.value]));
+  const rep = currentRep();
+  cache = new Map(rows.filter((r) => r.value && !discarded.has(r.key) && isMine(r.value, rep)).map((r) => [r.key, r.value]));
   emit();
 }
 
@@ -107,6 +114,10 @@ async function remove(id: string) {
 // ---------------------------------------------------------------------------
 
 async function send(req: Req): Promise<Outcome> {
+  // The rep this phone is filing for; proxy.ts refuses the write (421,
+  // retried) when the session is another rep's.
+  const rep = currentRep();
+  const as: Record<string, string> = rep ? { "x-nb-as": rep } : {};
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
   let res: Response;
@@ -118,11 +129,11 @@ async function send(req: Req): Promise<Outcome> {
       form.set("idempotency_key", req.form.idempotency_key);
       const p = req.form.photo;
       form.set("photo", new Blob([p.bytes], { type: p.type || "image/jpeg" }), p.name || "photo.jpg");
-      init = { method: "POST", body: form };
+      init = { method: "POST", headers: as, body: form };
     } else {
       init = {
         method: "POST",
-        headers: { "content-type": "application/json", ...(req.key ? { "idempotency-key": req.key } : {}) },
+        headers: { "content-type": "application/json", ...as, ...(req.key ? { "idempotency-key": req.key } : {}) },
         body: JSON.stringify(req.json ?? {}),
       };
     }
@@ -288,7 +299,7 @@ export async function enqueue(input: Omit<EnqueueInput, "id" | "now"> & { photoF
     photo = { bytes: await input.photoFile.arrayBuffer(), type: input.photoFile.type, name: input.photoFile.name };
   }
   await load();
-  const it = newItem({ ...input, photo, id, now: Date.now() });
+  const it: OutboxItem = { ...newItem({ ...input, photo, id, now: Date.now() }), rep: currentRep() };
   cache.set(id, it);
   emit();
   const wrote = await put(STORE, id, it);

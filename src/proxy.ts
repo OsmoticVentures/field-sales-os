@@ -17,7 +17,7 @@
  */
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { COOKIE, DEVICE_COOKIE, readDeviceToken, verifyToken } from "./lib/core/session";
+import { COOKIE, DEVICE_COOKIE, readDeviceToken, readSessionUser } from "./lib/core/session";
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -31,20 +31,37 @@ export async function proxy(req: NextRequest) {
   forward.set("x-nb-path", pathname);
   const pass = () => NextResponse.next({ request: { headers: forward } });
 
+  /* Which rep this request is for, from the signed session, else the signed
+     remembered-device cookie ("<device>~<rep>"; an old one with no rep is
+     Juan's, as in user.ts deviceUser). Nothing is looked up. */
+  const repOf = async (): Promise<string | null> => {
+    const sessionRep = await readSessionUser(req.cookies.get(COOKIE)?.value);
+    if (sessionRep) return sessionRep;
+    const device = await readDeviceToken(req.cookies.get(DEVICE_COOKIE)?.value);
+    return device === null ? null : device.includes("~") ? device.slice(device.indexOf("~") + 1) : "juan";
+  };
+
   if (pathname === "/gate" || pathname.startsWith("/api/")) {
+    /* A write the phone queued names the rep who made it (x-nb-as, see
+       lib/core/writeq.ts and outbox.ts). Sent under the other rep's session
+       it is refused, never filed: the phone keeps it and retries. */
+    const as = req.headers.get("x-nb-as");
+    const rep = as ? await repOf() : null;
+    if (as && rep && as !== rep) {
+      return NextResponse.json({ ok: false, error: "Signed in as another rep." }, { status: 421 });
+    }
     return pass();
   }
 
   // Home Screen manifests: iOS fetches one while installing a tile, and a
   // manifest that redirects to the gate installs a tile that opens the gate.
-  if (pathname.endsWith("/manifest.webmanifest")) {
+  // The service worker script likewise: a redirect is not a script.
+  if (pathname.endsWith("/manifest.webmanifest") || pathname === "/sw.js") {
     return NextResponse.next();
   }
 
-  const ok =
-    (await verifyToken(req.cookies.get(COOKIE)?.value)) ||
-    (await readDeviceToken(req.cookies.get(DEVICE_COOKIE)?.value)) !== null;
-  if (!ok) {
+  const rep = await repOf();
+  if (!rep) {
     const url = req.nextUrl.clone();
     url.pathname = "/gate";
     url.search = "";
@@ -58,6 +75,9 @@ export async function proxy(req: NextRequest) {
   res.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
   res.headers.set("X-Frame-Options", "DENY");
   res.headers.set("Referrer-Policy", "no-referrer");
+  // The service worker keeps a copy of a screen only under the rep it was
+  // rendered for, and wipes the copies when another rep's answer arrives.
+  res.headers.set("x-nb-rep", rep);
   return res;
 }
 

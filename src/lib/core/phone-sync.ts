@@ -14,7 +14,8 @@
  *
  * Records are `acct:<id>` -> AccountPayload, plus `meta` -> SnapMeta.
  * Browser only. BOUND: the store is rewritten whole at each sync, so it never
- * outgrows the book plus the few clients fetched one at a time since.
+ * outgrows the book plus the few clients fetched one at a time since, and a
+ * copy not refreshed in 30 days is dropped on the next open.
  */
 import type { AccountPayload } from "../features/clients/account-payload";
 import { laTodayIso } from "../features/route/field-week";
@@ -57,13 +58,21 @@ export function onAccountPayload(id: string, fn: (p: AccountPayload) => void): (
 
 let loaded: Promise<void> | null = null;
 
+/** A book not refreshed in this long is dropped rather than painted. */
+const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** Pull the whole store into memory once per session, so every open after it is synchronous. */
 function loadMemory(): Promise<void> {
   if (!loaded) {
-    loaded = all<AccountPayload>("snap").then((rows) => {
+    loaded = all<AccountPayload | SnapMeta>("snap").then(async (rows) => {
+      const meta = rows.find((r) => r.key === "meta")?.value as SnapMeta | undefined;
+      if (meta && Date.now() - Date.parse(meta.syncedAt) > MAX_AGE_MS) {
+        await replaceAll("snap", []);
+        return;
+      }
       for (const { key: k, value } of rows) {
         const id = k.startsWith("acct:") ? k.slice(5) : null;
-        if (id && !mem.has(id)) mem.set(id, value);
+        if (id && !mem.has(id)) mem.set(id, value as AccountPayload);
       }
     });
   }

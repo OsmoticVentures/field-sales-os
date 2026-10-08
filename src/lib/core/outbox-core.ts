@@ -53,6 +53,9 @@ export type NeedsAccount = {
 
 export type OutboxItem = {
   id: string;
+  /** The rep who logged it; only that rep's session files it. Absent on a
+   *  note saved before reps were recorded: whoever is signed in files it. */
+  rep?: string | null;
   text: string;
   accountIdHint: string | null;
   kind: KindOverride | null;

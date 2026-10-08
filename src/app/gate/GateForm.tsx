@@ -1,7 +1,7 @@
 "use client";
 
-import { replaceAll } from "../../lib/core/phone-store";
-import { apiFetch } from "@/lib/core/api";
+import { adoptRep } from "../../lib/core/rep";
+import { apiFetch, BASE_PATH } from "@/lib/core/api";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { primaryBtn } from "../../lib/core/ui";
@@ -40,22 +40,10 @@ function surfaceHint(): string {
 }
 
 /** A different rep than last time on this browser: drop the phone copy of the
- *  last rep's reads before any screen can paint from it. */
-async function switchedTo(id: string): Promise<void> {
-  let prior: string | null = null;
-  try {
-    prior = (JSON.parse(localStorage.getItem("nb_me") ?? "null") as { id?: string } | null)?.id ?? null;
-  } catch {
-    prior = null;
-  }
-  if (prior === id) return;
-  await replaceAll("reads", []).catch(() => false);
-  await replaceAll("snap", []).catch(() => false);
-  try {
-    localStorage.removeItem("nb_me");
-  } catch {
-    // Private mode: nothing was remembered to forget.
-  }
+ *  last rep's reads before any screen can paint from it (rep.ts). True when a
+ *  rep was replaced, so the landing is a full load with nothing in memory. */
+async function switchedTo(id: string): Promise<boolean> {
+  return adoptRep(id);
 }
 
 export function GateForm() {
@@ -77,9 +65,13 @@ export function GateForm() {
         body: JSON.stringify({ pin, remember, surface: surfaceHint() }),
       });
       const j = await res.json();
-      if (j.ok && j.user?.id) await switchedTo(j.user.id);
+      const switched = j.ok && j.user?.id ? await switchedTo(j.user.id) : false;
       if (j.ok && (j.remembered === "full" || j.remembered === "error")) {
         setNotRemembered({ why: j.remembered, limit: typeof j.device_limit === "number" ? j.device_limit : 0 });
+        return;
+      }
+      if (j.ok && switched) {
+        window.location.replace(`${BASE_PATH}${safeNext(window.location.search)}`);
         return;
       }
       if (j.ok) {
@@ -112,8 +104,8 @@ export function GateForm() {
           </p>
           <button
             onClick={() => {
-              router.replace(safeNext(window.location.search));
-              router.refresh();
+              // A full load: a rep switch must leave nothing of the last rep in memory.
+              window.location.replace(`${BASE_PATH}${safeNext(window.location.search)}`);
             }}
             className={`mt-5 w-full ${primaryBtn}`}
           >
