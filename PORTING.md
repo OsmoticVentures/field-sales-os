@@ -208,6 +208,87 @@ Screenshot your feature at 390px (phone) and 1440px (desktop) with
 Playwright before handing back; `.ui-review/<slug>/` in the scratchpad or
 repo root.
 
+## Background jobs: queue, lease, minute drain
+
+Anything that can outlive a request (today: Search's search, enrich and land
+stages) is a row in a queue table, never work hidden in `after()` alone.
+`nb_search_jobs` is the pattern; `supabase/0002_durable_search_jobs.sql` and
+`lib/features/search/dal.ts` (DURABLE QUEUE) are the reference.
+
+- **Queue.** The POST route validates, inserts one `pending` row under an
+  Idempotency-Key, answers `{ job }`, then starts it with `after()` as the
+  fast path. The browser polls `GET ?job=id`, a narrow status select; the
+  result is fetched once, when the status says it exists.
+- **Claim with a lease.** `nb_claim_search_job()` moves `pending` to
+  `running`, sets `lease_until` a little past the route's `maxDuration`, and
+  counts an attempt. Only one runner can win a claim.
+- **A dead function is noticed, not waited out.** `nb_sweep_search_jobs()`
+  puts a row whose lease lapsed back to `pending` while attempts remain, and
+  fails it in place with a plain sentence when they are spent. A passing
+  failure (network, a 5xx) is put back by the worker itself; a real error
+  fails on the first try. Search and enrich get two tries; a land that writes
+  gets one, since a second try after a half-done write would misreport.
+- **Minute drain, zero idle egress.** pg_cron runs `nb_search_jobs_tick()`
+  every minute inside Postgres. With nothing ready it reads nothing over the
+  network and calls nothing. With something ready it POSTs
+  `/nb/api/jobs/drain` (shared secret in `nb_job_runner`), which starts up to
+  three jobs on Vercel. A job survives a closed tab and a killed function.
+- **Visible.** The status poll returns `attempts`; the screen shows Queued,
+  Starting, the running line, Retrying, and the second try, and a failed run
+  shows its error where the result would have been. Polls back off (1.5s,
+  then 4s after a minute, 10s after five).
+- **Bounded.** Finished rows are pruned after three days (worker.ts);
+  `cron.job_run_details` for `nb-*` jobs is pruned to two days by the
+  `nb-cron-log-prune` cron job; pg_net expires its own responses.
+- **Safe before the migration.** Every queue function checks once per
+  instance whether the durable columns exist and falls back to the original
+  lease-less behavior if not.
+
+A new long job copies this: its own `<feature>_jobs` table with the same
+columns, its own claim and sweep functions, and a line in the tick. Keep the
+fingerprint in SQL: the tick decides inside Postgres whether to call out.
+
+**Retire the Mac worker.** `com.agency.nutribiotic-search-worker`
+(`bridges/nutribiotic/search_worker.py`) still polls `nb_search_jobs` every
+2 to 10 seconds and often wins the claim, running the Python pipeline instead
+of this one, without a lease. It is compatible (a lease-less row gets 20
+minutes before the sweep acts), but it is a constant read against the egress
+cap and is no longer needed once the drain is live.
+
+**Scripts reviewed, left by hand on purpose.** `scripts/draft-from-visits.ts`
+is a backfill of what visit filing already does inline.
+`scripts/sync_search_config.mjs` regenerates `config.generated.ts` from the
+agency's territory and price files; run it when those change, not on a timer.
+
+## Feature flags: rep-flags.ts is the default, nb_flags is the switch
+
+`lib/core/rep-flags.ts` lists every per-rep switch and who has it by default.
+`nb_flags` (`supabase/0003_rep_flags.sql`: flag, rep, value) overrides that
+per rep, or for every rep with rep `*`; a rep's own row beats `*`. No row,
+or no table, and the app behaves exactly as the file says.
+
+- Server: `myFlag(name)` (`lib/core/user.ts`), through `lib/core/flags.ts`,
+  which reads the table at most once a minute per instance and keeps its last
+  good answer if a read fails.
+- Client: `useFlag(name)` (`lib/core/me.ts`), from the `flags` list
+  `/api/me` returns.
+- Flip one without a deploy (takes effect within a minute):
+
+```
+node scripts/flag.mjs list
+node scripts/flag.mjs set <flag> <rep|*> on|off [note]
+node scripts/flag.mjs clear <flag> <rep|*>      # back to rep-flags.ts
+```
+
+Or edit the row in the Supabase table editor.
+
+**How a risky change lands behind a flag.** Add its line to `REP_FLAGS`
+with `on: []`, so it is off for everyone. Guard the new path with
+`useFlag("<name>")` or `await myFlag("<name>")` and keep the old path as the
+else branch. Deploy, then `flag.mjs set <name> juan on`, try it in the field,
+then `set <name> * on` or add the rep to `on`. Once it has been on for both
+reps for a while, delete the line, the row, and the old branch together.
+
 ## Commit and push
 
 This repo (`github.com/OsmoticVentures/field-sales-os`) is a separate GitHub
