@@ -3,7 +3,7 @@
 // and the run record. No network, no spend.
 // Run: node --experimental-strip-types tests/ai-client.test.mts
 import { z } from "zod";
-import { AiError, MODELS, TASKS, TIERS, backoffMs, classifyError, runAi, validate, type Deps, type RunRecord } from "../src/lib/core/ai/core.ts";
+import { AiError, MODELS, TASKS, TIERS, backoffMs, classifyError, runAi, strictJsonSchema, validate, type Deps, type RunRecord } from "../src/lib/core/ai/core.ts";
 
 let failures = 0;
 const t = (name: string, ok: boolean, info?: unknown) => {
@@ -223,6 +223,15 @@ t("no dated model ids", Object.keys(MODELS).every((m) => !/\d{8}$/.test(m)));
   };
   const r = await runAi(f.deps, base);
   t("a failing run log never fails the step", r.data.kind === "visit");
+}
+
+// the schema the grammar enforces
+{
+  const js = JSON.stringify(strictJsonSchema(z.object({ o: z.enum(["a", "b"]).nullable().describe("D"), i: z.number().int().nullable(), s: z.array(z.object({ x: z.string() })) })));
+  t("enum survives into the sent schema", js.includes('"enum":["a","b"]'));
+  t("description kept", js.includes('"description":"D"'));
+  t("numeric bounds and $schema dropped", !js.includes("minimum") && !js.includes("$schema"));
+  t("nested objects closed", (js.match(/"additionalProperties":false/g) ?? []).length === 2);
 }
 
 // pure helpers

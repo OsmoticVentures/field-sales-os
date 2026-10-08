@@ -24,8 +24,7 @@
  */
 import { createHash } from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import type { z } from "zod";
+import { toJSONSchema, type z } from "zod";
 
 // ---------------------------------------------------------------------------
 // the config: models, tiers, tasks
@@ -260,7 +259,7 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
   const tier = TIERS[cfg.tier];
   const started = now();
   const deadline = Math.min(started + cfg.timeoutMs, req.deadline ?? Infinity);
-  const format = req.schema ? zodOutputFormat(req.schema as unknown as Parameters<typeof zodOutputFormat>[0]) : null;
+  const format = req.schema ? { schema: strictJsonSchema(req.schema) } : null;
 
   let model: ModelId = tier.primary;
   let maxTokens: number = cfg.maxTokens;
@@ -397,6 +396,41 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
   const err = lastError ?? new AiError("timeout", "The model ran out of time.", "deadline reached before an attempt");
   await record(false, err.kind === "invalid" || err.kind === "refusal" ? "fail" : "error", `${err.kind}: ${err.detail ?? err.message}`);
   throw err;
+}
+
+type Json = { [k: string]: unknown };
+
+/**
+ * The JSON schema sent as output_config.format, from the zod schema. Our own
+ * pass rather than the SDK's zodOutputFormat: that helper (0.98) folds `enum`
+ * into the description text, so the grammar would no longer hold a kind or an
+ * outcome to its listed values. Kept here: type, enum, const, anyOf,
+ * description, properties, required, items. Dropped: what structured outputs
+ * cannot take ($schema, numeric and length bounds); zod still checks those
+ * after the reply. Every object is closed (additionalProperties: false).
+ */
+export function strictJsonSchema(schema: z.ZodType): Json {
+  const walk = (node: unknown): unknown => {
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map(walk);
+    const src = node as Json;
+    const out: Json = {};
+    for (const key of ["type", "enum", "const", "description", "required", "$ref"]) {
+      if (src[key] !== undefined) out[key] = src[key];
+    }
+    if (src.anyOf) out.anyOf = (src.anyOf as unknown[]).map(walk);
+    if (src.oneOf) out.anyOf = (src.oneOf as unknown[]).map(walk);
+    if (src.items) out.items = walk(src.items);
+    if (src.$defs) out.$defs = Object.fromEntries(Object.entries(src.$defs as Json).map(([k, v]) => [k, walk(v)]));
+    if (src.properties) {
+      out.properties = Object.fromEntries(Object.entries(src.properties as Json).map(([k, v]) => [k, walk(v)]));
+      out.additionalProperties = false;
+    } else if (src.type === "object") {
+      out.additionalProperties = false;
+    }
+    return out;
+  };
+  return walk(toJSONSchema(schema, { target: "draft-2020-12" })) as Json;
 }
 
 /** Parse and check a structured reply. Exported for the offline evals. */
