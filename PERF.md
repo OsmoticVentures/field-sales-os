@@ -27,12 +27,31 @@ JSON for a read). A change that only makes a screen faster keeps it the same.
 
 | Piece | Region | Check |
 |---|---|---|
-| Vercel functions | yul1, Montreal (`vercel.json`) | `x-vercel-id` header ends `::yul1::` |
+| Vercel functions | yul1, Montreal (`vercel.json`); sfo1 after the region move | `x-vercel-id` header ends `::yul1::` (`::sfo1::` after) |
 | Supabase "nutribiotic" | AWS ca-central-1, Montreal | database host's IPv6 is in AWS's published ca-central-1 range |
 
 Same city, so each read inside a request is a short hop. The phone to Montreal
 round trip from California is about 220 ms for the health route (2026-10-08,
 three runs 219 to 240 ms), which is why a screen makes one request, not five.
+
+## Region move to the US West Coast
+
+Functions yul1 to sfo1, database ca-central-1 to us-west-1 (project
+nutribiotic-west), run by `bridges/nutribiotic/region_cutover.py` in the agency
+repo. Measured from the Vercel function itself with `GET /nb/api/health?db=1`:
+three one-row reads of `nb_config` through PostgREST, timed inside the
+function, plus `db_id` (first 8 hex of sha256 of the database URL) to show
+which project answered. `region_cutover.py measure` takes five calls.
+
+| When | Function | Database | DB read ms, median (range) | Note |
+|---|---|---|---|---|
+| Before, 2026-10-08 13:55 PT | yul1 | ca-central-1 | 35 (18 to 258, first read cold) | 18 reads, db_id 1868fa8c |
+
+The DB read is a hop inside one region before and after, so it should stay
+about the same. The part that changes is the phone to the function: Southern
+California to Montreal is about 70 ms round trip, to San Francisco about 10 ms,
+and every request and every server-rendered screen pays it at least once. The
+cutover adds the after row with the same command.
 
 ## Baseline, 2026-10-08 (main at 0a650fa)
 
