@@ -13,7 +13,14 @@ import { apiFetch } from "./api";
 import { replaceAll } from "./phone-store";
 import { flagOn } from "./rep-flags";
 
-export type Me = { id: string; name: string; features: string[] | null };
+export type Me = {
+  id: string;
+  name: string;
+  features: string[] | null;
+  /** Switches on for this rep (rep-flags.ts with nb_flags laid over it).
+   *  Missing on a copy remembered before flags moved to the database. */
+  flags?: string[];
+};
 
 const KEY = "nb_me";
 
@@ -71,8 +78,12 @@ export function sees(me: Me | null, screen: string): boolean {
   return !me || me.features === null || me.features.includes(screen);
 }
 
-/** A per-rep switch (rep-flags.ts) for the signed-in rep. Off until the rep is
- *  known, so the first paint is always the unchanged app. */
+/** A per-rep switch for the signed-in rep, as /api/me last said (rep-flags.ts
+ *  with nb_flags over it), or the file alone for a copy remembered before
+ *  that list existed. Off until the rep is known, so the first paint is
+ *  always the unchanged app. */
 export function useFlag(name: string): boolean {
-  return flagOn(useMe()?.id, name);
+  const me = useMe();
+  if (me?.flags) return me.flags.includes(name);
+  return flagOn(me?.id, name);
 }

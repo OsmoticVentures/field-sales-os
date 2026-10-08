@@ -20,7 +20,7 @@
 
 import "server-only";
 import { readAuthCookies, readDeviceToken, readSessionUser, timingSafeEqual } from "./session";
-import { flagOn } from "./rep-flags";
+import { flagsFor } from "./flags";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -145,7 +145,7 @@ export async function myOwnerId(): Promise<string> {
   return (await currentUser()).ownerId;
 }
 
-/** A per-rep switch (rep-flags.ts) for the signed-in rep, on the server. */
+/** A per-rep switch (rep-flags.ts, nb_flags) for the signed-in rep, on the server. */
 export async function myFlag(name: string): Promise<boolean> {
-  return flagOn(await currentUserId(), name);
+  return (await flagsFor(await currentUserId())).includes(name);
 }
