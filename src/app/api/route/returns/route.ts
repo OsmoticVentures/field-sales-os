@@ -8,6 +8,7 @@ import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotenc
 import { isConfigured, listPendingReturnDirectives, listReturnContext, resolveDirective } from "../../../../lib/features/route/dal";
 import { buildReturnSuggestions } from "../../../../lib/features/route/return-suggestions";
 import { getPriorityBook } from "../../../../lib/features/prospect/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function GET() {
     const context = await listReturnContext([...new Set(directives.map((d) => d.account_id))].filter((id) => bookIds.has(id)));
     return Response.json({ ok: true, suggestions: buildReturnSuggestions(bookIds, directives, context) });
   } catch (e) {
+    captureError(e, "/api/route/returns");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't load suggestions." }, { status: 500 });
   }
 }
@@ -46,6 +48,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, replayed });
   } catch (e) {
+    captureError(e, "/api/route/returns");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save that." }, { status: 500 });
   }
 }

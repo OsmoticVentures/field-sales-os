@@ -399,3 +399,65 @@ stoke-club), so a third free one cannot be created there. The options: a
 separate Supabase account for Osmotic Ventures, which gets its own two free
 projects, or pausing one of the two existing projects. Everything above is
 ready to run the moment a project ref exists.
+
+## Errors and fixes
+
+Every failure worth fixing becomes one row per distinct error in
+`nb_app_errors` (migration `0097_app_errors.sql` in the agency repo), and a
+scheduled triage on Juan's Mac turns a new or rising one into a proposed fix
+he approves by merging a PR. Nothing reaches `main` without that merge.
+
+**Capture (this repo).**
+- `src/instrumentation.ts`: `onRequestError` records anything a route
+  handler, server render or the proxy threw and did not catch. `register()`
+  starts `lib/core/upstream-watch.ts`, which watches Node's fetch on
+  `node:diagnostics_channel` and records any Supabase, HubSpot, Anthropic or
+  Google call that answers 400/401/403/429/5xx or never answers. No dal
+  needs to remember to report.
+- Caught failures: a route handler's catch that answers 500 calls
+  `captureError(err, "/api/<feature>/<verb>")` from `lib/core/errors.ts` as
+  its first line. **A new route does the same.** A library failure with no
+  route uses `"lib/<feature>/<module>"`.
+- The phone: `src/instrumentation-client.ts` (window errors, unhandled
+  rejections) and the boundaries `src/app/(app)/error.tsx` and
+  `src/app/global-error.tsx` post to `/api/errors/report` through
+  `lib/core/client-errors.ts`. Signed-in only.
+- Fingerprint = kind + normalized message + top app frame + route
+  (`lib/core/error-fingerprint.ts`, tested in `tests/error-capture.test.mts`).
+  Ids, numbers, quoted values, build hashes and line numbers fold, so one bug
+  stays one row across deploys.
+- Rows carry count, first and last seen, the rep's `nb_users` id (never the
+  PIN), a clipped sample stack and `VERCEL_GIT_COMMIT_SHA`.
+
+**Bounds.** The table grows with distinct errors, not traffic: the RPC
+upserts by fingerprint, evicts the oldest past 500 rows, and the triage
+prunes anything quiet for 30 days once a day. Each server instance writes a
+fingerprint at most every 10 seconds (held hits ride the next write) and 60
+rows a minute in all; each page load reports the same message at most once a
+minute and 10 times in all. Reporting never throws and never delays a
+response (`after()`).
+
+**Why not Sentry's free tier.** A new vendor would hold stacks and request
+context from a third party's customer book, add a DSN and an SDK to the
+phone bundle, and the triage would still need a second API to read it back.
+The table lives in the project the agency already meters, and an idle
+triage run reads about 200 bytes.
+
+**Triage (agency repo, `bridges/clientos/errors_triage.py`).** launchd every
+15 minutes (`com.agency.clientos-errors-triage.plist`). Fingerprint gate
+first; on a new error, or one whose count doubled and grew by 5 since it was
+last looked at, it cuts `fix/error-<fingerprint>` from `origin/main` in a
+throwaway worktree, lets a headless Claude (subscription, fail-closed
+`fix-policy.json`, no git or network) make the smallest fix, then runs
+build, test and a no-new-lint-errors gate itself, retrying the agent once on
+a failure. Only a green change is committed (as Juan, so Vercel builds the
+preview), pushed to the fix branch, opened as a PR, and texted to Juan as
+one plain sentence with the PR link. Merge is approval; close is rejection.
+At most 3 proposals a day; the log `bridges/clientos/errors-triage.jsonl`
+keeps its newest 300 lines.
+
+**Trust check.** `GET /nb/api/errors/selftest` answers 404 unless
+`NB_ERRORS_SELFTEST=1` (local or preview only). With it on, no `n` throws a
+real TypeError and `?upstream=1` makes one Supabase call with a wrong key.
+Then `python3 bridges/clientos/errors_triage.py --only <fingerprint>
+--no-text` runs the triage by hand.

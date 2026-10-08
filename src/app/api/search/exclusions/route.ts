@@ -7,6 +7,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { listExclusions, rememberExclusions } from "../../../../lib/features/search/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,8 @@ export async function GET() {
   try {
     const [chains, categories] = await Promise.all([listExclusions("chain"), listExclusions("category")]);
     return Response.json({ ok: true, chains, categories });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/exclusions");
     return Response.json({ ok: false, error: "Could not read past exclusions." }, { status: 502 });
   }
 }
@@ -34,7 +36,8 @@ export async function POST(req: Request) {
     await rememberExclusions("chain", strs(body.chains));
     await rememberExclusions("category", strs(body.categories));
     return Response.json({ ok: true });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/exclusions");
     return Response.json({ ok: false, error: "Could not save exclusions." }, { status: 502 });
   }
 }

@@ -6,6 +6,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { readAccountPayload } from "../../../../lib/features/clients/account-payload";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     if (!payload) return Response.json({ ok: false, error: "No such client." }, { status: 404, headers: { "Cache-Control": "no-store" } });
     return Response.json({ ok: true, payload }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
+    captureError(err, "/api/account/[id]");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not read that client." }, { status: 500 });
   }
 }

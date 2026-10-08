@@ -13,6 +13,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { readBookPayloads } from "../../../../lib/features/clients/account-payload";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export async function GET() {
     const accounts = await readBookPayloads();
     return Response.json({ ok: true, builtAt: new Date().toISOString(), accounts }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
+    captureError(err, "/api/account/snapshot");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not read the book." }, { status: 500 });
   }
 }

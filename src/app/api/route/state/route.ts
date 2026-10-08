@@ -15,6 +15,7 @@ import {
 } from "../../../../lib/features/route/dal";
 import { planningHorizonDates, defaultActiveDay } from "../../../../lib/features/route/field-week";
 import { hasAccess } from "../../../../lib/core/devices";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,7 @@ export async function GET() {
       { headers: { "cache-control": "no-store" } },
     );
   } catch (e) {
+    captureError(e, "/api/route/state");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't load the route." }, { status: 500 });
   }
 }

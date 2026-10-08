@@ -5,6 +5,7 @@
  */
 import { proposeWeek } from "../../../../lib/features/planner/propose";
 import { hasAccess } from "../../../../lib/core/devices";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET(req: Request) {
     }
     return Response.json({ ok: true, status: "ok", week: result.week }, { headers: { "cache-control": "no-store" } });
   } catch (e) {
+    captureError(e, "/api/planner/propose");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't build a plan." }, { status: 500 });
   }
 }

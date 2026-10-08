@@ -16,6 +16,7 @@ import {
   type BookPerson,
   type BookAccount,
 } from "../../../../lib/features/search/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,8 @@ export async function GET() {
       };
       caches.set(owner, cache);
     }
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/book");
     return Response.json({ ok: false, error: "Could not read the book." }, { status: 502 });
   }
 

@@ -7,6 +7,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { readAccountLive } from "../../../../lib/features/clients/account-payload";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
     const live = await readAccountLive(id || null);
     return Response.json({ ok: true, ...live }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
+    captureError(err, "/api/account/live");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not read the route." }, { status: 500 });
   }
 }

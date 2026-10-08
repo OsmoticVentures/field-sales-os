@@ -2,6 +2,7 @@ import { saveRouteSchedulePrefs } from "../../../../lib/features/route/dal";
 import type { RouteSchedulePrefs } from "../../../../lib/features/route/types";
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -29,6 +30,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, prefs: result, replayed });
   } catch (e) {
+    captureError(e, "/api/route/prefs");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save that." }, { status: 500 });
   }
 }

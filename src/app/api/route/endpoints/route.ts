@@ -7,6 +7,7 @@ import { getRouteEndpointsByDay, setRouteEndByDay, setRouteStartByDay } from "..
 import type { RouteEndpoint } from "../../../../lib/features/route/types";
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, ...result, replayed });
   } catch (e) {
+    captureError(e, "/api/route/endpoints");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save that." }, { status: 500 });
   }
 }

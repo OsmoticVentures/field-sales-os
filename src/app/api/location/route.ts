@@ -8,6 +8,7 @@
 import { setLastLocation } from "../../../lib/features/route/dal";
 import { hasAccess } from "../../../lib/core/devices";
 import { hasWidgetToken } from "../../../lib/features/route/widget-auth";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
     await setLastLocation(lat, lng);
     return Response.json({ ok: true });
   } catch (e) {
+    captureError(e, "/api/location");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save the location." }, { status: 500 });
   }
 }

@@ -7,6 +7,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { addGroupMembers, createGroup, listGroups, removeGroupMember } from "../../../../lib/features/search/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export async function GET() {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   try {
     return Response.json({ ok: true, groups: await listGroups() });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/groups");
     return Response.json({ ok: false, error: "Could not read the groups." }, { status: 502 });
   }
 }
@@ -59,7 +61,8 @@ export async function POST(req: Request) {
       return Response.json({ ok: true });
     }
     return Response.json({ ok: false, error: "Unknown action." }, { status: 400 });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/groups");
     return Response.json({ ok: false, error: "Could not save that." }, { status: 502 });
   }
 }

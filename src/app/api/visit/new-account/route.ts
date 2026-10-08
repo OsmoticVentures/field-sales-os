@@ -12,6 +12,7 @@ import { createCompany, findPossibleDuplicates } from "../../../../lib/features/
 import { writeEnabled } from "../../../../lib/features/visit/hubspot";
 import { searchPlaces, type LatLng, type PlaceCandidate } from "../../../../lib/shared/places";
 import { insertBareAccount } from "../../../../lib/features/visit/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -141,6 +142,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/visit/new-account");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not create that account." }, { status: 500 });
   }
 }

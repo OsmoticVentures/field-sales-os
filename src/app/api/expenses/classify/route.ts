@@ -12,6 +12,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { hasAccess } from "../../../../lib/core/devices";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -113,6 +114,7 @@ export async function POST(req: Request) {
     }
     return Response.json({ ok: true, suggestion: toolUse.input });
   } catch (err) {
+    captureError(err, "/api/expenses/classify");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Classify failed." }, { status: 500 });
   }
 }

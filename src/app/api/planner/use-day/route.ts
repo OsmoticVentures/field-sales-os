@@ -7,6 +7,7 @@
 import { useDay } from "../../../../lib/features/planner/use-day";
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,7 @@ export async function POST(req: Request) {
     }
     return Response.json({ ok: true, draft: result.draft, replayed });
   } catch (e) {
+    captureError(e, "/api/planner/use-day");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't use that day." }, { status: 500 });
   }
 }

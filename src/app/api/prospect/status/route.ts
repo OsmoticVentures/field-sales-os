@@ -8,6 +8,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { setSdrScheduleStatus } from "../../../../lib/features/prospect/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,7 @@ export async function POST(req: Request) {
     const { result, replayed } = await withIdempotency(`prospect:status:${key}`, () => setSdrScheduleStatus(body.id, body.status));
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/prospect/status");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not save that." }, { status: 500 });
   }
 }

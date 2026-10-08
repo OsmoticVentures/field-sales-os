@@ -5,6 +5,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { attachTouchpointPhoto } from "../../../../lib/features/visit/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
     );
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/visit/attach");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Attach failed." }, { status: 500 });
   }
 }

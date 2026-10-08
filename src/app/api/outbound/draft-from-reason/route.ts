@@ -8,6 +8,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { draftAccountPitchFromReason } from "../../../../lib/features/outbound/actions";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
     );
     return Response.json({ ok: true, result, replayed });
   } catch (e) {
+    captureError(e, "/api/outbound/draft-from-reason");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Could not draft that." }, { status: 500 });
   }
 }

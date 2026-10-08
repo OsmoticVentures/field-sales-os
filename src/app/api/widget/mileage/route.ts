@@ -17,6 +17,7 @@ import type { RouteMileageSide } from "../../../../lib/features/route/dal";
 import { fileTripFromLinks, uploadMileagePhoto } from "../../../../lib/shared/expenses";
 import { hasAccess } from "../../../../lib/core/devices";
 import { hasWidgetToken } from "../../../../lib/features/route/widget-auth";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
@@ -132,6 +133,7 @@ export async function POST(req: Request) {
       const odo = kind === "start" ? ((await getLastRouteOdo())?.value ?? null) : null;
       return await recordSide(day, kind, { odo, driveFileId: "", photoLink: "", capturedAt: new Date().toISOString(), manual: true });
     } catch (e) {
+      captureError(e, "/api/widget/mileage");
       return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't file that." }, { status: 500 });
     }
   }
@@ -154,6 +156,7 @@ export async function POST(req: Request) {
     ]);
     return await recordSide(day, kind, { odo, driveFileId: uploaded.driveFileId, photoLink: uploaded.photoLink, capturedAt: new Date().toISOString() });
   } catch (e) {
+    captureError(e, "/api/widget/mileage");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Upload failed." }, { status: 500 });
   }
 }

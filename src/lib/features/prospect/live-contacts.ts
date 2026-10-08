@@ -30,6 +30,7 @@
 import "server-only";
 import { myOwnerId } from "../../core/user";
 import { request } from "../visit/hubspot";
+import { captureError } from "@/lib/core/errors";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -175,5 +176,6 @@ export async function refreshLiveContacts(account: Account): Promise<void> {
     await Promise.race([refresh(account), new Promise((r) => setTimeout(r, BUDGET_MS))]);
   } catch (e) {
     console.error(`live contacts for ${account.id}:`, e instanceof Error ? e.message : e);
+    captureError(e, "lib/prospect/live-contacts");
   }
 }

@@ -6,6 +6,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { searchPlaces } from "../../../../lib/shared/places";
 import { findAccountIdsByPlaceIds } from "../../../../lib/features/visit/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -25,7 +26,8 @@ export async function POST(req: Request) {
       ok: true,
       results: found.map((c) => ({ ...c, accountId: owned.get(c.placeId) ?? null })),
     });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/place");
     return Response.json({ ok: false, error: "Could not look that up." }, { status: 502 });
   }
 }

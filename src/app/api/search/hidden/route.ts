@@ -5,6 +5,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { hidePlace, listHiddenPlaceIds } from "../../../../lib/features/search/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ export async function GET() {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   try {
     return Response.json({ ok: true, ids: await listHiddenPlaceIds() });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/hidden");
     return Response.json({ ok: false, error: "Could not read hidden businesses." }, { status: 502 });
   }
 }
@@ -31,7 +33,8 @@ export async function POST(req: Request) {
   try {
     await hidePlace(id, typeof body.name === "string" ? body.name : null);
     return Response.json({ ok: true });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/hidden");
     return Response.json({ ok: false, error: "Could not hide that business." }, { status: 502 });
   }
 }

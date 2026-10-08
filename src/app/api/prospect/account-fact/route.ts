@@ -8,6 +8,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { invalidatePriorityBook, setAccountPhone, setAccountPotentialJuan } from "../../../../lib/features/prospect/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/prospect/account-fact");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not save that." }, { status: 500 });
   }
 }

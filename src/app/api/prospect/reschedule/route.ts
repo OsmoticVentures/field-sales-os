@@ -7,6 +7,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { rescheduleSdrScheduleItem } from "../../../../lib/features/prospect/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
     const { result, replayed } = await withIdempotency(`prospect:reschedule:${key}`, () => rescheduleSdrScheduleItem(body.id, body.scheduled_date));
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/prospect/reschedule");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not move that." }, { status: 500 });
   }
 }

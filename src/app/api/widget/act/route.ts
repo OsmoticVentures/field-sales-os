@@ -12,6 +12,7 @@ import { insertSdrScheduleItem, listSdrSchedule, type SdrPriority } from "../../
 import { laTodayIso, planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { hasAccess } from "../../../../lib/core/devices";
 import { hasWidgetToken } from "../../../../lib/features/route/widget-auth";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,6 +76,7 @@ export async function POST(req: Request) {
 
     return Response.json({ ok: false, error: "Unknown action." }, { status: 400 });
   } catch (e) {
+    captureError(e, "/api/widget/act");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save that." }, { status: 500 });
   }
 }

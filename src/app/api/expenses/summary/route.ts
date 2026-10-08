@@ -7,6 +7,7 @@
  */
 import { periodSummary } from "../../../../lib/shared/expenses";
 import { hasAccess } from "../../../../lib/core/devices";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -20,6 +21,7 @@ export async function GET() {
     const summary = await periodSummary(today);
     return Response.json({ ok: true, today, ...summary });
   } catch (err) {
+    captureError(err, "/api/expenses/summary");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not reach Drive." }, { status: 500 });
   }
 }

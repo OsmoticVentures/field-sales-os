@@ -37,6 +37,7 @@ import {
 } from "../../../lib/features/search/dal";
 import { runSearchJob } from "../../../lib/features/search/worker";
 import { currentUser } from "../../../lib/core/user";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -220,7 +221,8 @@ export async function POST(req: Request) {
       { ok: true, stage, job, replayed, status: "pending", limits: { MAX_CANDIDATES, MAX_ENRICH, MAX_LAND } },
       { headers: { "cache-control": "no-store" } },
     );
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search");
     return Response.json(
       { ok: false, stage, error: "Could not queue the run. Nothing ran." },
       { status: 502 },
@@ -248,7 +250,8 @@ export async function GET(req: Request) {
   try {
     row = await getSearchJobStatus(id);
     if (row && (await failIfStale(row))) row = await getSearchJobStatus(id);
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search");
     return Response.json({ ok: false, error: "Could not read the run's status." }, { status: 502 });
   }
   if (!row) {

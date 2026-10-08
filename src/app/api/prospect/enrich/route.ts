@@ -8,6 +8,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { enrichAccountQuickly } from "../../../../lib/features/prospect/quick-enrich";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 // Room for the site, its contact page, Places and one model call, see
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     const { result, replayed } = await withIdempotency(`prospect:enrich:${key}`, () => enrichAccountQuickly(body.account_id));
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/prospect/enrich");
     console.error("prospect enrich failed", err);
     return Response.json({ ok: false, error: "Enrich further could not finish. Nothing was changed; try again." }, { status: 500 });
   }

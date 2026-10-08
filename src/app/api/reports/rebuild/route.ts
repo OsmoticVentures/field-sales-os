@@ -8,6 +8,7 @@ import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { requestReportRebuild } from "../../../../lib/features/reports/dal";
 import { currentUser } from "../../../../lib/core/user";
+import { captureError } from "@/lib/core/errors";
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) {
@@ -31,7 +32,8 @@ export async function POST(req: Request) {
     const me = (await currentUser()).id;
     const { replayed } = await withIdempotency(`reports-rebuild:${key}`, () => requestReportRebuild(me, date));
     return Response.json({ ok: true, replayed });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/reports/rebuild");
     return Response.json({ ok: false, error: "Could not ask for a rebuild." }, { status: 500 });
   }
 }

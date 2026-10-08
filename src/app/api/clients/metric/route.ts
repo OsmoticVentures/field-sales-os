@@ -4,6 +4,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { METRIC_FIELDS, setMetric, type MetricField } from "../../../../lib/features/clients/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     await setMetric(body.accountId, field, value);
     return Response.json({ ok: true });
   } catch (err) {
+    captureError(err, "/api/clients/metric");
     console.error("clients/metric", body.accountId, field, err);
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not save." }, { status: 500 });
   }

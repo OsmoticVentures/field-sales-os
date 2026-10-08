@@ -6,6 +6,7 @@
 import { hasAccess } from "../../../lib/core/devices";
 import { getAccountNames } from "../../../lib/features/visit/dal";
 import { isConfigured, listPendingDrafts } from "../../../lib/features/outbound/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -20,6 +21,7 @@ export async function GET() {
     const rows = drafts.map((draft) => ({ draft, accountName: draft.account_id ? names[draft.account_id] ?? null : null }));
     return Response.json({ ok: true, rows });
   } catch (e) {
+    captureError(e, "/api/outbound");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't load Outbound." }, { status: 500 });
   }
 }

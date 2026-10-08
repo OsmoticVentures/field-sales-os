@@ -1,6 +1,7 @@
 import { getRouteStateByDay, setRouteStopTimes } from "../../../../lib/features/route/dal";
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, times: result, replayed });
   } catch (e) {
+    captureError(e, "/api/route/stop-times");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save that time." }, { status: 500 });
   }
 }

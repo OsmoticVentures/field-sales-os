@@ -8,6 +8,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { hasAccess } from "../../../../lib/core/devices";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
@@ -104,7 +105,8 @@ export async function POST(req: Request) {
     }
     const input = toolUse.input as { suggestions?: { category: string; why: string }[] };
     return Response.json({ ok: true, suggestions: input.suggestions ?? [] });
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/search/suggest-categories");
     return Response.json({ ok: false, error: "Suggestion failed." }, { status: 500 });
   }
 }

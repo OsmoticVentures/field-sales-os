@@ -26,6 +26,7 @@ import {
 } from "../../../lib/core/session";
 import { deviceLabel, enrollDevice, trustedDeviceIdFrom } from "../../../lib/core/devices";
 import { deviceUser, userByPin } from "../../../lib/core/user";
+import { captureError } from "@/lib/core/errors";
 
 export async function POST(req: Request) {
   // Request-scoped APIs first, awaited directly in the handler: in Next 16
@@ -65,7 +66,8 @@ export async function POST(req: Request) {
   let user;
   try {
     user = await userByPin(pin);
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/auth");
     return NextResponse.json({ ok: false, error: "unavailable", message: "Could not check the PIN. Try again." }, { status: 503 });
   }
   if (!user) {

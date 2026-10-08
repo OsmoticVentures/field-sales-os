@@ -13,6 +13,7 @@ import {
   type Readiness,
   type VisitGrade,
 } from "../../../../lib/features/visit/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -39,6 +40,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/visit/account-read");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not save that." }, { status: 500 });
   }
 }

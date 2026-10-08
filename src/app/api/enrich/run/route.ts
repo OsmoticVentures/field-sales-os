@@ -8,6 +8,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { runFindContacts } from "../../../../lib/features/enrich/pipeline";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 // Room for the site, Places and a web search, see FIND_CONTACTS_BUDGET_MS.
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
     const { result, replayed } = await withIdempotency(`enrich:run:${key}`, () => runFindContacts(body.account_id));
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/enrich/run");
     console.error("find contacts failed", err);
     return Response.json({ ok: false, error: "Find Contacts could not finish. Nothing was changed; run it again." }, { status: 500 });
   }

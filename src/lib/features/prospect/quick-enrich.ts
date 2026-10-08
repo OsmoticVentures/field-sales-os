@@ -40,6 +40,7 @@ import {
   visibleText,
   type BusinessHours,
 } from "../../shared/web-page";
+import { captureError } from "@/lib/core/errors";
 
 const client = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
 
@@ -260,6 +261,7 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
     if (toolUse && toolUse.type === "tool_use") toolOut = toolUse.input as EnrichToolOutput;
   } catch (err) {
     console.error("quick enrich model call failed", err);
+    captureError(err, "lib/prospect/quick-enrich");
     modelFailed = true;
     // The site's own structured hours and Places still stand without the
     // model; only the angle summary needs it.

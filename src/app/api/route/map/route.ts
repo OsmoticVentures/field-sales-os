@@ -14,6 +14,7 @@ import { getPriorityBook, listAreas } from "../../../../lib/features/prospect/da
 import { getMapDisplayPrefs } from "../../../../lib/features/route/dal";
 import type { AccountPriority } from "../../../../lib/features/route/types";
 import { hasAccess } from "../../../../lib/core/devices";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export async function GET() {
 
     return Response.json({ ok: true, areas, priorityById, displayPrefs }, { headers: { "cache-control": "no-store" } });
   } catch (e) {
+    captureError(e, "/api/route/map");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't load the map." }, { status: 500 });
   }
 }

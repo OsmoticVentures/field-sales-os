@@ -6,6 +6,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { STORE_TYPES, setAccountChannel, type StoreTypeValue } from "../../../../lib/features/visit/dal";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/visit/account-type");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not save that." }, { status: 500 });
   }
 }

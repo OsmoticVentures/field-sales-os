@@ -2,6 +2,7 @@ import { getRouteStateByDay, setRouteCalls } from "../../../../lib/features/rout
 import type { CallEntry } from "../../../../lib/features/route/types";
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, calls: result, replayed });
   } catch (e) {
+    captureError(e, "/api/route/calls");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save the call." }, { status: 500 });
   }
 }

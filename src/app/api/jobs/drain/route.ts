@@ -13,6 +13,7 @@ import { after } from "next/server";
 import { timingSafeEqual } from "../../../../lib/core/session";
 import { durableQueue, jobRunnerSecret, listPendingJobIds, sweepSearchJobs } from "../../../../lib/features/search/dal";
 import { runSearchJob } from "../../../../lib/features/search/worker";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +39,8 @@ export async function POST(req: Request) {
   try {
     await sweepSearchJobs();
     ids = await listPendingJobIds(DRAIN_MAX);
-  } catch {
+  } catch (caught) {
+    captureError(caught, "/api/jobs/drain");
     return Response.json({ ok: false, error: "Could not read the queue." }, { status: 502 });
   }
   if (ids.length) {

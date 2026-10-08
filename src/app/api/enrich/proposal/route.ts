@@ -9,6 +9,7 @@ import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { applyProposal, dismissProposal } from "../../../../lib/features/enrich/dal";
 import type { Proposal } from "../../../../lib/features/enrich/types";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 20;
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    captureError(err, "/api/enrich/proposal");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not apply that." }, { status: 500 });
   }
 }

@@ -15,6 +15,7 @@ import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotenc
 import { setDraftStatus } from "../../../../lib/features/outbound/dal";
 import { insertActivity, getAccountNames } from "../../../../lib/features/visit/dal";
 import { autoFileEngagement } from "../../../../lib/features/visit/touchpoint";
+import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
 
@@ -68,6 +69,7 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (e) {
+    captureError(e, "/api/outbound/decide");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't save that." }, { status: 500 });
   }
 }

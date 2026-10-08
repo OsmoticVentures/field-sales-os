@@ -17,6 +17,7 @@ import "server-only";
 import { claimSearchJob, durableQueue, finishSearchJob, pruneSearchJobs, requeueSearchJob } from "./dal";
 import { isTransient } from "./lease";
 import { PlacesError, stageRequest } from "./pipeline";
+import { captureError } from "@/lib/core/errors";
 
 const PRUNE_EVERY_MS = 30 * 60_000;
 let lastPrune = 0;
@@ -27,6 +28,7 @@ export async function runSearchJob(id: string): Promise<void> {
     row = await claimSearchJob(id);
   } catch (e) {
     console.error(`search job ${id}: claim failed`, e);
+    captureError(e, "lib/search/worker");
     return;
   }
   if (!row) return; // already taken by another runner
@@ -51,6 +53,7 @@ export async function runSearchJob(id: string): Promise<void> {
         await requeueSearchJob(id).catch(() => undefined);
         return;
       }
+      captureError(err, "lib/search/worker");
       await finishSearchJob(id, { error: `${err?.name ?? "Error"}: ${err?.message ?? String(e)}` }).catch(() => undefined);
       return;
     }
@@ -60,6 +63,7 @@ export async function runSearchJob(id: string): Promise<void> {
     await finishSearchJob(id, { result });
   } catch (e) {
     console.error(`search job ${id}: could not record the result`, e);
+    captureError(e, "lib/search/worker");
     await finishSearchJob(id, { error: "The run finished but its result could not be saved. Run it again." }).catch(() => undefined);
     return;
   }
