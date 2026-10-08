@@ -47,7 +47,7 @@ export const DEFAULT_USER = "juan";
  *  enrich, location, planner, health) is shared plumbing every rep needs. */
 export const SCREENS = [
   "visit", "route", "prospect", "clients", "search", "plan", "account",
-  "expenses", "reports", "fuel", "outbound", "widget",
+  "expenses", "reports", "fuel", "outbound", "widget", "marketing",
 ] as const;
 
 /* Five minutes of memory. The table is two rows and changes by hand; asking

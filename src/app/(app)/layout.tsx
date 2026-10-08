@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
   { href: "/reports", label: "Reports", icon: "chart" },
   { href: "/fuel", label: "Fuel", icon: "fuel" },
   { href: "/outbound", label: "Outbound", icon: "mail" },
+  { href: "/marketing", label: "Marketing", icon: "globe" },
 ];
 
 export default function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {
