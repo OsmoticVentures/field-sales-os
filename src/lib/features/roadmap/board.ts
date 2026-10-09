@@ -36,31 +36,28 @@ export function mountRoadmaps(db, writable) {
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
   const now = new Date(); const TODAY = iso(now);
-  /* The Gantt's window, picked per board with the toggle above it and
-     remembered in this browser. "6mo" is the month grid from the first of
-     this month; "30d" and "60d" run from this week's Monday to that many days
-     past today, with a column per week. */
-  const VIEWS = [["30d","30 days"],["60d","60 days"],["6mo","6 months"]];
-  function windowFor(v){
-    if(v === "30d" || v === "60d"){
-      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
-      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (v === "30d" ? 30 : 60) + 1);
-      return [start, end];
-    }
-    return [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth()+7, 1)];
-  }
-  function ticksFor(v, w0, w1){
+  /* The Gantt's zoom, a slider per board from 30 days to six months,
+     remembered in this browser. The left edge stays on this week's Monday;
+     zooming in widens everything and drops the far right off the chart.
+     Up to ~11 weeks the grid is a column per week, past that a column per
+     month. */
+  const ZMIN = 30, ZMAX = 183;
+  const anchor = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const windowFor = days => [anchor, new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate() + days)];
+  function ticksFor(days, w0, w1){
     const t = [];
-    if(v === "6mo"){
-      for(let d = new Date(w0); d < w1; d = new Date(d.getFullYear(), d.getMonth()+1, 1))
-        t.push({d, label: d.toLocaleDateString("en-US",{month:"short"}) + (d.getMonth()===0 || !t.length ? " "+d.getFullYear() : "")});
-    } else {
+    if(days <= 77){
       for(let d = new Date(w0); d < w1; d = new Date(d.getFullYear(), d.getMonth(), d.getDate()+7))
         t.push({d, label: d.toLocaleDateString("en-US",{month:"short",day:"numeric"})});
+    } else {
+      t.push({d: new Date(w0), label: w0.toLocaleDateString("en-US",{month:"short"}) + " " + w0.getFullYear()});
+      for(let d = new Date(w0.getFullYear(), w0.getMonth()+1, 1); d < w1; d = new Date(d.getFullYear(), d.getMonth()+1, 1))
+        t.push({d, label: d.toLocaleDateString("en-US",{month:"short"}) + (d.getMonth()===0 ? " "+d.getFullYear() : "")});
     }
     return t;
   }
-  const readView = k => { try{ const v = localStorage.getItem("rm-view-" + k); return VIEWS.some(([x]) => x === v) ? v : "6mo"; }catch{ return "6mo"; } };
+  const zoomLabel = d => d >= ZMAX ? "6 months" : d + " days";
+  const readDays = k => { try{ const v = parseInt(localStorage.getItem("rm-zoom-" + k), 10); return v >= ZMIN && v <= ZMAX ? v : ZMAX; }catch{ return ZMAX; } };
   const pd = s => new Date(s+"T00:00:00");
   const fmt = s => { const d = pd(s); return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:d.getFullYear()!==now.getFullYear()?"numeric":undefined}); };
   const DAY = 864e5;
@@ -92,7 +89,7 @@ export function mountRoadmaps(db, writable) {
     </section>
     <section aria-labelledby="${k}-g-h">
       <div class="sechead"><h2 id="${k}-g-h">What needs to happen</h2>
-        <div class="tools"><div class="vt" role="group" aria-label="Gantt view" id="${k}-view">${VIEWS.map(([v,l]) => `<button type="button" data-v="${v}">${l}</button>`).join("")}</div><button class="btn primary" id="${k}-add-btn" type="button">Add project</button></div>
+        <div class="tools"><label class="zoom"><input type="range" id="${k}-zoom" min="${ZMIN}" max="${ZMAX}" step="1" aria-label="Time shown"><span id="${k}-zoom-v"></span></label><button class="btn primary" id="${k}-add-btn" type="button">Add project</button></div>
       </div>
       <div class="legend">${legend}</div>
       <div class="status-line" id="${k}-msg" role="status"></div>
@@ -134,8 +131,8 @@ export function mountRoadmaps(db, writable) {
     const q = id => document.getElementById(k + "-" + id);
     const canWrite = writable !== false;
     let projects = [], editing = null;
-    let view = readView(k), W0, W1, WDAYS;
-    const setWindow = () => { [W0, W1] = windowFor(view); WDAYS = Math.round((W1 - W0) / DAY); };
+    let days = readDays(k), W0, W1, WDAYS;
+    const setWindow = () => { [W0, W1] = windowFor(days); WDAYS = Math.round((W1 - W0) / DAY); };
     setWindow();
     const pct = s => Math.max(0, Math.min(100, (pd(s) - W0) / (W1 - W0) * 100));
 
@@ -176,7 +173,7 @@ export function mountRoadmaps(db, writable) {
     let gdrag = null;
 
     function renderGantt(){
-      const ticks = ticksFor(view, W0, W1);
+      const ticks = ticksFor(days, W0, W1);
       const cols = ticks.map((t,i) => ((i+1 < ticks.length ? ticks[i+1].d : W1) - t.d) / (W1 - W0) * 100 + "%").join(" ");
       let h = `<div class="grid-lines" style="grid-template-columns:${cols}">${ticks.map(()=>"<span></span>").join("")}</div>`;
       h += `<div class="g-row axis"><span></span><div class="months" style="grid-template-columns:${cols}">${ticks.map(t=>`<span>${esc(t.label)}</span>`).join("")}</div></div>`;
@@ -472,12 +469,10 @@ export function mountRoadmaps(db, writable) {
       if(e.key === "Escape"){ if(SEL && SEL.k === k){ SEL = null; renderAll(); } if(editing) closeEditor(); }
       if((e.key === "Delete" || e.key === "Backspace") && SEL && SEL.k === k && !typing(e.target)){ e.preventDefault(); removeStage(); }
     });
-    const vt = q("view");
-    const paintView = () => vt.querySelectorAll("button").forEach(b => { const on = b.dataset.v === view; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
-    paintView();
-    vt.onclick = e => { const b = e.target.closest("button"); if(!b || b.dataset.v === view) return;
-      view = b.dataset.v; try{ localStorage.setItem("rm-view-" + k, view); }catch{ /* private window: the choice lasts this visit */ }
-      setWindow(); paintView(); renderGantt(); };
+    const zoom = q("zoom"), zoomV = q("zoom-v");
+    zoom.value = days; zoomV.textContent = zoomLabel(days);
+    zoom.oninput = () => { days = +zoom.value; zoomV.textContent = zoomLabel(days); setWindow(); renderGantt(); };
+    zoom.onchange = () => { try{ localStorage.setItem("rm-zoom-" + k, String(days)); }catch{ /* private window: the zoom lasts this visit */ } };
     q("add-btn").onclick = () => openEditor(null, {from:"gantt", scroll:true, focus:true});
     if(!canWrite){ ["add-btn","add-item"].forEach(id => q(id).hidden = true); }
     render();
