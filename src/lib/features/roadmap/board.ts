@@ -17,6 +17,9 @@
  * matrix that opened it and never scrolls the page. Gantt rows are a
  * staircase, earliest first, re-sorted after each change, never mid-drag.
  *
+ * Each Gantt pill moves on its own; dragging one never shifts the others,
+ * and resizing an edge changes only that pill (Juan, 2026-10-08).
+ *
  * Cmd+Z undoes the last write (one stack, both boards, 50 deep, gone on
  * reload). Click a Gantt stage to select it; Delete or Backspace removes it.
  */
@@ -177,6 +180,10 @@ export function mountRoadmaps(db, writable) {
       const cols = ticks.map((t,i) => ((i+1 < ticks.length ? ticks[i+1].d : W1) - t.d) / (W1 - W0) * 100 + "%").join(" ");
       let h = `<div class="grid-lines" style="grid-template-columns:${cols}">${ticks.map(()=>"<span></span>").join("")}</div>`;
       h += `<div class="g-row axis"><span></span><div class="months" style="grid-template-columns:${cols}">${ticks.map(t=>`<span>${esc(t.label)}</span>`).join("")}</div></div>`;
+      /* A stage's name always shows: inside the pill when it fits, else just
+         above the pill's left edge in the stage's own color. */
+      const tw = Math.max(400, (q("gantt").clientWidth || 0) - 282);
+      const fits = (s, w) => w / 100 * tw >= String(s.type).length * 6.6 + 14;
       const rows = gdrag ? gdrag.order.map(id => projects.find(p => p.id === id)).filter(Boolean) : ganttOrder();
       rows.forEach(p => {
         const live = gdrag && gdrag.pid === p.id;
@@ -185,7 +192,8 @@ export function mountRoadmaps(db, writable) {
         st.forEach((s,i) => {
           const a = pct(s.start || s.end), b = pct(s.end); if(b <= 0 || a >= 100) return;
           const w = Math.max(b - a, .6), past = s.end < TODAY, act = live ? i === gdrag.idx : !!(SEL && SEL.k === k && SEL.pid === p.id && SEL.idx === i);
-          segs += `<span class="seg${i===0?" first":""}${i===st.length-1?" last":""}${past?" past":""}${act?" active":""}" data-pid="${esc(p.id)}" data-i="${i}" style="left:${a}%;width:${w}%;background:var(${SCOLOR[s.type]||"--st-measure"})" title="${esc(s.type+": "+(s.milestone||"")+", "+(s.start?fmt(s.start)+" to ":"")+fmt(s.end))}">${w>7?esc(s.type):""}${canWrite?'<i class="h l"></i><i class="h r"></i>':""}</span>`;
+          segs += `<span class="seg${i===0?" first":""}${i===st.length-1?" last":""}${past?" past":""}${act?" active":""}" data-pid="${esc(p.id)}" data-i="${i}" style="left:${a}%;width:${w}%;background:var(${SCOLOR[s.type]||"--st-measure"})" title="${esc(s.type+": "+(s.milestone||"")+", "+(s.start?fmt(s.start)+" to ":"")+fmt(s.end))}">${fits(s,w)?esc(s.type):""}${canWrite?'<i class="h l"></i><i class="h r"></i>':""}</span>`;
+          if(!fits(s,w)) segs += `<span class="seg-lbl${past?" past":""}" style="left:${a}%;color:var(${SCOLOR[s.type]||"--st-measure"})">${esc(s.type)}</span>`;
         });
         if(m && pct(m.end) > 0 && pct(m.end) < 100) segs += `<span class="ms-dot" style="left:${pct(m.end)}%" title="${esc((m.milestone||m.type)+", "+fmt(m.end))}"></span>`;
         const sub = live ? (() => { const s = st[gdrag.idx]; return `${s.type}: ${s.start?fmt(s.start)+" to ":""}${fmt(s.end)}`; })()
@@ -218,7 +226,7 @@ export function mountRoadmaps(db, writable) {
       const o = gdrag.orig, i = gdrag.idx;
       gdrag.cur = o.map((s,j) => {
         const c = {...s};
-        if(gdrag.mode === "move" && j >= i || gdrag.mode === "end" && j > i){ if(c.start) c.start = addDays(c.start, dd); c.end = addDays(c.end, dd); }
+        if(gdrag.mode === "move" && j === i){ if(c.start) c.start = addDays(c.start, dd); c.end = addDays(c.end, dd); }
         if(gdrag.mode === "end" && j === i){ c.end = addDays(s.end, dd); if(c.start && c.end < c.start) c.end = c.start; }
         if(gdrag.mode === "start" && j === i){ c.start = addDays(s.start || s.end, dd); if(c.start > c.end) c.start = c.end; }
         return c;
@@ -235,6 +243,7 @@ export function mountRoadmaps(db, writable) {
       try{ await write(d.pid, {stages: d.cur}, before); setMsg(""); }
       catch{ setMsg("Could not save the new dates. Try again."); }
     }
+    on(window, "resize", () => { if(!gdrag) renderGantt(); });
     on(gantt, "pointerup", () => endGanttDrag(false));
     on(gantt, "pointercancel", () => endGanttDrag(true));
 
