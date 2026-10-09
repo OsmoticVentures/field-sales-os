@@ -13,10 +13,9 @@
  * artifact database's shape (collection(c).onSnapshot / doc(id).update / set /
  * delete / add), so this file is unchanged in how it writes.
  *
- * THE VIEW STAYS PUT (Juan, 2026-10-08). A Gantt row keeps its place for the
- * life of the page; a drag that moves a project's start never re-sorts the
- * rows under the pointer. The editor opens below the chart or matrix that
- * opened it and never scrolls the page.
+ * THE VIEW STAYS PUT (Juan, 2026-10-08). The editor opens below the chart or
+ * matrix that opened it and never scrolls the page. Gantt rows are a
+ * staircase, earliest first, re-sorted after each change, never mid-drag.
  *
  * Cmd+Z undoes the last write (one stack, both boards, 50 deep, gone on
  * reload). Click a Gantt stage to select it; Delete or Backspace removes it.
@@ -132,7 +131,6 @@ export function mountRoadmaps(db, writable) {
     const q = id => document.getElementById(k + "-" + id);
     const canWrite = writable !== false;
     let projects = [], editing = null;
-    let rowOrder = null;
     let view = readView(k), W0, W1, WDAYS;
     const setWindow = () => { [W0, W1] = windowFor(view); WDAYS = Math.round((W1 - W0) / DAY); };
     setWindow();
@@ -166,19 +164,11 @@ export function mountRoadmaps(db, writable) {
     const inWindow = p => stagesOf(p).some(s => s.end >= iso(W0) && (s.start||s.end) < iso(W1));
     const sortedRows = () => projects.filter(p => stagesOf(p).length)
         .sort((a,b) => firstStart(a).localeCompare(firstStart(b)) || lastEnd(a).localeCompare(lastEnd(b)));
-    /* The staircase order is set once, at the first paint with data; after
-       that a row keeps its place, a new project joins at the bottom, and a
-       deleted one leaves. Reload for a fresh staircase. The order spans every
-       dated project, so switching the view hides rows outside the window
-       without reshuffling the ones that stay. */
-    function allRows(){
-      const fresh = sortedRows();
-      if(!rowOrder){ if(projects.length) rowOrder = fresh.map(p => p.id); return fresh; }
-      const ids = new Set(fresh.map(p => p.id));
-      rowOrder = rowOrder.filter(id => ids.has(id));
-      fresh.forEach(p => { if(!rowOrder.includes(p.id)) rowOrder.push(p.id); });
-      return rowOrder.map(id => projects.find(p => p.id === id));
-    }
+    /* A staircase, always: earliest start at the top left, latest finish at
+       the bottom right (Juan, 2026-10-08). Rows re-sort when a write lands;
+       during a drag the order is frozen (gdrag.order), so nothing moves
+       under the pointer. */
+    const allRows = sortedRows;
     const ganttOrder = () => allRows().filter(inWindow);
     let gdrag = null;
 
