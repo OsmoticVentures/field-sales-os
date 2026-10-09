@@ -344,7 +344,13 @@ export function mountRoadmaps(db, writable) {
       catch{ setMsg(txt); }
     };
 
-    function setMsg(t){ q("msg").textContent = t || ""; }
+    /* A message shows where the eye is: inside the open editor, right by
+       Save, else above the chart. */
+    function setMsg(t){
+      const inEd = slot && slot.querySelector(".e-msg");
+      if(inEd) inEd.textContent = t || "";
+      q("msg").textContent = inEd ? "" : (t || "");
+    }
     /* The doc as the database last held it. A matrix drag sets p.pos locally
        before the debounced write, so its "before" comes from the snapshot
        copy kept at load, not the live object. */
@@ -431,12 +437,33 @@ export function mountRoadmaps(db, writable) {
         <div class="stages"><div class="st-head"><span>Stage</span><span>Milestone</span><span>Starts</span><span>Milestone date</span><span></span></div>
           <div class="st-list">${stagesOf(editing).concat((editing.stages||[]).filter(s=>!s.end)).map(stageRow).join("")}</div>
           <div><button type="button" class="btn quiet st-add">Add stage</button></div></div>
+        <div class="status-line e-msg" role="status"></div>
         <div class="erow"><div class="tools"><button class="btn primary" type="submit">Save</button><button class="btn quiet e-cancel" type="button">Cancel</button>${editing.link?`<a class="btn quiet" href="${esc(editing.link)}" target="_blank" rel="noopener">Open current version</a>`:""}</div>
         ${p?'<button class="btn danger e-del" type="button">Delete</button>':""}</div>
       </form>`;
       const list = slot.querySelector(".st-list");
       list.addEventListener("click", e => { const x = e.target.closest(".x"); if(x) x.closest(".st-row").remove(); });
-      slot.querySelector(".st-add").onclick = () => { const rows = list.querySelectorAll(".s-end"); const last = rows.length ? rows[rows.length-1].value : TODAY; list.insertAdjacentHTML("beforeend", stageRow({type:"Build",start:last||TODAY,end:""})); };
+      /* A new stage starts the day the latest stage ends (today on an empty
+         project), runs two weeks, and takes the next stage name in order. */
+      slot.querySelector(".st-add").onclick = () => {
+        const rows = [...list.querySelectorAll(".st-row")];
+        const ends = rows.map(r => r.querySelector(".s-end").value).filter(Boolean).sort();
+        const start = ends.length ? ends[ends.length-1] : TODAY;
+        const lastType = rows.length ? rows[rows.length-1].querySelector(".s-type").value.trim() : "";
+        const at = STAGES.findIndex(([n]) => n === lastType);
+        const type = rows.length ? (at >= 0 && at < STAGES.length-1 ? STAGES[at+1][0] : "Build") : "Plan";
+        list.insertAdjacentHTML("beforeend", stageRow({type, start, end: addDays(start, 14)}));
+      };
+      /* Dates never cross: a start moved past the milestone date carries the
+         milestone two weeks out, and a milestone moved before the start pulls
+         the start two weeks back. */
+      list.addEventListener("change", e => {
+        const r = e.target.closest(".st-row"); if(!r) return;
+        const st = r.querySelector(".s-start"), en = r.querySelector(".s-end");
+        if(e.target === st && st.value && (!en.value || en.value < st.value)) en.value = addDays(st.value, 14);
+        if(e.target === en && en.value && st.value && st.value > en.value) st.value = addDays(en.value, -14);
+        setMsg("");
+      });
       slot.querySelector("form").addEventListener("submit", save);
       slot.querySelector(".e-cancel").onclick = closeEditor;
       const del = slot.querySelector(".e-del"); if(del) del.onclick = () => { if(del.dataset.armed){ remove(); return; } del.dataset.armed = "1"; del.textContent = "Tap again to delete"; setTimeout(()=>{ if(del.isConnected){ delete del.dataset.armed; del.textContent = "Delete"; } }, 3000); };
