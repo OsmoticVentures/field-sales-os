@@ -78,7 +78,6 @@ export function mountRoadmaps(db, writable) {
   on(document, "keydown", e => {
     if((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "z" && !typing(e.target)){ e.preventDefault(); undo(); }
   });
-  const legend = STAGES.map(([n,v]) => `<span><i style="background:var(${v})"></i>${n}</span>`).join("") + '<span><i style="background:var(--rust);width:2px"></i>Today</span>';
   if(!document.getElementById("stage-opts")) document.body.insertAdjacentHTML("beforeend", `<datalist id="stage-opts">${STAGES.map(([n]) => `<option value="${n}"></option>`).join("")}</datalist>`);
 
   function boardHTML(k, withBudget){
@@ -91,7 +90,6 @@ export function mountRoadmaps(db, writable) {
       <div class="sechead"><h2 id="${k}-g-h">What needs to happen</h2>
         <div class="tools"><label class="zoom"><input type="range" id="${k}-zoom" min="${ZMIN}" max="${ZMAX}" step="1" aria-label="Time shown"><span id="${k}-zoom-v"></span></label><button class="btn primary" id="${k}-add-btn" type="button">Add project</button></div>
       </div>
-      <div class="legend">${legend}</div>
       <div class="status-line" id="${k}-msg" role="status"></div>
       <div class="gantt-scroll"><div class="gantt" id="${k}-gantt"></div></div>
       <div class="editor-slot" id="${k}-editor-gantt"></div>
