@@ -370,7 +370,10 @@ export function mountRoadmaps(db, writable) {
     function showTotal(total){ const t = q("btotal"); t.textContent = money(total); tone(t, total); }
     function renderBudget(){
       if(!budgetBox || bActive) return;
-      const go = allRows(), list = go.concat(projects.filter(p => !go.includes(p)));
+      /* Ranked by amount, largest first; ties keep the Gantt's order. A row
+         re-ranks when its slider is let go, never while it is dragged. */
+      const go = allRows(), list = go.concat(projects.filter(p => !go.includes(p)))
+        .sort((x, y) => (+y.budget || 0) - (+x.budget || 0));
       showTotal(list.reduce((t,p) => t + (+p.budget || 0), 0));
       const have = [...budgetBox.querySelectorAll("input[type=range]")].map(x => x.dataset.id).join("|");
       if(list.length && have === list.map(p => p.id).join("|")){
