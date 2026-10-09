@@ -122,5 +122,6 @@
 .rm .zoom input[type=range]{width:160px;min-width:0}
 .rm .zoom span{min-width:64px}
 .rm .months span{overflow:hidden;white-space:nowrap}
-.rm .seg-lbl{position:absolute;top:calc(50% - 12px);transform:translateY(-100%);font-size:.66rem;font-weight:700;line-height:1;white-space:nowrap;pointer-events:none;z-index:1}
+.rm .seg-lbl{position:absolute;top:50%;transform:translateY(-50%);font-size:.7rem;font-weight:600;line-height:1;color:var(--ink);white-space:nowrap;pointer-events:none;z-index:1}
+.rm .seg-lbl.above{top:calc(50% - 13px);transform:translateY(-100%)}
 .rm .seg-lbl.past{opacity:.5}

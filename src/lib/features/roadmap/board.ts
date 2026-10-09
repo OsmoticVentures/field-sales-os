@@ -177,10 +177,6 @@ export function mountRoadmaps(db, writable) {
       const cols = ticks.map((t,i) => ((i+1 < ticks.length ? ticks[i+1].d : W1) - t.d) / (W1 - W0) * 100 + "%").join(" ");
       let h = `<div class="grid-lines" style="grid-template-columns:${cols}">${ticks.map(()=>"<span></span>").join("")}</div>`;
       h += `<div class="g-row axis"><span></span><div class="months" style="grid-template-columns:${cols}">${ticks.map(t=>`<span>${esc(t.label)}</span>`).join("")}</div></div>`;
-      /* A stage's name always shows: inside the pill when it fits, else just
-         above the pill's left edge in the stage's own color. */
-      const tw = Math.max(400, (q("gantt").clientWidth || 0) - 282);
-      const fits = (s, w) => w / 100 * tw >= String(s.type).length * 6.6 + 14;
       const rows = gdrag ? gdrag.order.map(id => projects.find(p => p.id === id)).filter(Boolean) : ganttOrder();
       rows.forEach(p => {
         const live = gdrag && gdrag.pid === p.id;
@@ -189,8 +185,7 @@ export function mountRoadmaps(db, writable) {
         st.forEach((s,i) => {
           const a = pct(s.start || s.end), b = pct(s.end); if(b <= 0 || a >= 100) return;
           const w = Math.max(b - a, .6), past = s.end < TODAY, act = live ? i === gdrag.idx : !!(SEL && SEL.k === k && SEL.pid === p.id && SEL.idx === i);
-          segs += `<span class="seg${i===0?" first":""}${i===st.length-1?" last":""}${past?" past":""}${act?" active":""}" data-pid="${esc(p.id)}" data-i="${i}" style="left:${a}%;width:${w}%;background:var(${SCOLOR[s.type]||"--st-measure"})" title="${esc(s.type+": "+(s.milestone||"")+", "+(s.start?fmt(s.start)+" to ":"")+fmt(s.end))}">${fits(s,w)?esc(s.type):""}${canWrite?'<i class="h l"></i><i class="h r"></i>':""}</span>`;
-          if(!fits(s,w)) segs += `<span class="seg-lbl${past?" past":""}" style="left:${a}%;color:var(${SCOLOR[s.type]||"--st-measure"})">${esc(s.type)}</span>`;
+          segs += `<span class="seg${i===0?" first":""}${i===st.length-1?" last":""}${past?" past":""}${act?" active":""}" data-pid="${esc(p.id)}" data-i="${i}" style="left:${a}%;width:${w}%;background:var(${SCOLOR[s.type]||"--st-measure"})" title="${esc(s.type+": "+(s.milestone||"")+", "+(s.start?fmt(s.start)+" to ":"")+fmt(s.end))}"><span class="seg-t">${esc(s.type)}</span>${canWrite?'<i class="h l"></i><i class="h r"></i>':""}</span>`;
         });
         if(m && pct(m.end) > 0 && pct(m.end) < 100) segs += `<span class="ms-dot" style="left:${pct(m.end)}%" title="${esc((m.milestone||m.type)+", "+fmt(m.end))}"></span>`;
         const sub = live ? (() => { const s = st[gdrag.idx]; return `${s.type}: ${s.start?fmt(s.start)+" to ":""}${fmt(s.end)}`; })()
@@ -200,8 +195,32 @@ export function mountRoadmaps(db, writable) {
       h += `<div class="today" style="left:calc(266px + (100% - 282px) * ${pct(TODAY)/100})"><b>Today</b></div>`;
       const g = q("gantt");
       g.innerHTML = h;
+      layoutLabels(g);
       g.classList.toggle("dragging", !!(gdrag && gdrag.moved));
       g.classList.toggle("resize", !!(gdrag && gdrag.mode !== "move"));
+    }
+
+    /* A stage's name always shows. Measured, not guessed: when the name does
+       not fit inside its pill it moves outside, in ink, just right of the
+       pill (past the milestone diamond), or above the pill when the next
+       pill sits too close or the chart's right edge would cut it off. */
+    function layoutLabels(g){
+      g.querySelectorAll(".g-track").forEach(track => {
+        const segs = [...track.querySelectorAll(".seg")].sort((x,y) => x.offsetLeft - y.offsetLeft);
+        segs.forEach((seg, i) => {
+          const t = seg.querySelector(".seg-t");
+          if(!t || t.scrollWidth + 12 <= seg.clientWidth) return;
+          t.style.visibility = "hidden";
+          const lbl = document.createElement("span");
+          lbl.className = "seg-lbl" + (seg.classList.contains("past") ? " past" : "");
+          lbl.textContent = t.textContent;
+          track.appendChild(lbl);
+          const left = seg.offsetLeft + seg.offsetWidth + 10, next = segs[i+1];
+          const w = lbl.offsetWidth, room = track.clientWidth;
+          if(left + w <= room && !(next && left + w > next.offsetLeft - 4)) lbl.style.left = left + "px";
+          else { lbl.classList.add("above"); lbl.style.left = Math.max(0, Math.min(seg.offsetLeft, room - w)) + "px"; }
+        });
+      });
     }
 
     const gantt = q("gantt");
