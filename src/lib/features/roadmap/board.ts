@@ -34,12 +34,34 @@ export function mountRoadmaps(db, writable) {
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
   const now = new Date(); const TODAY = iso(now);
-  const W0 = new Date(now.getFullYear(), now.getMonth(), 1);
-  const W1 = new Date(now.getFullYear(), now.getMonth()+7, 1);
+  /* The Gantt's window, picked per board with the toggle above it and
+     remembered in this browser. "6mo" is the month grid from the first of
+     this month; "30d" and "60d" run from this week's Monday to that many days
+     past today, with a column per week. */
+  const VIEWS = [["30d","30 days"],["60d","60 days"],["6mo","6 months"]];
+  function windowFor(v){
+    if(v === "30d" || v === "60d"){
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (v === "30d" ? 30 : 60) + 1);
+      return [start, end];
+    }
+    return [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth()+7, 1)];
+  }
+  function ticksFor(v, w0, w1){
+    const t = [];
+    if(v === "6mo"){
+      for(let d = new Date(w0); d < w1; d = new Date(d.getFullYear(), d.getMonth()+1, 1))
+        t.push({d, label: d.toLocaleDateString("en-US",{month:"short"}) + (d.getMonth()===0 || !t.length ? " "+d.getFullYear() : "")});
+    } else {
+      for(let d = new Date(w0); d < w1; d = new Date(d.getFullYear(), d.getMonth(), d.getDate()+7))
+        t.push({d, label: d.toLocaleDateString("en-US",{month:"short",day:"numeric"})});
+    }
+    return t;
+  }
+  const readView = k => { try{ const v = localStorage.getItem("rm-view-" + k); return VIEWS.some(([x]) => x === v) ? v : "6mo"; }catch{ return "6mo"; } };
   const pd = s => new Date(s+"T00:00:00");
   const fmt = s => { const d = pd(s); return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:d.getFullYear()!==now.getFullYear()?"numeric":undefined}); };
-  const pct = s => Math.max(0, Math.min(100, (pd(s) - W0) / (W1 - W0) * 100));
-  const DAY = 864e5, WDAYS = Math.round((W1 - W0) / DAY);
+  const DAY = 864e5;
   const addDays = (d, n) => { const x = pd(d); x.setDate(x.getDate() + n); return iso(x); };
 
   /* undo: one stack across both roadmaps, each entry the doc as it was before a write */
@@ -68,7 +90,7 @@ export function mountRoadmaps(db, writable) {
     </section>
     <section aria-labelledby="${k}-g-h">
       <div class="sechead"><h2 id="${k}-g-h">What needs to happen</h2>
-        <div class="tools"><button class="btn primary" id="${k}-add-btn" type="button">Add project</button></div>
+        <div class="tools"><div class="vt" role="group" aria-label="Gantt view" id="${k}-view">${VIEWS.map(([v,l]) => `<button type="button" data-v="${v}">${l}</button>`).join("")}</div><button class="btn primary" id="${k}-add-btn" type="button">Add project</button></div>
       </div>
       <div class="legend">${legend}</div>
       <div class="status-line" id="${k}-msg" role="status"></div>
@@ -111,6 +133,10 @@ export function mountRoadmaps(db, writable) {
     const canWrite = writable !== false;
     let projects = [], editing = null;
     let rowOrder = null;
+    let view = readView(k), W0, W1, WDAYS;
+    const setWindow = () => { [W0, W1] = windowFor(view); WDAYS = Math.round((W1 - W0) / DAY); };
+    setWindow();
+    const pct = s => Math.max(0, Math.min(100, (pd(s) - W0) / (W1 - W0) * 100));
 
     const stagesOf = p => (Array.isArray(p.stages) ? p.stages : []).filter(s => s && s.end).slice().sort((a,b)=>(a.start||a.end).localeCompare(b.start||b.end));
     function nextMs(p){ return stagesOf(p).find(s => s.end >= TODAY) || null; }
@@ -138,12 +164,14 @@ export function mountRoadmaps(db, writable) {
     }
 
     const inWindow = p => stagesOf(p).some(s => s.end >= iso(W0) && (s.start||s.end) < iso(W1));
-    const sortedRows = () => projects.filter(inWindow)
+    const sortedRows = () => projects.filter(p => stagesOf(p).length)
         .sort((a,b) => firstStart(a).localeCompare(firstStart(b)) || lastEnd(a).localeCompare(lastEnd(b)));
     /* The staircase order is set once, at the first paint with data; after
        that a row keeps its place, a new project joins at the bottom, and a
-       deleted one leaves. Reload for a fresh staircase. */
-    function ganttOrder(){
+       deleted one leaves. Reload for a fresh staircase. The order spans every
+       dated project, so switching the view hides rows outside the window
+       without reshuffling the ones that stay. */
+    function allRows(){
       const fresh = sortedRows();
       if(!rowOrder){ if(projects.length) rowOrder = fresh.map(p => p.id); return fresh; }
       const ids = new Set(fresh.map(p => p.id));
@@ -151,13 +179,14 @@ export function mountRoadmaps(db, writable) {
       fresh.forEach(p => { if(!rowOrder.includes(p.id)) rowOrder.push(p.id); });
       return rowOrder.map(id => projects.find(p => p.id === id));
     }
+    const ganttOrder = () => allRows().filter(inWindow);
     let gdrag = null;
 
     function renderGantt(){
-      const months = []; for(let d = new Date(W0); d < W1; d = new Date(d.getFullYear(), d.getMonth()+1, 1)) months.push(d);
-      const cols = months.map(d => (new Date(d.getFullYear(), d.getMonth()+1, 1) - d) / (W1 - W0) * 100 + "%").join(" ");
-      let h = `<div class="grid-lines" style="grid-template-columns:${cols}">${months.map(()=>"<span></span>").join("")}</div>`;
-      h += `<div class="g-row axis"><span></span><div class="months" style="grid-template-columns:${cols}">${months.map(d=>`<span>${d.toLocaleDateString("en-US",{month:"short"})}${d.getMonth()===0||d===months[0]?" "+d.getFullYear():""}</span>`).join("")}</div></div>`;
+      const ticks = ticksFor(view, W0, W1);
+      const cols = ticks.map((t,i) => ((i+1 < ticks.length ? ticks[i+1].d : W1) - t.d) / (W1 - W0) * 100 + "%").join(" ");
+      let h = `<div class="grid-lines" style="grid-template-columns:${cols}">${ticks.map(()=>"<span></span>").join("")}</div>`;
+      h += `<div class="g-row axis"><span></span><div class="months" style="grid-template-columns:${cols}">${ticks.map(t=>`<span>${esc(t.label)}</span>`).join("")}</div></div>`;
       const rows = gdrag ? gdrag.order.map(id => projects.find(p => p.id === id)).filter(Boolean) : ganttOrder();
       rows.forEach(p => {
         const live = gdrag && gdrag.pid === p.id;
@@ -322,7 +351,7 @@ export function mountRoadmaps(db, writable) {
     function showTotal(total){ const t = q("btotal"); t.textContent = money(total); tone(t, total); }
     function renderBudget(){
       if(!budgetBox || bActive) return;
-      const go = ganttOrder(), list = go.concat(projects.filter(p => !go.includes(p)));
+      const go = allRows(), list = go.concat(projects.filter(p => !go.includes(p)));
       showTotal(list.reduce((t,p) => t + (+p.budget || 0), 0));
       const have = [...budgetBox.querySelectorAll("input[type=range]")].map(x => x.dataset.id).join("|");
       if(list.length && have === list.map(p => p.id).join("|")){
@@ -444,6 +473,12 @@ export function mountRoadmaps(db, writable) {
       if(e.key === "Escape"){ if(SEL && SEL.k === k){ SEL = null; renderAll(); } if(editing) closeEditor(); }
       if((e.key === "Delete" || e.key === "Backspace") && SEL && SEL.k === k && !typing(e.target)){ e.preventDefault(); removeStage(); }
     });
+    const vt = q("view");
+    const paintView = () => vt.querySelectorAll("button").forEach(b => { const on = b.dataset.v === view; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+    paintView();
+    vt.onclick = e => { const b = e.target.closest("button"); if(!b || b.dataset.v === view) return;
+      view = b.dataset.v; try{ localStorage.setItem("rm-view-" + k, view); }catch{ /* private window: the choice lasts this visit */ }
+      setWindow(); paintView(); renderGantt(); };
     q("add-btn").onclick = () => openEditor(null, {from:"gantt", scroll:true, focus:true});
     if(!canWrite){ ["add-btn","add-item"].forEach(id => q(id).hidden = true); }
     render();

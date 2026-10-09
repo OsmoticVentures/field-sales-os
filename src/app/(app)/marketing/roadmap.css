@@ -118,3 +118,8 @@
 .rm .zero{color:var(--accent)}
 .rm .wrap{padding:0;max-width:1180px;margin:0}
 .rm header.part{margin-top:20px}
+.rm .vt{display:inline-flex;background:var(--badge);border-radius:99px;padding:3px;gap:2px}
+.rm .vt button{font:inherit;font-size:.82rem;font-weight:600;border:0;background:transparent;color:var(--muted);border-radius:99px;padding:5px 12px;min-height:30px;cursor:pointer;transition:background-color .15s,color .15s}
+.rm .vt button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(20,32,27,.12)}
+.rm .vt button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+@media (prefers-reduced-motion:reduce){.rm .vt button{transition:none}}
