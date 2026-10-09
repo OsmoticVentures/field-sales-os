@@ -477,7 +477,7 @@ export function mountRoadmaps(db, writable) {
       const title = q("e-title").value.trim();
       if(!title){ setMsg("Name the project first."); return; }
       if(stages.some(s => !s.type)){ setMsg("Name every stage."); return; }
-      if(stages.some(s => !s.end)){ setMsg("Every stage needs a milestone date."); return; }
+      stages.forEach(s => { if(!s.end) s.end = addDays(s.start || TODAY, 14); if(!s.start) s.start = addDays(s.end, -14); });
       if(stages.some(s => s.start && s.start > s.end)){ setMsg("A stage starts after its milestone date."); return; }
       const pr = parseInt(q("e-prio").value, 10);
       const body = {title, link:q("e-link").value.trim(), stages, priority: pr > 0 ? pr : null};

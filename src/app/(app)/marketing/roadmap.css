@@ -86,8 +86,8 @@
 .rm .field label,.rm .st-head{font-size:.78rem;font-weight:600;color:var(--muted)}
 .rm input,.rm select{font:inherit;font-size:.9rem;color:var(--ink);background:var(--card);border:1px solid var(--border-hi);border-radius:8px;padding:6px 9px;min-height:36px;width:100%;min-width:0}
 .rm .stages{display:grid;gap:8px}
-.rm .st-row{display:grid;grid-template-columns:130px minmax(0,1fr) 150px 150px 36px;gap:8px;align-items:center}
-.rm .st-head{display:grid;grid-template-columns:130px minmax(0,1fr) 150px 150px 36px;gap:8px}
+.rm .st-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.6fr) 150px 150px 36px;gap:8px;align-items:center}
+.rm .st-head{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.6fr) 150px 150px 36px;gap:8px}
 .rm .x{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;display:grid;place-items:center}
 .rm .erow{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center}
 .rm .btotal{font-family:var(--display);font-size:1.3rem;font-weight:600;font-variant-numeric:tabular-nums}
