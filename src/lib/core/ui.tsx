@@ -164,6 +164,21 @@ export const ICONS: Record<string, ReactNode> = {
       <circle cx="12.6" cy="8" r="1.1" fill="currentColor" stroke="none" />
     </>
   ),
+  flow: (
+    <>
+      <circle cx="3.4" cy="3.6" r="1.5" />
+      <circle cx="12.6" cy="8" r="1.5" />
+      <circle cx="3.4" cy="12.4" r="1.5" />
+      <path d="M4.9 3.6h2.9a2.2 2.2 0 0 1 2.2 2.2V8h1.1" />
+      <path d="M11.1 8H10v2.2a2.2 2.2 0 0 1-2.2 2.2H4.9" />
+    </>
+  ),
+  folder: (
+    <>
+      <path d="M2.2 4.6c0-.6.5-1.1 1.1-1.1h3.1l1.5 1.6h4.8c.6 0 1.1.5 1.1 1.1v6.2c0 .6-.5 1.1-1.1 1.1H3.3c-.6 0-1.1-.5-1.1-1.1V4.6Z" />
+      <path d="M2.2 7.2h11.6" />
+    </>
+  ),
 };
 
 export function Ico({ name, size = 16 }: { name: string; size?: number }) {
