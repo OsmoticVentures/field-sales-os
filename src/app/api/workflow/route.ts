@@ -15,6 +15,14 @@ const NO_STORE = { "cache-control": "no-store" };
 const fail = (error: string, status: number) => Response.json({ ok: false, error }, { status, headers: NO_STORE });
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
+/** A database failure in plain words; the raw message goes to captureError. */
+const plain = (err: unknown, fallback: string): string => {
+  const m = err instanceof Error ? err.message : "";
+  if (m.includes("PGRST205")) return "The workflow table is not set up yet.";
+  if (m.includes("holds 20")) return "This board holds 20 documents.";
+  return fallback;
+};
+
 export async function GET(req: Request) {
   if (!(await hasAccess())) return fail("Unauthorized.", 401);
   const board = boardOf(new URL(req.url).searchParams.get("board"));
@@ -23,7 +31,7 @@ export async function GET(req: Request) {
     return Response.json({ ok: true, items: await list(board) }, { headers: NO_STORE });
   } catch (err) {
     captureError(err, "/api/workflow");
-    return fail(err instanceof Error ? err.message : "Could not load.", 500);
+    return fail(plain(err, "Could not load."), 500);
   }
 }
 
@@ -62,7 +70,7 @@ async function write(req: Request, method: "POST" | "PUT" | "DELETE") {
     return Response.json({ ok: true, items: await list(board) }, { headers: NO_STORE });
   } catch (err) {
     captureError(err, "/api/workflow");
-    return fail(err instanceof Error ? err.message : "Could not save.", 500);
+    return fail(plain(err, "Could not save."), 500);
   }
 }
 
