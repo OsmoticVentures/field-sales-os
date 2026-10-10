@@ -3,7 +3,7 @@
  * imports, so `node --experimental-strip-types` loads it for
  * tests/writeq.test.mts. The browser half is writeq.ts.
  *
- * One item is one write a screen made (clock in/out, a receipt, a trip)
+ * One item is one write a screen made (a receipt, a trip)
  * that could not reach the server yet. The visit note has its own, richer
  * outbox (outbox-core.ts); this one is for the single-request writes.
  *
@@ -24,7 +24,7 @@ export type WqItem = {
   id: string;
   /** The rep whose session must send it; another rep's session never does. */
   rep: string | null;
-  /** The screen whose card shows it, e.g. "expenses/hours". */
+  /** The screen whose card shows it, e.g. "expenses/photos". */
   screen: string;
   /** What its line reads, e.g. "Hours, 2026-10-08". */
   label: string;

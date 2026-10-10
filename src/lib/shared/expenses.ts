@@ -71,10 +71,6 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-function ymd(d: Date): string {
-  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-}
-
 /** All date math here is calendar-day arithmetic in Pacific local time, never
  *  UTC-shifted, so a photo filed at 11pm doesn't land on tomorrow's period.
  *  Callers pass plain YYYY-MM-DD strings for exactly this reason. */
@@ -134,22 +130,6 @@ export function periodLabel(dateStr: string): string {
 export function sheetName(dateStr: string): string {
   const { year, month, half } = periodLabelParts(periodBounds(dateStr));
   return `expense-report-${year}-${pad2(month)}${half}`;
-}
-
-/** The Sunday (UTC-date-math) that starts the fixed 7-day workweek
- *  California overtime is computed against, independent of the pay period. */
-export function workweekStart(dateStr: string): string {
-  const d = parseDate(dateStr);
-  const dow = d.getUTCDay(); // 0 = Sunday already
-  const sunday = new Date(d);
-  sunday.setUTCDate(d.getUTCDate() - dow);
-  return ymd(sunday);
-}
-
-function addDays(dateStr: string, n: number): string {
-  const d = parseDate(dateStr);
-  d.setUTCDate(d.getUTCDate() + n);
-  return ymd(d);
 }
 
 type Tree = { yearFolderId: string; periodFolderId: string; sheetId: string; sheetLink: string };
@@ -222,74 +202,6 @@ async function styleHoursSheet(sheetId: string): Promise<void> {
 export async function periodSummary(dateStr: string): Promise<{ period: string; label: string; sheetLink: string }> {
   const tree = await ensureTree(dateStr);
   return { period: periodKey(dateStr), label: periodLabel(dateStr), sheetLink: asOwnerLink(tree.sheetLink) };
-}
-
-// ---------------------------------------------------------------------------
-// hours
-// ---------------------------------------------------------------------------
-
-export type HoursInput = { date: string; clockIn: string; clockOut: string; breakMin: number; notes: string };
-export type HoursResult = {
-  status: "filed" | "duplicate";
-  date?: string;
-  hoursWorked?: number;
-  sheetLink?: string;
-  boundaryWeek?: boolean;
-  sevenDayWeek?: boolean;
-  why?: string;
-};
-
-function parseClock(dateStr: string, hhmm: string): Date {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
-  if (!m) throw new Error(`${hhmm} is not HH:MM 24h.`);
-  const d = parseDate(dateStr);
-  d.setUTCHours(Number(m[1]), Number(m[2]), 0, 0);
-  return d;
-}
-
-export async function fileHours(input: HoursInput): Promise<HoursResult> {
-  const { date, clockIn, clockOut, breakMin, notes } = input;
-  const tree = await ensureTree(date);
-
-  const existingDates = await readColumn(tree.sheetId, `${HOURS_TAB}!A${FIRST_DATA_ROW}:A${HOURS_LAST_ROW}`);
-  if (existingDates.includes(date)) {
-    return { status: "duplicate", why: `${date} is already filed for this period. Amend it from the CLI (expensos) instead of re-filing.` };
-  }
-
-  const inAt = parseClock(date, clockIn);
-  let outAt = parseClock(date, clockOut);
-  // The web picker's clock-out window is 2pm-2am, so a clock out at/before
-  // clock in always means the 2am wrap into the next calendar day, not a
-  // bad reading.
-  if (outAt.getTime() <= inAt.getTime()) {
-    outAt = new Date(outAt.getTime() + 24 * 3_600_000);
-  }
-  const worked = Math.round(((outAt.getTime() - inAt.getTime()) / 3_600_000 - breakMin / 60) * 100) / 100;
-  if (worked <= 0) {
-    throw new Error(`The break (${breakMin} min) is not shorter than the shift. Nothing filed.`);
-  }
-
-  const day = parseDate(date).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-  const row = Math.max(await nextFreeRow(tree.sheetId, HOURS_TAB, "A"), FIRST_DATA_ROW);
-  const breakHours = Math.round((breakMin / 60) * 100) / 100;
-  await writeRange(tree.sheetId, `${HOURS_TAB}!A${row}:J${row}`, [[
-    date, day, clockIn, clockOut, breakHours, worked,
-    `=MIN(F${row},8)`, `=MAX(0,MIN(F${row},12)-8)`, `=MAX(0,F${row}-12)`, notes,
-  ]]);
-
-  const { start, end } = periodBounds(date);
-  const wkStart = parseDate(workweekStart(date));
-  const wkEnd = parseDate(addDays(workweekStart(date), 6));
-  const boundaryWeek = wkStart.getTime() < start.getTime() || wkEnd.getTime() > end.getTime();
-
-  const allDatesThisPeriod = [...existingDates, date];
-  const wk = workweekStart(date);
-  const sameWeekCount = allDatesThisPeriod.filter((d) => d && workweekStart(d) === wk).length;
-
-  return {
-    status: "filed", date, hoursWorked: worked, sheetLink: asOwnerLink(tree.sheetLink),
-    boundaryWeek, sevenDayWeek: sameWeekCount >= 7,
-  };
 }
 
 // ---------------------------------------------------------------------------

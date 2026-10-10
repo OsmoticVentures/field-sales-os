@@ -58,7 +58,7 @@ native rebuild: `npx cap copy ios`, then from `ios/App`
 
 - Visit notes and field notes: the visit outbox (`lib/core/outbox.ts`, rules
   in `outbox-core.ts`, tests in `tests/outbox.test.mts`).
-- Clock in/out, receipts and trips: the write queue (`lib/core/writeq.ts`,
+- Receipts and trips: the write queue (`lib/core/writeq.ts`,
   rules in `writeq-core.ts`, tests in `tests/writeq.test.mts`). A screen calls
   `submitWrite()` with its Idempotency-Key. It lands: the usual confirmation.
   The server refuses it: nothing is queued, the screen keeps every field and
@@ -102,7 +102,7 @@ native rebuild: `npx cap copy ios`, then from `ios/App`
 stubbed (nothing reaches a database or sheet), the server stopped and the
 browser offline for the dead zone: the build and six screens are kept; every
 static screen and the launch URL open with no signal (about 20 to 45 ms);
-clock in/out and a visit note queue, tagged with the rep; on reconnect each
+an expenses write and a visit note queue, tagged with the rep; on reconnect each
 arrives exactly once with its key, and not again after a reload; a rep switch
 wipes the first rep's reads and keeps their unsent write, which is refused
 under the other rep's session and sent once when the first rep signs back in.

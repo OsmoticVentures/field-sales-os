@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * Expenses, from the browser. Three cards: a photo drop zone that auto-sorts
- * what it's handed (odometer vs receipt vs bank-statement screenshot), a
- * link to the pay period's live sheet, and clock in/out with a break in
- * minutes. Every filing writes to the same Drive/Sheets tree the CLI's
+ * Expenses, from the browser. Two cards: a photo drop zone that auto-sorts
+ * what it's handed (odometer vs receipt vs bank-statement screenshot), and a
+ * link to the pay period's live sheet. Every filing writes to the same Drive/Sheets tree the CLI's
  * `expensos` skill does, see lib/shared/expenses.ts.
  *
  * Ported from the NutriBiotic OS
@@ -21,9 +20,9 @@
 
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { UnsentList } from "@/lib/core/unsent";
-import { submitWrite, type WqItem } from "@/lib/core/writeq";
+import { submitWrite } from "@/lib/core/writeq";
 import { useEffect, useRef, useState } from "react";
-import { Card, Ico, SuccessNote, displayFace, eyebrowCls, ghostBtn, inputCls, labelCls, primaryBtn } from "../../../lib/core/ui";
+import { Card, Ico, SuccessNote, displayFace, eyebrowCls, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
 
 type Summary = { period: string; label: string; sheetLink: string } | null;
 type SummaryPayload = { ok: boolean; period: string; label: string; sheetLink: string };
@@ -80,7 +79,6 @@ export function ExpensesClient() {
     <div className="flex flex-col gap-5">
       <ReviewCard summary={summary} error={summaryError} />
       <PhotosCard />
-      <HoursCard />
     </div>
   );
 }
@@ -560,225 +558,5 @@ function TripPairCard({
         </div>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// hours
-// ---------------------------------------------------------------------------
-
-/* 0 to 3h. Past three hours it is not a break, it is a split shift. */
-const BREAK_CHOICES = [0, 30, 60, 90, 120, 150, 180];
-
-/** 0 -> "None", 30 -> "30 min", 90 -> "1h 30m". */
-function breakLabel(m: number): string {
-  if (m === 0) return "None";
-  if (m < 60) return `${m} min`;
-  const h = Math.floor(m / 60);
-  const rest = m % 60;
-  return rest ? `${h}h ${rest}m` : `${h}h`;
-}
-
-/* Half-hour grid, matching the Break dropdown. A field day runs roughly
-   5am-2pm to 2pm-2am, so the two fields get their own windows rather than
-   one 00:00-23:30 list for both. */
-function halfHourRange(startMin: number, endMin: number): string[] {
-  const out: string[] = [];
-  for (let m = startMin; m <= endMin; m += 30) {
-    const hh = Math.floor((m % 1440) / 60);
-    const mm = m % 60 === 0 ? "00" : "30";
-    out.push(`${String(hh).padStart(2, "0")}:${mm}`);
-  }
-  return out;
-}
-const CLOCK_IN_CHOICES: string[] = halfHourRange(5 * 60, 14 * 60);
-// Wraps past midnight: 14:00 through 23:30, then 00:00 through 02:00.
-const CLOCK_OUT_CHOICES: string[] = halfHourRange(14 * 60, 26 * 60);
-
-/** "14:30" -> "2:30 PM". */
-function timeLabel(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  const period = h < 12 ? "AM" : "PM";
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, "0")} ${period}`;
-}
-
-function HoursCard() {
-  const [date, setDate] = useState(todayPT());
-  const [clockIn, setClockIn] = useState("");
-  const [clockOut, setClockOut] = useState("");
-  const [breakMin, setBreakMin] = useState("0");
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ kind: "ok" | "warn" | "error"; text: string } | null>(null);
-  // One key per pending entry: stable across a retry of the same submission,
-  // regenerated once that entry has actually filed.
-  const [pendingKey, setPendingKey] = useState(() => newId());
-
-  /* Half-hour grid: a field day is remembered as "started around nine,
-     knocked off around five", never to the minute. Rounds to nearest, not
-     down, so a "now" tap never shades hours worked downward. */
-  function markNow(which: "in" | "out") {
-    const now = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "America/Los_Angeles" });
-    const [h, m] = now.split(":").map(Number);
-    let mins = Math.round((h * 60 + m) / 30) * 30;
-    mins = Math.min(mins, 23 * 60 + 30);
-    if (which === "in") {
-      mins = Math.min(Math.max(mins, 5 * 60), 14 * 60);
-      setClockIn(`${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`);
-    } else {
-      if (mins >= 2 * 60 && mins < 14 * 60) mins = 14 * 60;
-      setClockOut(`${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`);
-    }
-  }
-
-  /** A queued entry he wants to fix: back into the form, same key. */
-  function editQueued(it: WqItem) {
-    const b = (it.json ?? {}) as { date?: string; clock_in?: string; clock_out?: string; break_min?: number; notes?: string };
-    setDate(b.date ?? todayPT());
-    setClockIn(b.clock_in ?? "");
-    setClockOut(b.clock_out ?? "");
-    setBreakMin(String(b.break_min ?? 0));
-    setNotes(b.notes ?? "");
-    setPendingKey(it.key);
-    setMessage(it.failed ? { kind: "error", text: it.failed } : null);
-  }
-
-  async function submit() {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const r = await submitWrite({
-        screen: "expenses/hours",
-        label: `Hours ${new Date(`${date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${timeLabel(clockIn)} to ${timeLabel(clockOut)}`,
-        path: "/api/expenses/hours",
-        key: pendingKey,
-        json: { date, clock_in: clockIn, clock_out: clockOut, break_min: Number(breakMin || 0), notes },
-      });
-      if (r.status === "failed") {
-        setMessage({ kind: "error", text: r.error });
-        return;
-      }
-      if (r.status === "queued") {
-        // Kept on the phone, shown under the form until it lands.
-        setClockIn("");
-        setClockOut("");
-        setBreakMin("0");
-        setNotes("");
-        setPendingKey(newId());
-        return;
-      }
-      const j = { result: r.result as { status?: string; why?: string; hoursWorked?: number; boundaryWeek?: boolean; sevenDayWeek?: boolean } };
-      if (j.result.status === "duplicate") {
-        setMessage({ kind: "warn", text: j.result.why ?? "" });
-        return;
-      }
-      const flags: string[] = [];
-      if (j.result.boundaryWeek) flags.push("this week crosses a pay period boundary");
-      if (j.result.sevenDayWeek) flags.push("7th day worked this week");
-      setMessage({
-        kind: flags.length ? "warn" : "ok",
-        text: `Filed ${j.result.hoursWorked}h for ${date}.${flags.length ? " " + flags.join("; ") + "." : ""}`,
-      });
-      setClockIn("");
-      setClockOut("");
-      setBreakMin("0");
-      setNotes("");
-      setPendingKey(newId());
-      if (!flags.length) setTimeout(() => setMessage((m) => (m?.text.startsWith("Filed") ? null : m)), 1200);
-    } catch {
-      setMessage({ kind: "error", text: "Could not save that on the phone." });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <div className={`mb-3 flex items-center gap-2 ${eyebrowCls}`}>
-        <Ico name="clock" size={13} />
-        Hours
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div>
-          <label className={labelCls}>Date</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            onBlur={(e) => { if (!e.target.value) setDate(todayPT()); }}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className={labelCls}>Clock in</label>
-          <div className="flex gap-1.5">
-            <select value={clockIn} onChange={(e) => setClockIn(e.target.value)} className={inputCls}>
-              <option value="" disabled>
-                Select
-              </option>
-              {CLOCK_IN_CHOICES.map((t) => (
-                <option key={t} value={t}>
-                  {timeLabel(t)}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={() => markNow("in")} className={`${ghostBtn} shrink-0 px-2`} title="Now">
-              now
-            </button>
-          </div>
-        </div>
-        <div>
-          <label className={labelCls}>Clock out</label>
-          <div className="flex gap-1.5">
-            <select value={clockOut} onChange={(e) => setClockOut(e.target.value)} className={inputCls}>
-              <option value="" disabled>
-                Select
-              </option>
-              {CLOCK_OUT_CHOICES.map((t) => (
-                <option key={t} value={t}>
-                  {timeLabel(t)}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={() => markNow("out")} className={`${ghostBtn} shrink-0 px-2`} title="Now">
-              now
-            </button>
-          </div>
-        </div>
-        <div>
-          <label className={labelCls}>Break (min)</label>
-          <select value={breakMin} onChange={(e) => setBreakMin(e.target.value)} className={inputCls}>
-            {BREAK_CHOICES.map((m) => (
-              <option key={m} value={String(m)}>
-                {breakLabel(m)}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      <div className="mt-3">
-        <label className={labelCls}>Notes</label>
-        <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Field day, SoCal loop" className={inputCls} />
-      </div>
-      <div className="mt-3 flex items-center justify-between gap-3">
-        {message && message.kind !== "ok" ? (
-          <p className={`text-[12.5px] leading-snug ${message.kind === "error" ? "text-[#8A2E2E]" : "text-[#8A6D2F]"}`}>
-            {message.text}
-          </p>
-        ) : (
-          <span />
-        )}
-        <button type="button" onClick={submit} disabled={busy || !clockIn || !clockOut} className={`${primaryBtn} shrink-0`}>
-          {busy ? "Filing..." : "File hours"}
-        </button>
-      </div>
-      {message?.kind === "ok" && (
-        <div className="mt-3">
-          <SuccessNote title="Hours filed" detail={message.text} />
-        </div>
-      )}
-      <UnsentList screen="expenses/hours" onEdit={editQueued} />
-    </Card>
   );
 }

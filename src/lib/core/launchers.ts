@@ -28,7 +28,7 @@ const EXPENSES: Launcher = {
   id: "/expenses",
   name: "ClientOS Expenses",
   short_name: "Expenses",
-  description: "Clock in and out, log a break, and drop in a receipt or odometer photo.",
+  description: "Drop in a receipt or odometer photo.",
   start_url: "/expenses",
   icon: "/expenses/apple-icon.png",
 };

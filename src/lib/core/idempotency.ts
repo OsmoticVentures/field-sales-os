@@ -8,7 +8,7 @@
  *
  *   const key = idempotencyKey(req, form);
  *   if (!key) return Response.json({ ok: false, error: "Idempotency-Key is required." }, { status: 400 });
- *   const { result, replayed } = await withIdempotency(`hours:${key}`, () => fileHours(input));
+ *   const { result, replayed } = await withIdempotency(`receipt:${key}`, () => fileReceipt(input));
  *
  * STORAGE, TWO TIERS. An in-memory map always guards correctly within one
  * warm server instance (which is what a manual retry or a same-session

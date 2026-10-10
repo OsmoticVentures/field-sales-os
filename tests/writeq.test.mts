@@ -1,4 +1,4 @@
-// The write queue's rules (clock in/out, receipts, trips made with no signal).
+// The write queue's rules (receipts and trips made with no signal).
 // Run: node --experimental-strip-types tests/writeq.test.mts
 import {
   applyWrite,
@@ -24,9 +24,9 @@ const item = (over: Partial<WqItem> = {}): WqItem => ({
   ...newWrite({
     id: "w-1",
     rep: "juan",
-    screen: "expenses/hours",
-    label: "Hours, 2026-10-08",
-    path: "/api/expenses/hours",
+    screen: "expenses/photos",
+    label: "Receipt, 2026-10-08",
+    path: "/api/expenses/receipt",
     key: "k-1",
     json: { date: "2026-10-08" },
     now: T0,
@@ -43,8 +43,8 @@ const ctx = (over: Partial<{ now: number; rand: number; sentOnline: boolean; sen
 
 // 1. A landed write is done; its result goes back to the screen.
 {
-  const r = applyWrite(item(), { type: "ok", result: { hoursWorked: 8 } }, ctx());
-  t("1 ok is done with the result", r.done && (r.result as { hoursWorked: number }).hoursWorked === 8);
+  const r = applyWrite(item(), { type: "ok", result: { sheetLink: "s" } }, ctx());
+  t("1 ok is done with the result", r.done && (r.result as { sheetLink: string }).sheetLink === "s");
 }
 
 // 2. No signal at all: kept, plain backoff, no hold.

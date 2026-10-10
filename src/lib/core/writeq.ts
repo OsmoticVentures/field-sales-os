@@ -1,6 +1,6 @@
 /**
- * THE WRITE QUEUE. A write a screen makes with no signal (clock in/out, a
- * receipt, a trip) is saved on the phone and sent when signal returns. The
+ * THE WRITE QUEUE. A write a screen makes with no signal (a receipt, a
+ * trip) is saved on the phone and sent when signal returns. The
  * rules live in writeq-core.ts (pure, tested in tests/writeq.test.mts); this
  * file is the browser half: the phone store, the network, the lock, the
  * triggers. Visit notes have their own outbox (outbox.ts).
