@@ -328,16 +328,21 @@ export function reportHref(name: string): string {
 }
 
 /** Whether an object exists in the bucket, without minting a signature just
- *  to find out. Returns the stable href, not the signed URL. */
+ *  to find out. Returns the stable href, not the signed URL. Asks the folder
+ *  listing rather than the object info endpoint: Storage answers info for a
+ *  missing object with a 400, which is a normal "not there yet" here, while a
+ *  listing answers 200 with an empty list. */
 export async function reportPreviewHref(userId: string, name: string): Promise<string | null> {
   try {
-    const path = reportObjectPath(userId, name).split("/").map(enc).join("/");
-    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/info/${REPORTS_BUCKET}/${path}`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/list/${REPORTS_BUCKET}`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix: userId === ROOT_REP ? "" : `${userId}/`, search: name, limit: 100 }),
       cache: "no-store",
     });
     if (!res.ok) return null;
-    return reportHref(name);
+    const objects = (await res.json()) as Array<{ name: string }>;
+    return objects.some((o) => o.name === name) ? reportHref(name) : null;
   } catch {
     return null;
   }
