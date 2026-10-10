@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import WebKit
+import CoreLocation
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -25,6 +26,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         DeepLink.drain()
         Task { await Outbox.flush() }
+        LocationAlways.ask()
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
@@ -106,5 +108,44 @@ enum MacWindow {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             scene.sizeRestrictions?.minimumSize = CGSize(width: 900, height: 640)
         }
+    }
+}
+
+/// Location is Always for this app, so arrival at a client and the day's miles
+/// can be read without the app on screen. A first launch asks (iOS answers
+/// While Using and holds Always provisionally); a phone already on While Using
+/// gets iOS's one-time "Change to Always Allow" prompt. After that iOS allows
+/// no second ask from the app, so nothing nags: the setting lives in
+/// Settings > ClientOS > Location. The Mac has no Always, so it is skipped.
+@MainActor
+final class LocationAlways: NSObject, CLLocationManagerDelegate {
+    private static let shared = LocationAlways()
+    private static let upgradeAsked = "location.alwaysUpgradeAsked"
+    private let manager = CLLocationManager()
+
+    private override init() {
+        super.init()
+        manager.delegate = self
+    }
+
+    static func ask() {
+        guard !ProcessInfo.processInfo.isiOSAppOnMac else { return }
+        shared.askIfNeeded()
+    }
+
+    private func askIfNeeded() {
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestAlwaysAuthorization()
+        case .authorizedWhenInUse where !UserDefaults.standard.bool(forKey: Self.upgradeAsked):
+            UserDefaults.standard.set(true, forKey: Self.upgradeAsked)
+            manager.requestAlwaysAuthorization()
+        default:
+            break
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in self.askIfNeeded() }
     }
 }
