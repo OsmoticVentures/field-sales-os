@@ -16,6 +16,7 @@
  */
 
 import Link from "next/link";
+import { Geolocation } from "@capacitor/geolocation";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
@@ -1074,15 +1075,12 @@ function nowHHMM(): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// Through the native plugin, like every other location read: in the app it
+// rides the app's own location permission, so the web view never asks again.
 function locateMe(): Promise<RouteEndpoint | null> {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return resolve(null);
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ label: "My location", address: "Current location", lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 },
-    );
-  });
+  return Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 })
+    .then((p) => ({ label: "My location", address: "Current location", lat: p.coords.latitude, lng: p.coords.longitude }))
+    .catch(() => null);
 }
 
 function EndpointField({
