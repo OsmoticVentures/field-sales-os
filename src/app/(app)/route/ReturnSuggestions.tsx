@@ -82,8 +82,7 @@ const STEP_ICON: Record<ReturnStep, string> = { call: "phone", email: "mail", te
 
 const actionBtn = `${ghostBtn} inline-flex items-center gap-1.5 bg-white px-3 py-2 text-[13px] font-medium text-[#3D4A44]`;
 /** The button that matches the card's own next step. */
-const primaryBtn =
-  "glass-dark inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 py-2 text-[13px] font-semibold transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40";
+const primaryBtn = `${ghostBtn} glass-dark inline-flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold text-[#F7F6F1]`;
 
 export function ReturnSuggestions({
   activeDay,
