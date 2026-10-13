@@ -16,6 +16,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
+import { enablePinchZoom } from "@/lib/shared/map-pinch";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico } from "@/lib/core/ui";
 import { useFlag } from "@/lib/core/me";
@@ -456,6 +457,7 @@ export function AccountsMap({
   useEffect(() => {
     if (!apiKey || !containerRef.current) return;
     let cancelled = false;
+    let unpinch = () => {};
     loadGoogleMaps(apiKey)
       .then((g) => {
         if (cancelled || !containerRef.current) return;
@@ -470,11 +472,13 @@ export function AccountsMap({
           gestureHandling: "cooperative",
           keyboardShortcuts: false,
         });
+        unpinch = enablePinchZoom(containerRef.current, mapRef.current);
         setLoaded(true);
       })
       .catch(() => setFailed(true));
     return () => {
       cancelled = true;
+      unpinch();
     };
   }, [apiKey]);
 

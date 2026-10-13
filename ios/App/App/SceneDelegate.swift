@@ -37,14 +37,37 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// On the Mac the app opens on the map (the Route screen); the phone keeps Visit.
 /// The server URL stays /nb, which is what keeps every other screen in the app
 /// instead of handing it to the browser, so Route is loaded over the first page.
-final class BridgeViewController: CAPBridgeViewController {
+final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         guard ProcessInfo.processInfo.isiOSAppOnMac, let webView else { return }
         webView.configuration.userContentController.addUserScript(
             WKUserScript(source: Self.largerText, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(trackpadPinch(_:)))
+        pinch.cancelsTouchesInView = false
+        pinch.delegate = self
+        webView.addGestureRecognizer(pinch)
         DeepLink.load(webView, "/route")
     }
+
+    /// A trackpad pinch on the Mac never reaches the page as a gesture, so it
+    /// is handed over as "nativepinch" and the map under the fingers zooms
+    /// (src/lib/shared/map-pinch.ts).
+    @objc private func trackpadPinch(_ g: UIPinchGestureRecognizer) {
+        guard let webView else { return }
+        let state: String
+        switch g.state {
+        case .began: state = "began"
+        case .changed: state = "changed"
+        case .ended, .cancelled, .failed: state = "ended"
+        default: return
+        }
+        let p = g.location(in: webView)
+        webView.evaluateJavaScript(
+            "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x),y:\(p.y)}}))")
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
     /// Every font one point larger on the Mac: each px or rem font size in the
     /// page's stylesheets, Tailwind's --text-* sizes, and the body default.

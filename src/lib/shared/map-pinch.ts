@@ -1,0 +1,68 @@
+/**
+ * Trackpad pinch zooms a Google map, wherever the pinch arrives from: a
+ * ctrl+wheel (desktop browsers), WebKit's gesture events (Safari), or the
+ * Mac app's own pinch recognizer, which posts "nativepinch" on window with the
+ * scale and the point under the fingers (ios/App/App/SceneDelegate.swift).
+ * Returns the cleanup.
+ */
+type PinchMap = { getZoom(): number | undefined; setZoom(z: number): void };
+type NativePinch = { state: "began" | "changed" | "ended"; scale: number; x: number; y: number };
+
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 20;
+const clamp = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
+
+export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
+  let start = map.getZoom() ?? 10;
+  let pinching = false;
+  // Fractional zoom isn't on for these maps, so a pinch steps a whole level
+  // each time the fingers cross one.
+  const apply = (scale: number) => {
+    const next = Math.round(clamp(start + Math.log2(scale)));
+    if (next !== map.getZoom()) map.setZoom(next);
+  };
+
+  let wheel = 0;
+  const onWheel = (e: WheelEvent) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    wheel -= e.deltaY;
+    if (Math.abs(wheel) < 40) return;
+    map.setZoom(clamp((map.getZoom() ?? 10) + Math.sign(wheel)));
+    wheel = 0;
+  };
+
+  const onGestureStart = (e: Event) => {
+    e.preventDefault();
+    start = map.getZoom() ?? start;
+  };
+  const onGestureChange = (e: Event) => {
+    e.preventDefault();
+    apply((e as Event & { scale: number }).scale);
+  };
+
+  const onNative = (e: Event) => {
+    const d = (e as CustomEvent<NativePinch>).detail;
+    if (d.state === "began") {
+      const hit = document.elementFromPoint(d.x, d.y);
+      pinching = !!hit && el.contains(hit);
+      if (pinching) start = map.getZoom() ?? start;
+      return;
+    }
+    if (!pinching) return;
+    apply(d.scale);
+    if (d.state === "ended") pinching = false;
+  };
+
+  el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+  el.addEventListener("gesturestart", onGestureStart);
+  el.addEventListener("gesturechange", onGestureChange);
+  window.addEventListener("nativepinch", onNative);
+  return () => {
+    el.removeEventListener("wheel", onWheel, { capture: true });
+    el.removeEventListener("gesturestart", onGestureStart);
+    el.removeEventListener("gesturechange", onGestureChange);
+    window.removeEventListener("nativepinch", onNative);
+  };
+}

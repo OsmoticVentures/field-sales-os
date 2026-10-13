@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
+import { enablePinchZoom } from "@/lib/shared/map-pinch";
 import { loadGoogleMaps, useGoogleMapsAuthFailed } from "@/lib/shared/google-maps-loader";
 import type { RouteEndpoint, RouteStopView } from "@/lib/features/route/types";
 
@@ -69,6 +70,7 @@ export function RouteMap({
   useEffect(() => {
     if (!apiKey || !containerRef.current) return;
     let cancelled = false;
+    let unpinch = () => {};
     loadGoogleMaps(apiKey)
       .then((g) => {
         if (cancelled || !containerRef.current) return;
@@ -81,11 +83,13 @@ export function RouteMap({
           gestureHandling: "cooperative",
           keyboardShortcuts: false,
         });
+        unpinch = enablePinchZoom(containerRef.current, mapRef.current);
         setLoaded(true);
       })
       .catch(() => setFailed(true));
     return () => {
       cancelled = true;
+      unpinch();
     };
   }, [apiKey]);
 
