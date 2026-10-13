@@ -5,6 +5,10 @@
  * RoutePanel (2026-09-25): accounts Juan said out loud he would go back to,
  * filtered to the active day. Only ever a stated "come back" from a logged
  * note (lib/features/route/return-suggestions.ts), never a model's guess.
+ * Every card has one shape: the name, one line led by the next step the
+ * note names (call, email, text, visit), a detail only when it adds
+ * something, then city, when it was said, and a time only when one was.
+ * The button that matches the step is the dark one.
  *
  * Three actions, each a door that already exists: Add to day goes through the
  * same cheapest-gap addEntry the Add a stop search uses, Add to SDR posts to
@@ -24,7 +28,7 @@ import { sees, useMe } from "../../../lib/core/me";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn } from "@/lib/core/ui";
 import { laTodayIso } from "@/lib/features/route/field-week";
-import type { ReturnSuggestion } from "@/lib/features/route/return-suggestions";
+import type { ReturnStep, ReturnSuggestion } from "@/lib/features/route/return-suggestions";
 import type { RouteAccount } from "@/lib/features/route/types";
 
 function newKey(): string {
@@ -46,28 +50,40 @@ async function postJson(path: string, body: unknown): Promise<PostResult> {
   return res.json();
 }
 
-/** "Thursday, September 24", Los Angeles wall clock; null if unparseable. */
+/** "Oct 5", Los Angeles wall clock; null if unparseable. */
 function loggedOnLabel(iso: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "long", month: "long", day: "numeric" });
+  return d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric" });
 }
 
-/** "Wed, Sep 30, 12:00 PM", Los Angeles wall clock; null if unparseable. */
-function statedTimeLabel(iso: string): string | null {
+/** "9:00 AM" when the stated time falls on the card's own day, "Tue, Oct 13,
+ *  9:00 AM" otherwise; null for a date with no time (stored as midnight). */
+function statedTimeLabel(iso: string, day: string): string | null {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleString("en-US", {
-    timeZone: "America/Los_Angeles",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const la = (o: Intl.DateTimeFormatOptions) => d.toLocaleString("en-US", { timeZone: "America/Los_Angeles", ...o });
+  const hm = la({ hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  if (hm === "00:00") return null;
+  const time = la({ hour: "numeric", minute: "2-digit" });
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === day ? time : `${la({ weekday: "short", month: "short", day: "numeric" })}, ${time}`;
 }
 
+const KEEP_UPPER = /^(?:[^AEIOUY.']{2,5}|[A-Z]\.(?:[A-Z]\.)+|LLC|USA|II|III|IV|CBD|GNC|ND|MD|DC)$/;
+
+/** An all-caps name ("DR. PURE NATURE") in the same case as every other card;
+ *  a name already in mixed case is left exactly as written. */
+function displayCase(text: string): string {
+  if (/[a-z]/.test(text) || !/[A-Z]/.test(text)) return text;
+  return text.replace(/[A-Z0-9][A-Z0-9'.]*/g, (w) => (KEEP_UPPER.test(w) ? w : `${w[0]}${w.slice(1).toLowerCase()}`));
+}
+
+const STEP_ICON: Record<ReturnStep, string> = { call: "phone", email: "mail", text: "send", visit: "route" };
+
 const actionBtn = `${ghostBtn} inline-flex items-center gap-1.5 bg-white px-3 py-2 text-[13px] font-medium text-[#3D4A44]`;
+/** The button that matches the card's own next step. */
+const primaryBtn =
+  "glass-dark inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 py-2 text-[13px] font-semibold transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:opacity-40";
 
 export function ReturnSuggestions({
   activeDay,
@@ -169,26 +185,38 @@ export function ReturnSuggestions({
       <ul className="divide-y divide-[#EEECE3]">
         {visible.map((s) => {
           const account = accountsById.get(s.accountId)!;
-          const time = s.statedTime ? statedTimeLabel(s.statedTime) : null;
+          const time = s.statedTime ? statedTimeLabel(s.statedTime, s.suggestedDate) : null;
           const logged = loggedOnLabel(s.loggedAt);
           const success = successById[s.accountId];
           const error = errorById[s.accountId];
+          const canDraft = sees(me, "outbound");
+          // A visit goes on the route, a call or text on SDR, an email to Draft.
+          const match = s.step === "visit" ? "route" : s.step === "email" && canDraft ? "draft" : "sdr";
           return (
-            <li key={s.accountId} className="flex flex-col gap-2 px-4 py-3">
+            <li key={s.accountId} className="flex flex-col gap-2.5 px-4 py-3.5">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <span className="text-[14.5px] font-medium text-[#14201B]">{account.name}</span>
-                  {account.city && <span className="text-[12.5px] text-[#8A928C]">{account.city}</span>}
-                </div>
-                {s.reason && <p className="mt-0.5 text-[13px] text-[#5B6560]">{s.reason}</p>}
-                {s.quote && <p className="mt-0.5 text-[13px] italic text-[#5B6560]">&ldquo;{s.quote}&rdquo;</p>}
-                {logged && <p className="mt-0.5 text-[12px] text-[#8A928C]">Because on {logged}</p>}
-                {time && (
-                  <p className="mt-0.5 inline-flex items-center gap-1 text-[12.5px] font-medium text-[#2C6A46]">
-                    <Ico name="clock" size={12} />
-                    {time}
-                  </p>
-                )}
+                <div className="text-[15px] leading-snug font-semibold text-[#14201B]">{displayCase(account.name)}</div>
+                <p className="mt-1 flex gap-1.5 text-[14px] leading-snug text-[#14201B]">
+                  <span className="mt-[3px] shrink-0 text-[#2C6A46]">
+                    <Ico name={STEP_ICON[s.step]} size={13} />
+                  </span>
+                  <span>{s.premise}</span>
+                </p>
+                {s.detail && <p className="mt-1 pl-[19px] text-[13px] leading-snug text-[#5B6560]">{s.detail}</p>}
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-1.5 pl-[19px] text-[12.5px] text-[#8A928C]">
+                  {account.city && <span>{displayCase(account.city)}</span>}
+                  {account.city && logged && <span aria-hidden>·</span>}
+                  {logged && <span>Noted {logged}</span>}
+                  {time && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span className="inline-flex items-center gap-1 font-medium text-[#2C6A46]">
+                        <Ico name="clock" size={12} />
+                        {time}
+                      </span>
+                    </>
+                  )}
+                </p>
               </div>
               {success ? (
                 <div className="max-w-xs">
@@ -224,22 +252,28 @@ export function ReturnSuggestions({
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <button type="button" onClick={() => addToDay(s)} className={actionBtn} title="Add to day">
+                  <button type="button" onClick={() => addToDay(s)} className={match === "route" ? primaryBtn : actionBtn} title="Add to day">
                     <Ico name="route" size={13} />
                     Route
                   </button>
-                  <button type="button" onClick={() => addToSdr(s)} disabled={busyId === s.accountId} className={actionBtn} title="Add to SDR">
+                  <button
+                    type="button"
+                    onClick={() => addToSdr(s)}
+                    disabled={busyId === s.accountId}
+                    className={match === "sdr" ? primaryBtn : actionBtn}
+                    title="Add to SDR"
+                  >
                     <Ico name="phone" size={13} />
                     {busyId === s.accountId ? "Adding" : "SDR"}
                   </button>
-                  {sees(me, "outbound") && (
+                  {canDraft && (
                     <button
                       type="button"
                       onClick={() => {
                         setWhyOpenId(s.accountId);
                         setWhy("");
                       }}
-                      className={actionBtn}
+                      className={match === "draft" ? primaryBtn : actionBtn}
                       title="Generate outbound"
                     >
                       <Ico name="mail" size={13} />
