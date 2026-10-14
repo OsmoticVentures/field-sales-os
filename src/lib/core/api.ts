@@ -27,6 +27,7 @@ const POST_READS = new Set([
   "/api/route/drive",
   "/api/route/lookup",
   "/api/fuel/find",
+  "/api/fuel/nearest",
   "/api/search/suggest-categories",
   "/api/search/exclusions",
   "/api/search/hidden",

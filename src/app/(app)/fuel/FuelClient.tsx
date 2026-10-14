@@ -18,6 +18,7 @@ import { apiFetch } from "@/lib/core/api";
 import { Card, Ico } from "../../../lib/core/ui";
 import { GALLON_STEP, type Favorite } from "../../../lib/features/fuel/constants";
 import type { Scored } from "../../../lib/features/fuel/score";
+import type { NearStation } from "../../../lib/features/fuel/nearest";
 
 type LatLng = { lat: number; lng: number };
 type LocState = "asking" | "ok" | "denied";
@@ -35,6 +36,8 @@ const NO_VEHICLE: Vehicle = { tankGallons: 16, rangeMiles: null, favorites: [] }
 type FindResult =
   | { ok: true; dest: { lat: number; lng: number; address: string; label: string }; directMinutes: number; considered: number; gallons: number; best: Scored[] }
   | { ok: false; error: string };
+
+type NearestResult = { ok: true; best: NearStation[] } | { ok: false; error: string };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const snap = (v: number) => Math.round(v / GALLON_STEP) * GALLON_STEP;
@@ -78,6 +81,7 @@ export function FuelClient() {
   const [loc, setLoc] = useState<LatLng | null>(null);
   const [locState, setLocState] = useState<LocState>("asking");
   const [result, setResult] = useState<FindResult | null>(null);
+  const [near, setNear] = useState<NearestResult | null>(null);
   const [pending, startTransition] = useTransition();
   const [formError, setFormError] = useState<string | null>(null);
   const resultsRef = useRef<HTMLElement>(null);
@@ -153,6 +157,29 @@ export function FuelClient() {
   const estimatedMiles = vehicle.rangeMiles ? Math.round((prefs.now / tank) * vehicle.rangeMiles) : null;
   const reach = prefs.milesToEmpty ?? estimatedMiles;
 
+  const nearest = () => {
+    setFormError(null);
+    if (!loc) {
+      locate();
+      setFormError("Allow location first.");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const res = await apiFetch("/api/fuel/nearest", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ origin: loc }),
+        });
+        setNear((await res.json()) as NearestResult);
+      } catch {
+        setNear({ ok: false, error: "Couldn't reach the server. Try again." });
+      }
+      setResult(null);
+      requestAnimationFrame(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    });
+  };
+
   const find = () => {
     setFormError(null);
     if (!loc) {
@@ -178,6 +205,7 @@ export function FuelClient() {
         });
         const j = (await res.json()) as FindResult;
         setResult(j);
+        setNear(null);
       } catch {
         setResult({ ok: false, error: "Couldn't reach the server. Try again." });
       }
@@ -279,7 +307,32 @@ export function FuelClient() {
       <button type="button" onClick={find} disabled={pending} className={primaryBtn}>
         {pending ? "Checking prices" : "Find gas"}
       </button>
+      <button
+        type="button"
+        onClick={nearest}
+        disabled={pending}
+        className="flex h-12 w-full items-center justify-center rounded-md border border-[#14201B] bg-white text-[16px] font-medium text-[#14201B] transition-transform active:scale-[0.97] disabled:opacity-40 disabled:active:scale-100"
+      >
+        Nearest
+      </button>
       {formError && <p className="text-[13px] text-[#8A6D2F]">{formError}</p>}
+
+      {near && !pending && (
+        <section ref={resultsRef} className="scroll-mt-4">
+          {near.ok ? (
+            <>
+              <div className="text-[19px] font-semibold leading-tight tracking-tight">Nearest</div>
+              <ol className="mt-4 flex flex-col gap-3">
+                {near.best.map((s) => (
+                  <NearCard key={s.id} s={s} />
+                ))}
+              </ol>
+            </>
+          ) : (
+            <p className="text-[14px] text-[#8A6D2F]">{near.error}</p>
+          )}
+        </section>
+      )}
 
       {result && !pending && (
         <section ref={resultsRef} className="scroll-mt-4">
@@ -301,6 +354,36 @@ export function FuelClient() {
         </section>
       )}
     </div>
+  );
+}
+
+function NearCard({ s }: { s: NearStation }) {
+  const maps = `https://maps.apple.com/?daddr=${encodeURIComponent(`${s.name}, ${s.address}`)}&dirflg=d`;
+  return (
+    <li className="rounded-lg border border-[#E2DFD5] bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[16px] font-semibold">{s.name}</div>
+          {s.address && <div className="truncate text-[13px] text-[#5B6560]">{s.address}</div>}
+        </div>
+        <div className="shrink-0 text-right text-[15px] font-semibold">{milesAway(s.milesAway)}</div>
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className="text-[34px] font-semibold leading-none tracking-tight">{usd(s.regular)}</span>
+        <span className="text-[13px] text-[#5B6560]">per gallon</span>
+        {s.updatedAt && <span className="text-[13px] text-[#8A928C]">price {ago(s.updatedAt)}</span>}
+      </div>
+      <div className={`mt-3 ${isArco(s.name) ? "grid grid-cols-2 gap-2" : ""}`}>
+        {isArco(s.name) && (
+          <a href={UPSIDE_URL} target="_blank" rel="noopener" className="flex h-11 items-center justify-center rounded-md border border-[#E2DFD5] text-[15px] font-medium transition-transform active:scale-[0.97]">
+            Upside
+          </a>
+        )}
+        <a href={maps} className="flex h-11 items-center justify-center rounded-md bg-[#14201B] text-[15px] font-medium text-white transition-transform active:scale-[0.97]">
+          Apple Maps
+        </a>
+      </div>
+    </li>
   );
 }
 
