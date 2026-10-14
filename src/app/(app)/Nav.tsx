@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { warmJson } from "../../lib/core/api";
 import { Ico } from "../../lib/core/ui";
 import { sees, useMe } from "../../lib/core/me";
@@ -25,6 +25,28 @@ const MOUNT_READS: Record<string, string[]> = {
 };
 
 const warm = (href: string) => () => MOUNT_READS[href]?.forEach(warmJson);
+
+/** Every screen's shell fetched once the phone is idle after launch, so the
+ *  first tap on any of them, the ones behind More included, paints at once.
+ *  A link off screen is never prefetched by Next on its own. Router prefetch
+ *  only: no data read leaves for the database (AGENTS.md P9). */
+function usePrefetchAll(items: NavItem[]) {
+  const router = useRouter();
+  const key = items.map((n) => n.href).join(" ");
+  useEffect(() => {
+    const run = () => key.split(" ").forEach((href) => href && router.prefetch(href));
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(run, { timeout: 2500 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = window.setTimeout(run, 1200);
+    return () => window.clearTimeout(t);
+  }, [key, router]);
+}
+
+/** The spring Hunter's glass pill rides: a quick start, a little overshoot,
+ *  a soft landing. */
+const GLIDE = "cubic-bezier(.32,1.28,.42,1)";
 
 export type NavItem = {
   href: string;
@@ -68,33 +90,42 @@ export function SidebarNav({ items: all }: { items: NavItem[] }) {
 }
 
 const tabCls = (active: boolean) =>
-  `flex min-h-11 flex-1 flex-col items-center justify-center gap-1 rounded-[22px] py-2 text-[11px] transition-[transform,background-color] active:scale-[0.95] motion-reduce:transition-none motion-reduce:active:scale-100 ${
-    active ? "bg-[#14201B]/10 font-semibold text-[#14201B] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]" : "text-[#3D4A44]"
+  `relative z-[1] flex min-h-11 flex-1 flex-col items-center justify-center gap-1 rounded-[22px] py-2 text-[11px] [-webkit-tap-highlight-color:transparent] transition-[color,transform] duration-300 [transition-timing-function:cubic-bezier(.23,1,.32,1)] active:scale-[0.94] active:duration-150 motion-reduce:transition-none motion-reduce:active:scale-100 ${
+    active ? "font-semibold text-[#14201B]" : "text-[#3D4A44]"
   }`;
 
 /**
  * The mobile bottom bar. Five slots at most, the iOS ceiling for a tab bar
  * at 44px targets: the four `tab: true` items, then More, which lifts a
- * sheet holding everything else. The sheet rises from the bar that opened
- * it and leaves the same way (apple-design: enter and exit along one path,
- * anchored to the trigger), with a scrim because picking a screen is a
- * modal choice. Reduced motion collapses the slide to a fade.
+ * glass card holding everything else.
+ *
+ * One glass pill marks the current slot and glides to the next on a spring,
+ * the way Hunter's bar does. It moves on the tap, before the screen arrives, so the bar answers the touch rather than the network. The
+ * More card grows out of the More button and shrinks back into it. Reduced
+ * motion drops the glide and the grow to a plain swap.
  */
 export function TabBar({ items: all }: { items: NavItem[] }) {
   const pathname = usePathname();
   const items = useMine(all);
+  usePrefetchAll(items);
   const [moreOpen, setMoreOpen] = useState(false);
+  // The tab a finger just chose, ahead of the route catching up.
+  const [chosen, setChosen] = useState<string | null>(null);
   const tabs = items.filter((n) => n.tab);
   const rest = items.filter((n) => !n.tab);
-  const restActive = rest.some((n) => isActive(pathname, n.href));
 
-  // Close the sheet when the route changes, adjusted during render so the
-  // new screen never paints with the sheet still up.
+  // Close the card and drop the early choice when the route changes,
+  // adjusted during render so the new screen never paints with the card up.
   const [sheetPath, setSheetPath] = useState(pathname);
   if (sheetPath !== pathname) {
     setSheetPath(pathname);
     setMoreOpen(false);
+    setChosen(null);
   }
+
+  const here = (href: string) => (chosen ? chosen === href : isActive(pathname, href));
+  const restActive = chosen ? rest.some((n) => n.href === chosen) : rest.some((n) => isActive(pathname, n.href));
+  const slot = moreOpen || restActive ? "more" : (tabs.find((n) => here(n.href))?.href ?? null);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -103,6 +134,28 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [moreOpen]);
 
+  // Measure the pill onto its slot. The first placement lands without a
+  // glide; every later one glides.
+  const bar = useRef<HTMLElement>(null);
+  const [pill, setPill] = useState<{ x: number; w: number; h: number; y: number; glide: boolean } | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const el = slot ? bar.current?.querySelector<HTMLElement>(`[data-slot="${slot}"]`) : null;
+      setPill((p) =>
+        el ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, glide: p !== null } : null,
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [slot, items.length]);
+
+  // The finger landing starts the screen's reads; the tap itself moves the
+  // pill, so a touch that turns into a scroll never moves it.
+  const choose = (href: string) => () => {
+    if (!isActive(pathname, href)) setChosen(href);
+  };
+
   if (items.length < 2) return null;
 
   return (
@@ -110,7 +163,7 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
       <div
         aria-hidden={!moreOpen}
         onClick={() => setMoreOpen(false)}
-        className={`fixed inset-0 z-30 bg-[#14201B]/30 transition-opacity duration-200 ease-out motion-reduce:transition-none md:hidden ${
+        className={`fixed inset-0 z-30 bg-[#14201B]/15 transition-opacity duration-200 ease-out motion-reduce:transition-none md:hidden ${
           moreOpen ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
@@ -119,26 +172,27 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
         aria-modal="true"
         aria-label="More screens"
         aria-hidden={!moreOpen}
-        className={`fixed inset-x-0 bottom-0 z-40 origin-bottom glass-bar rounded-t-[28px] transition-[transform,opacity] duration-250 ease-out motion-reduce:transition-opacity md:hidden [padding-bottom:calc(4.25rem+env(safe-area-inset-bottom))] ${
-          moreOpen ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-full opacity-0 motion-reduce:translate-y-0"
+        style={{ transitionTimingFunction: "cubic-bezier(.23,1,.32,1)" }}
+        className={`glass-bar fixed right-4 z-40 min-w-[236px] origin-bottom-right rounded-[22px] p-1.5 transition-[transform,opacity] duration-200 motion-reduce:transition-none md:hidden [bottom:calc(5.25rem+env(safe-area-inset-bottom))] ${
+          moreOpen ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none translate-y-2 scale-[0.94] opacity-0"
         }`}
       >
-        <div className="mx-auto mt-2 mb-1 h-1 w-9 rounded-full bg-[#D8D4C8]" />
-        <nav className="flex flex-col px-2 py-1">
+        <nav className="flex flex-col">
           {rest.map((n) => {
-            const active = isActive(pathname, n.href);
+            const active = here(n.href);
             return (
               <Link
                 key={n.href}
                 href={n.href}
                 onPointerDown={warm(n.href)}
+                onClick={choose(n.href)}
                 tabIndex={moreOpen ? 0 : -1}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-[15px] transition-colors ${
-                  active ? "bg-[#ECEAE1] font-medium text-[#14201B]" : "text-[#3D4A44]"
+                className={`flex min-h-12 items-center gap-3 rounded-2xl px-3.5 text-[16px] [-webkit-tap-highlight-color:transparent] transition-[background-color,transform] duration-150 active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 ${
+                  active ? "bg-[#14201B]/[0.07] font-medium text-[#14201B]" : "text-[#3D4A44]"
                 }`}
               >
-                <Ico name={n.icon} size={18} />
+                <Ico name={n.icon} size={19} />
                 {n.label}
               </Link>
             );
@@ -146,11 +200,38 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
         </nav>
       </div>
 
-      <nav className="glass-bar fixed inset-x-3 z-40 flex gap-1 rounded-[28px] p-1.5 md:hidden [bottom:calc(0.5rem+env(safe-area-inset-bottom))]">
+      <nav
+        ref={bar}
+        className="glass-bar fixed inset-x-3 z-40 flex gap-1 rounded-[28px] p-1.5 md:hidden [bottom:calc(0.5rem+env(safe-area-inset-bottom))]"
+      >
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 left-0 z-0 rounded-[22px] motion-reduce:transition-none"
+          style={{
+            width: pill?.w ?? 0,
+            height: pill?.h ?? 0,
+            transform: `translate3d(${pill?.x ?? 0}px, ${pill?.y ?? 0}px, 0)`,
+            opacity: pill ? 1 : 0,
+            background: "linear-gradient(180deg, rgba(255,255,255,.95), rgba(255,255,255,.72))",
+            boxShadow:
+              "inset 0 1px 0 #fff, inset 0 -1px 1px rgba(0,0,0,.03), 0 1px 2px rgba(20,32,27,.06), 0 4px 14px rgba(20,32,27,.08)",
+            transition: pill?.glide
+              ? `transform 520ms ${GLIDE}, width 520ms ${GLIDE}, height 520ms ${GLIDE}, opacity 200ms`
+              : "opacity 200ms",
+          }}
+        />
         {tabs.map((n) => {
-          const active = isActive(pathname, n.href);
+          const active = here(n.href);
           return (
-            <Link key={n.href} href={n.href} onPointerDown={warm(n.href)} aria-current={active ? "page" : undefined} className={tabCls(active)}>
+            <Link
+              key={n.href}
+              href={n.href}
+              data-slot={n.href}
+              onPointerDown={warm(n.href)}
+              onClick={choose(n.href)}
+              aria-current={active ? "page" : undefined}
+              className={tabCls(active)}
+            >
               <Ico name={n.icon} size={18} />
               {n.label}
             </Link>
@@ -159,6 +240,7 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
         {rest.length > 0 && (
           <button
             type="button"
+            data-slot="more"
             onClick={() => setMoreOpen((v) => !v)}
             aria-expanded={moreOpen}
             aria-haspopup="dialog"

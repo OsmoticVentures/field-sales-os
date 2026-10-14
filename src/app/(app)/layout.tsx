@@ -7,7 +7,7 @@ import { SidebarNav, TabBar, type NavItem } from "./Nav";
  * The shared shell for every signed-in screen: the PIN gate check, then chrome.
  *
  * ONE ARRAY FEEDS BOTH NAVS. Order is the deck's order. The desktop sidebar
- * shows all seven; the phone tab bar shows the four marked `tab` (the
+ * shows them all; the phone tab bar shows the four marked `tab` (the
  * screens a rep switches between at a stop) and folds the rest behind a
  * More tab, see Nav.tsx. A new port is one line here.
  */
@@ -15,14 +15,13 @@ const NAV: NavItem[] = [
   { href: "/visit", label: "Visit", icon: "edit", tab: true },
   { href: "/route", label: "Route", icon: "route", tab: true },
   { href: "/prospect", label: "Prospect", icon: "phone", tab: true },
-  { href: "/clients", label: "Clients", icon: "book" },
   { href: "/search", label: "Search", icon: "search", tab: true },
-  { href: "/expenses", label: "Expenses", icon: "clock" },
+  { href: "/clients", label: "Clients", icon: "book" },
   { href: "/reports", label: "Reports", icon: "chart" },
-  { href: "/fuel", label: "Fuel", icon: "fuel" },
   { href: "/outbound", label: "Outbound", icon: "mail" },
-  { href: "/marketing", label: "Marketing", icon: "globe" },
-  { href: "/workflow", label: "Workflow", icon: "flow" },
+  { href: "/fuel", label: "Fuel", icon: "fuel" },
+  { href: "/marketing", label: "Marketing Priorities", icon: "globe" },
+  { href: "/expenses", label: "Expenses", icon: "clock" },
 ];
 
 export default function AppLayout({ children, modal }: { children: React.ReactNode; modal: React.ReactNode }) {

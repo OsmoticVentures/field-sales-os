@@ -1,5 +1,5 @@
 /**
- * Marketing. The NutriBiotic marketing roadmap with the sales strategy
+ * Marketing Priorities. The NutriBiotic marketing roadmap with the sales strategy
  * roadmap under it, moved here from a claude.ai artifact on 2026-10-08. Data
  * in nb_roadmap_items (supabase/0011), read and written through
  * /api/marketing; the board code is lib/features/roadmap/board.ts.
@@ -11,8 +11,8 @@ import { RoadmapClient } from "./RoadmapClient";
 export const dynamic = "force-static";
 
 export const metadata = {
-  title: "Marketing · ClientOS",
-  appleWebApp: { title: "Marketing" },
+  title: "Marketing Priorities · ClientOS",
+  appleWebApp: { title: "Marketing Priorities" },
 };
 
 export default function MarketingPage() {
