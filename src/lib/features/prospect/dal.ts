@@ -128,6 +128,56 @@ export async function setAccountPotentialJuan(accountId: string, grade: string |
   await sbWrite("nb_accounts", "PATCH", { potential_juan: grade }, new URLSearchParams({ id: `eq.${accountId}` }));
 }
 
+export type FitVerdict = "good_fit" | "not_fit";
+
+/**
+ * My own call on a dormant account's fit, the one-tap undo for the Mac-side
+ * pass (bridges/nutribiotic/dormant_fit.py), which tags
+ * enrichment_status.dormant_fit and sets do_not_visit on a not-a-fit so the
+ * priority book and the planner leave it off route. The call is stored as
+ * `override`, which every later pass keeps. do_not_visit is cleared only when
+ * the fit pass (or this button) set it: a flag set by hand stays the hand's.
+ * Scope: the signed-in rep's own book, checked on the live row.
+ */
+export async function setDormantFit(accountId: string, verdict: FitVerdict): Promise<{ do_not_visit: boolean }> {
+  const owner = await myOwnerId();
+  const rows = await sbGet<{ do_not_visit: boolean | null; enrichment_status: Record<string, unknown> | null }>(
+    "nb_accounts",
+    new URLSearchParams({ select: "do_not_visit,enrichment_status", id: `eq.${accountId}`, hubspot_owner_id: `eq.${owner}`, limit: "1" }),
+  );
+  const row = rows[0];
+  if (!row) throw new Error("Not an account in your book.");
+  const ledger = { ...(row.enrichment_status ?? {}) };
+  const prev = (ledger.dormant_fit ?? {}) as Record<string, unknown>;
+  const owns = Boolean(prev.set_do_not_visit);
+  let dnv = Boolean(row.do_not_visit);
+  let ownsNext = owns;
+  if (verdict === "not_fit" && !dnv) {
+    dnv = true;
+    ownsNext = true;
+  } else if (verdict === "good_fit" && dnv && owns) {
+    dnv = false;
+    ownsNext = false;
+  }
+  const day = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" });
+  ledger.dormant_fit = {
+    ...prev,
+    verdict,
+    reason: `My call in the app, ${day}`,
+    reason_by_jev: prev.reason_by_jev ?? prev.reason ?? null,
+    set_do_not_visit: ownsNext,
+    override: { verdict, at: new Date().toISOString(), by: "app" },
+  };
+  await sbWrite(
+    "nb_accounts",
+    "PATCH",
+    { enrichment_status: ledger, do_not_visit: dnv },
+    new URLSearchParams({ id: `eq.${accountId}`, hubspot_owner_id: `eq.${owner}` }),
+  );
+  invalidatePriorityBook();
+  return { do_not_visit: dnv };
+}
+
 export type Contact = {
   id: string;
   account_id: string;

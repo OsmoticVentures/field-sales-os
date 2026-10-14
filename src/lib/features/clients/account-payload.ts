@@ -86,6 +86,9 @@ const ACCOUNT_KEYS: (keyof ClientAccount)[] = [
   "hubspot_company_id",
   "potential_hq",
   "potential_juan",
+  "do_not_visit",
+  "fit_verdict",
+  "fit_reason",
 ];
 
 const CONTACT_KEYS: (keyof ClientContact)[] = [
@@ -103,7 +106,13 @@ const CONTACT_KEYS: (keyof ClientContact)[] = [
 /** The nb_accounts columns a payload is built from: the account's own keys,
  *  plus readiness and lead status (warmth, leadStatus). Never `*`: the row
  *  also carries enrichment and sync bookkeeping the phone never draws. */
-const ACCOUNT_SELECT = [...ACCOUNT_KEYS, "readiness", "lead_status"].join(",");
+const FIT_SELECT: Record<string, string> = {
+  fit_verdict: "fit_verdict:enrichment_status->dormant_fit->>verdict",
+  fit_reason: "fit_reason:enrichment_status->dormant_fit->>reason",
+};
+/** The two fit fields are read as text out of enrichment_status (a few dozen bytes, not the
+ *  whole ledger), aliased to their own keys. */
+const ACCOUNT_SELECT = [...ACCOUNT_KEYS.map((k) => FIT_SELECT[k as string] ?? k), "readiness", "lead_status"].join(",");
 /** account_id groups the rows; the payload keeps CONTACT_KEYS. */
 const CONTACT_SELECT = ["account_id", ...CONTACT_KEYS].join(",");
 

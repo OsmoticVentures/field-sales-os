@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { apiFetch } from "../../../../lib/core/api";
 import { refreshAccount } from "../../../../lib/core/phone-sync";
-import { Card, Ico, eyebrowCls } from "../../../../lib/core/ui";
+import { Card, Ico, SuccessNote, eyebrowCls } from "../../../../lib/core/ui";
 import type { ClientAccount, ClientActivity, ClientContact } from "../../../../lib/features/clients/dal";
 import {
   OpenBadge,
@@ -99,6 +99,57 @@ function PotentialGrade({ accountId, hq, juan, readiness }: { accountId: string;
       <div className="mt-3">
         <WarmthPicker key={`readiness-${accountId}`} accountId={accountId} value={readiness} compact onSaved={() => void refreshAccount(accountId)} />
       </div>
+    </Card>
+  );
+}
+
+/** A dormant account's fit, as the fit pass tagged it, with the one tap that
+ *  reverses it: a not-a-fit is off route until "Back on route", and a good
+ *  fit can be taken off with "Not a fit". */
+function FitCard({ accountId, verdict, reason }: { accountId: string; verdict: string; reason: string | null }) {
+  const [value, setValue] = useState(verdict);
+  const [shownReason, setShownReason] = useState(reason);
+  const [pending, setPending] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const notFit = value === "not_fit";
+
+  async function flip() {
+    const next = notFit ? "good_fit" : "not_fit";
+    setPending(true);
+    setFailed(false);
+    try {
+      await postJson("/api/account/fit", { account_id: accountId, verdict: next });
+      setNote(next === "good_fit" ? "Back on route" : "Off route");
+      setTimeout(() => {
+        setValue(next);
+        setShownReason(null);
+        setNote(null);
+        void refreshAccount(accountId);
+      }, 1000);
+    } catch {
+      setFailed(true);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className={`mb-2 ${eyebrowCls}`}>Fit</div>
+      <div className="text-[15px] font-semibold text-[#14201B]">{notFit ? "Not a fit" : "Good fit"}</div>
+      {shownReason && <p className="mt-1 text-[13px] leading-relaxed text-[#5B6560]">{shownReason}</p>}
+      <div className="mt-3">
+        {note ? (
+          <SuccessNote title={note} />
+        ) : (
+          <button type="button" disabled={pending} onClick={flip} className={actionBtn}>
+            <Ico name={notFit ? "route" : "close"} size={14} />
+            {notFit ? "Back on route" : "Not a fit"}
+          </button>
+        )}
+      </div>
+      {failed && <p className="mt-2 text-[12px] text-[#8A2E2E]">Not saved. Tap again.</p>}
     </Card>
   );
 }
@@ -615,6 +666,7 @@ export function AccountView({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-4">
+          {a.fit_verdict && <FitCard key={`fit-${a.id}-${a.fit_verdict}`} accountId={a.id} verdict={a.fit_verdict} reason={a.fit_reason ?? null} />}
           <PotentialGrade accountId={a.id} hq={a.potential_hq} juan={a.potential_juan} readiness={a.readiness ?? null} />
 
           <Card>

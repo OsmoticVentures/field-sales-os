@@ -193,6 +193,10 @@ export type ClientAccount = {
   hubspot_company_id: string | null;
   potential_hq: string | null;
   potential_juan: string | null;
+  /** Read off enrichment_status.dormant_fit (bridges/nutribiotic/dormant_fit.py), when tagged. */
+  do_not_visit?: boolean | null;
+  fit_verdict?: string | null;
+  fit_reason?: string | null;
 };
 
 const CLIENT_ACCOUNT_SELECT =
