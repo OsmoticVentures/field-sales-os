@@ -10,15 +10,17 @@ type NativePinch = { state: "began" | "changed" | "ended"; scale: number; x: num
 
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 20;
+const GAIN = 3;
 const clamp = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
 
 export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
   let start = map.getZoom() ?? 10;
   let pinching = false;
-  // Fractional zoom isn't on for these maps, so a pinch steps a whole level
-  // each time the fingers cross one.
+  // A trackpad pinch moves the scale far less than fingers on glass, so it is
+  // amplified: a level for about every 12% of pinch. Fractional zoom isn't on
+  // for these maps, so it steps whole levels.
   const apply = (scale: number) => {
-    const next = Math.round(clamp(start + Math.log2(scale)));
+    const next = Math.round(clamp(start + GAIN * Math.log2(scale)));
     if (next !== map.getZoom()) map.setZoom(next);
   };
 
@@ -47,6 +49,7 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
     if (d.state === "began") {
       const hit = document.elementFromPoint(d.x, d.y);
       pinching = !!hit && el.contains(hit);
+      (window as unknown as { __pinchHit?: boolean }).__pinchHit = pinching;
       if (pinching) start = map.getZoom() ?? start;
       return;
     }

@@ -47,6 +47,7 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
         pinch.cancelsTouchesInView = false
         pinch.delegate = self
         webView.addGestureRecognizer(pinch)
+        NSLog("ClientOS pinch recognizer installed")
         DeepLink.load(webView, "/route")
     }
 
@@ -63,8 +64,10 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
         default: return
         }
         let p = g.location(in: webView)
-        webView.evaluateJavaScript(
-            "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x),y:\(p.y)}}))")
+        let js = "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x),y:\(p.y)}}));window.__pinchHit===true"
+        webView.evaluateJavaScript(js) { hit, err in
+            if state != "changed" { NSLog("ClientOS pinch \(state) scale=\(g.scale) at=\(p) onMap=\(String(describing: hit)) err=\(String(describing: err))") }
+        }
     }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
