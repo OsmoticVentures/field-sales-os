@@ -9,7 +9,7 @@
  */
 import { getRouteStateByDay, setRouteDone, setRouteMileageDay } from "../../../../lib/features/route/dal";
 import { insertSdrScheduleItem, listSdrSchedule, type SdrPriority } from "../../../../lib/features/prospect/dal";
-import { laTodayIso, planningHorizonDates } from "../../../../lib/features/route/field-week";
+import { workingDayIso, planningHorizonDates } from "../../../../lib/features/route/field-week";
 import { hasAccess } from "../../../../lib/core/devices";
 import { hasWidgetToken } from "../../../../lib/features/route/widget-auth";
 import { captureError } from "@/lib/core/errors";
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
       const priority = PRIORITIES.has(body.priority as SdrPriority) ? (body.priority as SdrPriority) : "mid";
       // The next field day after today: a call list is worked ahead, not
       // from a phone at the curb.
-      const today = laTodayIso();
+      const today = workingDayIso();
       const scheduled = planningHorizonDates(3).find((d) => d > today) ?? today;
       const existing = await listSdrSchedule(6);
       const dupe = existing.find((r) => r.account_id === body.id && r.scheduled_date === scheduled && r.status === "pending");

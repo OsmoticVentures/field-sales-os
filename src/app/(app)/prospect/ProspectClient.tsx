@@ -28,6 +28,7 @@ import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
 import { FindContacts } from "../../../lib/features/enrich/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
+import { workingDayIso } from "../../../lib/features/route/field-week";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 import { withinTrailing12mo } from "../../../lib/features/clients/ui";
@@ -211,7 +212,7 @@ function GlobalSearch({ todayIso, onView, onAdded }: { todayIso: string; onView:
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [pending, startTransition] = useTransition();
   const [addingFor, setAddingFor] = useState<string | null>(null);
-  const [dateValue, setDateValue] = useState(todayIso);
+  const [dateValue, setDateValue] = useState(() => workingDayIso());
 
   function search(q: string) {
     setQuery(q);
@@ -285,7 +286,7 @@ function GlobalSearch({ todayIso, onView, onAdded }: { todayIso: string; onView:
                     </>
                   ) : (
                     <>
-                      <button onClick={() => { setAddingFor(hit.accountId); setDateValue(todayIso); }} className={ghostBtn}>
+                      <button onClick={() => { setAddingFor(hit.accountId); setDateValue(workingDayIso()); }} className={ghostBtn}>
                         Add to day
                       </button>
                       <button onClick={() => onView(hit)} className={ghostBtn}>

@@ -9,14 +9,17 @@ const WEEKDAY: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5
 
 export const PLANNING_HORIZON_DAYS = 10;
 
-function laToday(): { iso: string; weekdayIso: number } {
+/** From this Los Angeles hour on, "today" is over and the app works on tomorrow. */
+export const WORKING_DAY_ROLLOVER_HOUR = 21;
+
+function laToday(now: Date = new Date()): { iso: string; weekdayIso: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Los_Angeles",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     weekday: "short",
-  }).formatToParts(new Date());
+  }).formatToParts(now);
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   return { iso: `${get("year")}-${get("month")}-${get("day")}`, weekdayIso: WEEKDAY[get("weekday")] ?? 1 };
 }
@@ -24,6 +27,21 @@ function laToday(): { iso: string; weekdayIso: number } {
 /** Today in Los Angeles as "YYYY-MM-DD". */
 export function laTodayIso(): string {
   return laToday().iso;
+}
+
+/**
+ * The one working-day rule. At or after 21:00 Pacific the working day is
+ * tomorrow, before that it is today. Every "today's route" and every
+ * default date (add to route, SDR, to-do) reads this, never laTodayIso().
+ */
+export function workingDayIso(now: Date = new Date()): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23" }).format(now),
+  );
+  const { iso } = laToday(now);
+  if (hour < WORKING_DAY_ROLLOVER_HOUR) return iso;
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
 
 function weekdayIsoOf(iso: string): number {
@@ -52,7 +70,7 @@ export function nextWeekday(weekdayIso: number): string {
 /** Today if it's on the horizon, else the first day on it with stops in it,
     else the first day. */
 export function defaultActiveDay(byDay: Record<string, unknown[] | undefined>, days: string[]): string {
-  const { iso } = laToday();
+  const iso = workingDayIso();
   if (days.includes(iso)) return iso;
   return days.find((d) => (byDay[d]?.length ?? 0) > 0) ?? days[0];
 }

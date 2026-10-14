@@ -27,7 +27,7 @@ import { useEffect, useState } from "react";
 import { sees, useMe } from "../../../lib/core/me";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote, ghostBtn } from "@/lib/core/ui";
-import { laTodayIso } from "@/lib/features/route/field-week";
+import { workingDayIso } from "@/lib/features/route/field-week";
 import type { ReturnStep, ReturnSuggestion } from "@/lib/features/route/return-suggestions";
 import type { RouteAccount } from "@/lib/features/route/types";
 
@@ -140,7 +140,7 @@ export function ReturnSuggestions({
       const res = await postJson("/api/prospect/schedule", {
         account_id: s.accountId,
         kind: "call",
-        scheduled_date: laTodayIso(),
+        scheduled_date: workingDayIso(),
         priority: "mid",
       });
       if (res.ok) settle(s, "Added to SDR, today");

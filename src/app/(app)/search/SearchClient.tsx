@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
+import { workingDayIso } from "../../../lib/features/route/field-week";
 import { rankMatches } from "../../../lib/features/search/search-match";
 import { AreaPicker, mapsUrl, type Pin } from "./AreaPicker";
 
@@ -1281,15 +1282,9 @@ function SelectionBar({
   );
 }
 
-/** Tomorrow in the territory's own time zone, as YYYY-MM-DD. */
+/** The earliest first-call day: tomorrow, or the day after once the working day has rolled over. */
 function defaultSdrDay(): string {
-  const la = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  const [y, m, d] = la.split("-").map(Number);
+  const [y, m, d] = workingDayIso().split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 }
 

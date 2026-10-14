@@ -22,7 +22,7 @@ import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { AccountsMap } from "./AccountsMap";
-import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/lib/features/route/field-week";
+import { dayLabel, defaultActiveDay, workingDayIso, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
@@ -331,7 +331,7 @@ function RouteDay({
       const res = await postJson<{ ok: boolean; error?: string }>("/api/prospect/schedule", {
         account_id: accountId,
         kind: "call",
-        scheduled_date: laTodayIso(),
+        scheduled_date: workingDayIso(),
         priority: "mid",
       });
       if (res.ok) setSdrQueued((s) => new Set(s).add(accountId));

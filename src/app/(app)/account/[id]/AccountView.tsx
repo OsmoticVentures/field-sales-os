@@ -20,7 +20,7 @@ import {
 } from "../../../../lib/features/clients/ui";
 import type { PurchaseLine, PurchaseOrder } from "../../../../lib/features/prospect/dal";
 import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/prospect/format";
-import { dayLabel, laTodayIso } from "../../../../lib/features/route/field-week";
+import { dayLabel, workingDayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 import { WarmthPicker } from "../../../../lib/features/clients/WarmthPicker";
 import { sees, useMe } from "../../../../lib/core/me";
@@ -282,7 +282,7 @@ function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: 
  */
 function AddToSdr({ accountId }: { accountId: string }) {
   const [picking, setPicking] = useState(false);
-  const [date, setDate] = useState(() => laTodayIso());
+  const [date, setDate] = useState(() => workingDayIso());
   const [queuedFor, setQueuedFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -316,7 +316,7 @@ function AddToSdr({ accountId }: { accountId: string }) {
       <button
         type="button"
         onClick={() => {
-          setDate(laTodayIso());
+          setDate(workingDayIso());
           setFailed(false);
           setPicking(true);
         }}

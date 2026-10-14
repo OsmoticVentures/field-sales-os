@@ -18,7 +18,7 @@
  * copy not refreshed in 30 days is dropped on the next open.
  */
 import type { AccountPayload } from "../features/clients/account-payload";
-import { laTodayIso } from "../features/route/field-week";
+import { workingDayIso } from "../features/route/field-week";
 import type { RouteDraftEntry } from "../features/route/types";
 import { apiFetch } from "./api";
 import { all, get, put, replaceAll } from "./phone-store";
@@ -183,7 +183,7 @@ async function fetchTodaysStops(): Promise<void> {
     const res = await apiFetch("/api/account/live", { cache: "no-store" });
     const j = (await res.json()) as { ok?: boolean; routeDraftByDay?: Record<string, RouteDraftEntry[]> };
     if (!res.ok || !j.ok) return;
-    const today = j.routeDraftByDay?.[laTodayIso()] ?? [];
+    const today = j.routeDraftByDay?.[workingDayIso()] ?? [];
     const missing = today.filter((e): e is string => typeof e === "string" && !mem.has(e));
     for (const id of missing) await getAccountPayload(id);
   } catch {
