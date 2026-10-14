@@ -15,6 +15,7 @@ import { Card, Ico, SuccessNote, ghostBtn, primaryBtn } from "../../../lib/core/
 import { daysAgo } from "../../../lib/features/prospect/format";
 import type { Draft } from "../../../lib/features/outbound/dal";
 import { owaComposeLink } from "../../../lib/features/outbound/mail-links";
+import { bodyToHtml, bodyToPlain, hasTable, splitBody } from "../../../lib/features/outbound/table-body";
 
 type Row = { draft: Draft; accountName: string | null };
 
@@ -23,7 +24,16 @@ function CopyBodyButton({ body }: { body: string }) {
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(body);
+      if (hasTable(body) && typeof ClipboardItem !== "undefined") {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([bodyToHtml(body)], { type: "text/html" }),
+            "text/plain": new Blob([bodyToPlain(body)], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(body);
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -40,6 +50,30 @@ function CopyBodyButton({ body }: { body: string }) {
   );
 }
 
+function BodyView({ body }: { body: string }) {
+  return (
+    <div className="max-w-[76ch] text-[13.5px] leading-relaxed text-[#3D4A44]">
+      {splitBody(body).map((p, i) =>
+        p.kind === "text" ? (
+          <p key={i} className="whitespace-pre-wrap">{p.text}</p>
+        ) : (
+          <table key={i} className="my-2 w-full border-collapse text-[13px]">
+            <tbody>
+              {p.rows.map((r, ri) => (
+                <tr key={ri} className={ri === 0 ? "font-medium" : ""}>
+                  {r.map((c, ci) => (
+                    <td key={ci} className="border border-[#D8D4C8] px-2 py-1">{c}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ),
+      )}
+    </div>
+  );
+}
+
 function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
   const d = row.draft;
   const [pending, setPending] = useState<"sent" | "dismissed" | null>(null);
@@ -47,7 +81,8 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
   const [note, setNote] = useState<{ title: string; detail?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const outlook = d.to_email ? owaComposeLink(d.to_email, d.subject, d.body_md, d.bcc_email) : null;
+  const tableBody = hasTable(d.body_md);
+  const outlook = d.to_email ? owaComposeLink(d.to_email, d.subject, d.body_md, d.bcc_email, tableBody) : null;
 
   async function decide(decision: "sent" | "dismissed") {
     setPending(decision);
@@ -139,7 +174,7 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
         )}
       </div>
 
-      <p className="max-w-[76ch] text-[13.5px] leading-relaxed whitespace-pre-wrap text-[#3D4A44]">{d.body_md}</p>
+      <BodyView body={d.body_md} />
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
         {d.to_email && outlook && (
@@ -147,11 +182,9 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
             <a href={outlook.href} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
               Open in Outlook &rarr;
             </a>
-            {outlook.bodyOmitted && (
-              <>
-                <CopyBodyButton body={d.body_md} />
-                <span className="text-[12px] text-[#8A6D2F]">Too long to prefill. Outlook opens addressed, paste the body in.</span>
-              </>
+            {outlook.bodyOmitted && <CopyBodyButton body={d.body_md} />}
+            {outlook.bodyOmitted && !tableBody && (
+              <span className="text-[12px] text-[#8A6D2F]">Too long to prefill. Outlook opens addressed, paste the body in.</span>
             )}
           </>
         )}
