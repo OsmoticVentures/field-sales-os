@@ -445,26 +445,6 @@ function RouteDay({
   );
   const shownLegs = schedule?.priced ?? legs;
 
-  // Only a hard conflict makes a stop not fit: the door is shut for the rest
-  // of the day, or the drive misses a stated time.
-  const wontFit = useMemo(() => {
-    if (!schedule) return [];
-    return stops
-      .filter((s) => schedule.closedToday.has(s.id) || schedule.missedAnchors.has(s.id))
-      .map((s) => {
-        const anchor = stopTimes[s.id];
-        const reason = schedule.closedToday.has(s.id)
-          ? "closed the rest of the day"
-          : `arrives after its ${clock(minutesOfDay(anchor))} time`;
-        return {
-          id: s.id,
-          name: s.type === "account" ? s.account.name : s.custom.label,
-          accountId: s.type === "account" ? s.account.id : null,
-          reason,
-        };
-      });
-  }, [schedule, stops, stopTimes]);
-
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
     try {
       const res = await apiFetch("/api/route/drive", {
@@ -646,23 +626,6 @@ function RouteDay({
           );
         })}
       </div>
-
-      {wontFit.length > 0 && (
-        <ul className="flex flex-col gap-1 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3.5 py-3 text-[13px] leading-relaxed text-[#3D4A44]">
-          {wontFit.map((w) => (
-            <li key={w.id}>
-              {w.accountId ? (
-                <Link prefetch={false} href={`/account/${w.accountId}`} className="font-medium underline-offset-2 hover:underline">
-                  {w.name}
-                </Link>
-              ) : (
-                <span className="font-medium">{w.name}</span>
-              )}{" "}
-              won&apos;t fit, {w.reason}
-            </li>
-          ))}
-        </ul>
-      )}
 
       <DayBar
         prefs={prefs}

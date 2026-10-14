@@ -54,7 +54,7 @@ export function SidebarNav({ items: all }: { items: NavItem[] }) {
             href={n.href}
             onPointerDown={warm(n.href)}
             aria-current={active ? "page" : undefined}
-            className={`flex min-h-11 items-center gap-2.5 rounded-md px-2.5 py-2 text-[14px] transition-colors ${
+            className={`flex min-h-11 items-center gap-2.5 rounded-md px-2.5 py-2 text-[15px] transition-colors ${
               active ? "bg-[#ECEAE1] font-medium text-[#14201B]" : "text-[#3D4A44] hover:bg-[#ECEAE1] hover:text-[#14201B]"
             }`}
           >

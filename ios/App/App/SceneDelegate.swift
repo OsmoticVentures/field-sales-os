@@ -2,6 +2,7 @@ import UIKit
 import Capacitor
 import WebKit
 import CoreLocation
+import os
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -38,6 +39,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// The server URL stays /nb, which is what keeps every other screen in the app
 /// instead of handing it to the browser, so Route is loaded over the first page.
 final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDelegate {
+    private static let log = Logger(subsystem: "com.osmoticventures.fieldsalesos", category: "pinch")
     override func viewDidLoad() {
         super.viewDidLoad()
         guard ProcessInfo.processInfo.isiOSAppOnMac, let webView else { return }
@@ -47,13 +49,15 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
         pinch.cancelsTouchesInView = false
         pinch.delegate = self
         webView.addGestureRecognizer(pinch)
-        NSLog("ClientOS pinch recognizer installed")
+        Self.log.notice("pinch recognizer installed")
         DeepLink.load(webView, "/route")
     }
 
     /// A trackpad pinch on the Mac never reaches the page as a gesture, so it
     /// is handed over as "nativepinch" and the map under the fingers zooms
     /// (src/lib/shared/map-pinch.ts).
+    private var peak: CGFloat = 1
+
     @objc private func trackpadPinch(_ g: UIPinchGestureRecognizer) {
         guard let webView else { return }
         let state: String
@@ -64,9 +68,12 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
         default: return
         }
         let p = g.location(in: webView)
-        let js = "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x),y:\(p.y)}}));window.__pinchHit===true"
+        if state == "began" { peak = 1 }
+        if state == "changed", abs(g.scale - 1) > abs(peak - 1) { peak = g.scale }
+        let peakNow = peak
+        let js = (state == "began" ? "window.__pinchHit=false;" : "") + "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x),y:\(p.y)}}));window.__pinchHit===true"
         webView.evaluateJavaScript(js) { hit, err in
-            if state != "changed" { NSLog("ClientOS pinch \(state) scale=\(g.scale) at=\(p) onMap=\(String(describing: hit)) err=\(String(describing: err))") }
+            if state != "changed" { Self.log.notice("pinch \(state, privacy: .public) scale=\(g.scale, privacy: .public) peak=\(peakNow, privacy: .public) onMap=\(String(describing: hit), privacy: .public) err=\(String(describing: err), privacy: .public)") }
         }
     }
 

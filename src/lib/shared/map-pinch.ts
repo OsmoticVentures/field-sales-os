@@ -44,18 +44,25 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
     apply((e as Event & { scale: number }).scale);
   };
 
+  // UIKit reports the scale back at 1 when the fingers lift, so the end only
+  // releases the pinch; applying it would snap the map back to where it began.
   const onNative = (e: Event) => {
     const d = (e as CustomEvent<NativePinch>).detail;
     if (d.state === "began") {
-      const hit = document.elementFromPoint(d.x, d.y);
-      pinching = !!hit && el.contains(hit);
-      (window as unknown as { __pinchHit?: boolean }).__pinchHit = pinching;
-      if (pinching) start = map.getZoom() ?? start;
+      const r = el.getBoundingClientRect();
+      pinching = d.x >= r.left && d.x <= r.right && d.y >= r.top && d.y <= r.bottom;
+      if (pinching) {
+        start = map.getZoom() ?? start;
+        (window as unknown as { __pinchHit?: boolean }).__pinchHit = true;
+      }
       return;
     }
     if (!pinching) return;
+    if (d.state === "ended") {
+      pinching = false;
+      return;
+    }
     apply(d.scale);
-    if (d.state === "ended") pinching = false;
   };
 
   el.addEventListener("wheel", onWheel, { passive: false, capture: true });

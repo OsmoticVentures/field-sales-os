@@ -38,9 +38,9 @@ export default function AppLayout({ children, modal }: { children: React.ReactNo
       {/* The shell the side panel pushes aside (AccountDrawer finds it by id). */}
       <div id="app-shell" className="min-h-screen bg-[#F7F6F1] text-[#14201B]">
         <div className="mx-auto flex min-h-screen max-w-[1700px] gap-0">
-          <aside className="hidden w-[200px] shrink-0 border-r border-[#E2DFD5] px-5 py-7 md:block">
+          <aside className="hidden w-[200px] shrink-0 self-start border-r border-[#E2DFD5] px-5 py-7 md:sticky md:top-0 md:block md:h-screen md:overflow-y-auto">
             <div className="mb-8">
-              <div className="text-[17px] leading-none font-semibold tracking-tight">ClientOS</div>
+              <div className="text-[18px] leading-none font-semibold tracking-tight">ClientOS</div>
             </div>
             <SidebarNav items={NAV} />
           </aside>
