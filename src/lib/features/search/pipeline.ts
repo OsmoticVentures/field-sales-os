@@ -17,8 +17,9 @@
 import "server-only";
 import { decodeHTML as decodeEntities } from "entities";
 import { AMBIGUOUS_CITIES, CATALOG_TERMS, TERRITORY_AREAS, type TerritoryArea } from "./config.generated";
-import { insertRows, isConfigured, loadLocalAccounts, randId, type LocalAccount } from "./dal";
+import { insertRows, isConfigured, loadLocalAccounts, loadRuledOutNames, randId, type LocalAccount } from "./dal";
 import { PageText } from "./html";
+import { FIT_BUDGET_MS, bookBrands, fitStatus, scoreCandidates, type FitVerdict } from "./prospect-fit";
 import { matchAccount, normPhone, pyFloat, pyRound } from "./match";
 import { extractJsonLd, fetchWebPage, isScriptShell } from "../../shared/web-page";
 
@@ -1319,6 +1320,7 @@ function candidateRow(c: Candidate, category: string, now: string, owner: LandOw
       note: "cheap-signal rank for a cold directory row. Not a fit or potential grade.",
     },
   };
+  if (c.fit && (c.fit as FitVerdict).score != null) status.prospect_fit = fitStatus(c.fit as FitVerdict, now);
   if (website) status.website = { found_by: foundBySearch, at: now };
   if (c.phone) status.phone = { found_by: foundBySearch, at: now };
   if (c.about) status.about = { found_by: `website: ${c.about_url ?? "None"}`, basis: c.about_basis ?? null, at: now };
@@ -1513,9 +1515,28 @@ export async function landCandidates(
 const intOr = (v: unknown, d: number) => (v == null || v === "" ? d : Math.trunc(Number(v)));
 const numOr = (v: unknown, d: number) => (v == null || v === "" ? d : Number(v));
 
+/**
+ * Jev's prospect fit over a finished search (prospect-fit.ts). The list is
+ * re-ordered by fit; when Jev fails it stays exactly as search() left it and
+ * summary.fit carries the error the screen shows in place.
+ */
+async function addFit(summary: Summary, ownerId: string | undefined, budgetMs: number, log: Log): Promise<void> {
+  try {
+    const book = ownerId ? bookBrands(await loadRuledOutNames(ownerId)) : new Map<string, string>();
+    const { candidates, summary: fit } = await scoreCandidates(summary.candidates, book, log, budgetMs);
+    summary.candidates = candidates;
+    summary.fit = fit;
+  } catch (e) {
+    log(`fit: failed, ${e instanceof Error ? e.message : String(e)}`);
+    for (const c of summary.candidates) delete c.fit;
+    summary.fit = { ok: false, error: "Fit scoring did not answer.", scored: 0, unscored: summary.candidates.length };
+  }
+}
+
 export async function stageRequest(stage: string, req: Json, log: Log): Promise<Summary> {
   if (stage === "search") {
-    return search(
+    const t0 = Date.now();
+    const summary = await search(
       String(req.category ?? ""),
       {
         polygon: req.polygon || null,
@@ -1544,6 +1565,10 @@ export async function stageRequest(stage: string, req: Json, log: Log): Promise<
       },
       log,
     );
+    // the function has 300s; the fit pass gets what the search left, at most its own budget
+    const budget = Math.max(20_000, Math.min(FIT_BUDGET_MS, 270_000 - (Date.now() - t0)));
+    if (summary.ok && summary.candidates.length) await addFit(summary, (req._owner as LandOwner | undefined)?.id, budget, log);
+    return summary;
   }
   if (stage === "enrich") {
     return enrichCandidates([...((req.candidates as Candidate[]) || [])], intOr(req.site_pages, 4), log);

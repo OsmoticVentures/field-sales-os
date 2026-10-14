@@ -394,6 +394,19 @@ export async function loadLocalAccounts(): Promise<LocalAccount[]> {
   }
 }
 
+/** The rep's own accounts already ruled out by brand: chain-excluded or do-not-visit.
+ *  Their verdict on one location is the verdict on the brand (prospect_fit.book_brands). */
+export async function loadRuledOutNames(ownerId: string): Promise<
+  { name: string | null; chain_excluded: boolean | null; do_not_visit: boolean | null }[]
+> {
+  return sbGet("nb_accounts", {
+    select: "name,chain_excluded,do_not_visit",
+    hubspot_owner_id: `eq.${ownerId}`,
+    or: "(chain_excluded.eq.true,do_not_visit.eq.true)",
+    limit: "2000",
+  });
+}
+
 export async function insertRows(table: "nb_accounts" | "nb_sdr_schedule", rows: unknown[]): Promise<void> {
   for (let i = 0; i < rows.length; i += 200) {
     await sbInsert(table, rows.slice(i, i + 200));

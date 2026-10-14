@@ -81,7 +81,23 @@ export type Candidate = {
   /** Set by the land stage, and only by it. Its presence is what makes a row
    *  a real prospect on screen. */
   id?: string;
+  /** Jev's NutriBiotic fit for a new place (lib/features/search/prospect-fit.ts).
+   *  Absent when scoring did not run or did not answer. */
+  fit?: Fit;
 };
+
+export type Fit = {
+  score: number | null;
+  fit: boolean;
+  clinic: boolean;
+  why: string;
+  stage: "rule" | "screen" | "verify";
+};
+
+/** The 100 first-visit targets for the next 50 days: one Search group. */
+const FIRST_VISITS_ID = "first-visits";
+const FIRST_VISITS_NAME = "First visits";
+const FIRST_VISITS_CAP = 100;
 
 export type SearchGroup = {
   id: string;
@@ -98,6 +114,7 @@ type StageReply = {
   error?: string;
   written?: boolean;
   candidates?: Candidate[];
+  fit?: { ok: boolean; error?: string; scored?: number; unscored?: number; fits?: number };
   stages?: {
     search?: { distinct_places?: number; live_calls?: number; hit_google_ceiling?: string[] };
     triage?: {
@@ -126,7 +143,7 @@ type StageReply = {
 };
 
 type Busy = null | "search" | "enrich" | "land";
-type SortKey = "triage" | "name" | "rating" | "reviews";
+type SortKey = "fit" | "triage" | "name" | "rating" | "reviews";
 
 const PAST_CATEGORY_KEY = "search.pastExcludedCategories";
 const PAST_CHAIN_KEY = "search.pastExcludedChains";
@@ -507,6 +524,7 @@ export function SearchClient() {
     if (reply) {
       setMeta(reply);
       setRows(reply.candidates ?? []);
+      setSort(reply.fit?.ok && (reply.fit.scored ?? 0) > 0 ? "fit" : "triage");
       setSelected(new Set());
       setExpanded(new Set());
     }
@@ -667,6 +685,49 @@ export function SearchClient() {
     setBusy(null);
   }
 
+  const firstVisits = groups?.find((g) => g.id === FIRST_VISITS_ID) ?? null;
+  const firstVisitIds = useMemo(() => new Set((firstVisits?.members ?? []).map((m) => m.places_id)), [firstVisits]);
+  const [visitNote, setVisitNote] = useState<{ key: string; text: string; error?: boolean } | null>(null);
+  const [visitBusy, setVisitBusy] = useState<string | null>(null);
+
+  /** One tap marks or unmarks a place as a first-visit target. */
+  async function toggleFirstVisit(r: Candidate) {
+    const id = r.places_id;
+    if (!id || visitBusy) return;
+    const on = firstVisitIds.has(id);
+    const count = firstVisits?.members.length ?? 0;
+    if (!on && count >= FIRST_VISITS_CAP) {
+      setVisitNote({ key: r.key, text: `${FIRST_VISITS_NAME} is full, ${count} of ${FIRST_VISITS_CAP}`, error: true });
+      return;
+    }
+    setVisitBusy(r.key);
+    setVisitNote(null);
+    try {
+      const call = async (body: Record<string, unknown>) => {
+        const res = await apiFetch("/api/search/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const json = (await res.json()) as { ok?: boolean };
+        if (!res.ok || !json.ok) throw new Error("failed");
+      };
+      if (on) {
+        await call({ action: "remove", group_id: FIRST_VISITS_ID, places_id: id });
+      } else {
+        if (!firstVisits) await call({ action: "create", name: FIRST_VISITS_NAME });
+        await call({ action: "add", group_id: FIRST_VISITS_ID, candidates: [r] });
+      }
+      await loadGroups();
+      const text = on ? "Removed from first visits" : `First visit, ${count + 1} of ${FIRST_VISITS_CAP}`;
+      setVisitNote({ key: r.key, text });
+      setTimeout(() => setVisitNote((cur) => (cur?.key === r.key && cur.text === text ? null : cur)), 1200);
+    } catch {
+      setVisitNote({ key: r.key, text: "Could not save that. Nothing changed.", error: true });
+    }
+    setVisitBusy(null);
+  }
+
   const sorted = useMemo(() => {
     if (!rows) return [];
     const copy = rows.filter((r) => !r.places_id || !hidden.has(r.places_id));
@@ -674,6 +735,8 @@ export function SearchClient() {
       if (sort === "name") return (a.name ?? "").localeCompare(b.name ?? "");
       if (sort === "rating") return (b.places_rating ?? 0) - (a.places_rating ?? 0);
       if (sort === "reviews") return (b.places_rating_count ?? 0) - (a.places_rating_count ?? 0);
+      // the server already ranked by fit; a stable sort keeps that order
+      if (sort === "fit") return 0;
       return b.triage_score - a.triage_score;
     });
     return copy;
@@ -1036,6 +1099,17 @@ export function SearchClient() {
 
       {meta && <RunBar meta={meta} enrich={enrichMeta} rows={sorted.length} />}
 
+      {meta?.fit && !meta.fit.ok && (
+        <div className="px-1 text-[12.5px] text-[#A0762C]" role="status">
+          Fit scores did not load. {meta.fit.error ?? ""}
+        </div>
+      )}
+      {meta?.fit?.ok && meta.fit.error && (
+        <div className="px-1 text-[12.5px] text-[#A0762C]" role="status">
+          {meta.fit.error}
+        </div>
+      )}
+
       {landMeta?.written && <SuccessNote title={landedTitle(landMeta)} detail="Not in HubSpot yet." />}
 
       {(landMeta?.stages?.land?.skipped ?? []).length > 0 && (
@@ -1067,6 +1141,11 @@ export function SearchClient() {
           onSort={setSort}
           selectableCount={selectable.length}
           anyEnriched={anyEnriched}
+          anyFit={sorted.some((r) => r.fit)}
+          firstVisitIds={firstVisitIds}
+          visitNote={visitNote}
+          visitBusy={visitBusy}
+          onFirstVisit={toggleFirstVisit}
         />
       )}
 
@@ -1606,11 +1685,6 @@ function RunBar({
         <Stat label="On this list" value={rows} />
         {e && <Stat label="Sites read" value={e.attempted} />}
         <div className="ml-auto flex items-center gap-3 text-[12px] text-[#8A928C]">
-          {search.live_calls != null && (
-            <span className="tabular-nums">
-              {search.live_calls} live Places call{search.live_calls === 1 ? "" : "s"}
-            </span>
-          )}
           {triage.book_size != null && (
             <span className="tabular-nums">{triage.book_size} already in the book</span>
           )}
@@ -1689,6 +1763,11 @@ function ResultsTable({
   onSort,
   selectableCount,
   anyEnriched,
+  anyFit,
+  firstVisitIds,
+  visitNote,
+  visitBusy,
+  onFirstVisit,
 }: {
   rows: Candidate[];
   selected: Set<string>;
@@ -1703,6 +1782,11 @@ function ResultsTable({
   onSort: (k: SortKey) => void;
   selectableCount: number;
   anyEnriched: boolean;
+  anyFit: boolean;
+  firstVisitIds: Set<string>;
+  visitNote: { key: string; text: string; error?: boolean } | null;
+  visitBusy: string | null;
+  onFirstVisit: (r: Candidate) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -1737,6 +1821,10 @@ function ResultsTable({
               onOpen={() => onExpand(r.key)}
               onReadSite={() => onReadSite(r.key)}
               onHide={() => onHide(r)}
+              firstVisit={r.places_id ? firstVisitIds.has(r.places_id) : false}
+              visitNote={visitNote?.key === r.key ? visitNote : null}
+              visitBusy={visitBusy === r.key}
+              onFirstVisit={() => onFirstVisit(r)}
             />
           ))}
         </div>
@@ -1757,19 +1845,20 @@ function ResultsTable({
                 />
               </th>
               <SortTh label="Business" k="name" sort={sort} onSort={onSort} />
+              {anyFit && <SortTh label="Fit" k="fit" sort={sort} onSort={onSort} />}
               <SortTh label="Rating" k="rating" sort={sort} onSort={onSort} align="right" />
               <SortTh label="Reviews" k="reviews" sort={sort} onSort={onSort} align="right" />
               <th className={th}>Website</th>
-              <SortTh label="Score" k="triage" sort={sort} onSort={onSort} align="right" />
+              <SortTh label="Triage" k="triage" sort={sort} onSort={onSort} align="right" />
               {anyEnriched && <th className={th}>Decision maker</th>}
-              {anyEnriched && <th className={th}>Fit</th>}
+              {anyEnriched && <th className={th}>Tags</th>}
               {anyEnriched && <th className={th}>About</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-[#EDEBE3]">
             {rows.map((r) => {
               const isOpen = expanded.has(r.key);
-              const cols = 7 + (anyEnriched ? 3 : 0);
+              const cols = 7 + (anyEnriched ? 3 : 0) + (anyFit ? 1 : 0);
               return (
                 <Fragment key={r.key}>
                   <tr
@@ -1826,6 +1915,20 @@ function ResultsTable({
                       </div>
                       {r.hours_today && <div className="mt-0.5 text-[11.5px] text-[#8A928C]">{r.hours_today}</div>}
                     </td>
+                    {anyFit && (
+                      <td className={`${td} w-[300px] max-w-[300px]`}>
+                        {r.fit && <FitLine fit={r.fit} />}
+                        {r.places_id && !r.id && (
+                          <FirstVisitButton
+                            on={firstVisitIds.has(r.places_id)}
+                            busy={visitBusy === r.key}
+                            note={visitNote?.key === r.key ? visitNote : null}
+                            onTap={() => onFirstVisit(r)}
+                            compact
+                          />
+                        )}
+                      </td>
+                    )}
                     <td className={`${td} text-right tabular-nums`}>
                       {r.places_rating != null && (
                         <span title={`${r.places_rating} out of 5 on Google`}>
@@ -1935,6 +2038,10 @@ function MobileRow({
   onOpen,
   onReadSite,
   onHide,
+  firstVisit,
+  visitNote,
+  visitBusy,
+  onFirstVisit,
 }: {
   row: Candidate;
   selected: boolean;
@@ -1944,13 +2051,17 @@ function MobileRow({
   onOpen: () => void;
   onReadSite: () => void;
   onHide: () => void;
+  firstVisit: boolean;
+  visitNote: { key: string; text: string; error?: boolean } | null;
+  visitBusy: boolean;
+  onFirstVisit: () => void;
 }) {
   const body = (
     <div className="min-w-0 flex-1">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate font-medium text-[#14201B]">{r.name}</span>
         <span className="flex shrink-0 items-center gap-1.5 text-[13px] font-medium tabular-nums text-[#14201B]">
-          {r.triage_score.toFixed(0)}
+          {r.fit ? <FitScore fit={r.fit} /> : r.triage_score.toFixed(0)}
           <span className="text-[#8A928C]">
             <Ico name={r.id ? "external" : open ? "chevron-up" : "chevron-down"} size={12} />
           </span>
@@ -1968,7 +2079,15 @@ function MobileRow({
             Queued
           </span>
         )}
+        {r.fit?.clinic && <ClinicPill />}
+        {firstVisit && (
+          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[#3D6B4A]">
+            <Ico name="pin" size={11} />
+            First visit
+          </span>
+        )}
       </div>
+      {r.fit?.why && <div className={`mt-0.5 text-[12.5px] ${r.fit.fit ? "text-[#3D4A44]" : "text-[#8A928C]"} ${open ? "" : "truncate"}`}>{r.fit.why}</div>}
       {!open && r.about && <div className="mt-1 line-clamp-2 text-[12.5px] text-[#5B6560]">{r.about}</div>}
     </div>
   );
@@ -2061,10 +2180,86 @@ function MobileRow({
                 {busy ? "Reading" : "Read the site"}
               </button>
             )}
+            {r.places_id && <FirstVisitButton on={firstVisit} busy={visitBusy} note={null} onTap={onFirstVisit} />}
           </div>
+          {visitNote && <VisitNote note={visitNote} />}
         </div>
       )}
     </div>
+  );
+}
+
+/** The fit number. A fit reads dark, anything else muted. */
+function FitScore({ fit }: { fit: Fit }) {
+  if (fit.score == null) return null;
+  return (
+    <span className={fit.fit ? "text-[#2C6A46]" : "text-[#8A928C]"} aria-label={`Fit ${fit.score} of 100`}>
+      {fit.score}
+    </span>
+  );
+}
+
+function ClinicPill() {
+  return (
+    <span className="rounded-full border border-[#E2DFD5] px-1.5 py-0.5 text-[10.5px] font-semibold text-[#5B6560]">Clinic</span>
+  );
+}
+
+function FitLine({ fit }: { fit: Fit }) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <span className="text-[15px] font-semibold tabular-nums">
+          <FitScore fit={fit} />
+        </span>
+        {fit.clinic && <ClinicPill />}
+      </div>
+      {fit.why && (
+        <div className={`mt-0.5 truncate text-[12px] ${fit.fit ? "text-[#3D4A44]" : "text-[#8A928C]"}`} title={fit.why}>
+          {fit.why}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VisitNote({ note }: { note: { text: string; error?: boolean } }) {
+  return note.error ? (
+    <span className="text-[12px] text-[#A0762C]" role="status">{note.text}</span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2C6A46]" role="status">
+      <Ico name="check" size={12} />
+      {note.text}
+    </span>
+  );
+}
+
+/** Marks a place as one of the 100 first-visit targets; a second tap unmarks it. */
+function FirstVisitButton({
+  on,
+  busy,
+  note,
+  onTap,
+  compact = false,
+}: {
+  on: boolean;
+  busy: boolean;
+  note: { text: string; error?: boolean } | null;
+  onTap: () => void;
+  compact?: boolean;
+}) {
+  const base = compact
+    ? "mt-1.5 inline-flex min-h-9 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] font-medium transition-transform active:scale-[0.97] disabled:opacity-50"
+    : "inline-flex min-h-11 items-center gap-1.5 rounded-md border px-3 text-[13px] font-medium transition-transform active:scale-[0.97] disabled:opacity-50";
+  const tone = on ? "border-[#3D6B4A] bg-[#E7EDE4] text-[#2C6A46]" : "border-[#E2DFD5] bg-white text-[#14201B]";
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      <button type="button" onClick={onTap} disabled={busy} aria-pressed={on} className={`${base} ${tone}`}>
+        <Ico name={on ? "check" : "pin"} size={compact ? 12 : 13} />
+        {busy ? "Saving" : "First visit"}
+      </button>
+      {note && <VisitNote note={note} />}
+    </span>
   );
 }
 

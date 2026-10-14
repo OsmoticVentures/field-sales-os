@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Push the env vars this app reads (names from .env.example) to its Vercel project.
 
-Values come from nutribiotic/.env and portfolio/.env.local in the agency checkout,
+Values come from nutribiotic/.env, portfolio/.env.local and .env in the agency checkout,
 plus two fixed ones (NB_PUBLIC_ORIGIN, NB_HUBSPOT_WRITE_ENABLED). Nothing is printed
 but the variable names. Run from the agency root:
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
 AGENCY = HERE.parent.parent
-SOURCES = [AGENCY / "nutribiotic" / ".env", AGENCY / "portfolio" / ".env.local"]
+SOURCES = [AGENCY / "nutribiotic" / ".env", AGENCY / "portfolio" / ".env.local", AGENCY / ".env"]
 FIXED = {"NB_PUBLIC_ORIGIN": "https://osmoticventures.com", "NB_HUBSPOT_WRITE_ENABLED": "false"}
 ENVS = ("production", "preview")
 
