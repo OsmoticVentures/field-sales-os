@@ -113,6 +113,12 @@ function isProspect(a: Pick<RouteAccount, "lead_stage">): boolean {
   return a.lead_stage === "prospect";
 }
 
+/** A chain, or an account I marked Corporate in the account view: buying is
+ *  decided at corporate, so it sits behind Chains hidden. */
+function isChain(a: Pick<RouteAccount, "chain_excluded" | "readiness">): boolean {
+  return Boolean(a.chain_excluded) || a.readiness === "corporate";
+}
+
 async function postJson(path: string, body: unknown): Promise<{ ok: boolean; error?: string }> {
   const res = await apiFetch(path, {
     method: "POST",
@@ -374,7 +380,7 @@ export function AccountsMap({
     () =>
       accounts.filter(
         (a) =>
-          (displayPrefs.showChains || !a.chain_excluded) &&
+          (displayPrefs.showChains || !isChain(a)) &&
           (displayPrefs.showPractices || !isSmallPractice(a.channel, a.tier)) &&
           a.lead_status !== "Closed" &&
           (displayPrefs.showProspects || !isProspect(a)),
@@ -435,7 +441,7 @@ export function AccountsMap({
     return m;
   }, [stops]);
 
-  const chainExcludedCount = useMemo(() => accounts.filter((a) => a.chain_excluded).length, [accounts]);
+  const chainExcludedCount = useMemo(() => accounts.filter(isChain).length, [accounts]);
   const practiceExcludedCount = useMemo(() => accounts.filter((a) => isSmallPractice(a.channel, a.tier)).length, [accounts]);
   const prospectExcludedCount = useMemo(() => accounts.filter((a) => isProspect(a)).length, [accounts]);
 
