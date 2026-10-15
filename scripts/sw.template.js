@@ -86,6 +86,22 @@ async function kept(req) {
   }
 }
 
+/** The newest copy of a screen an older build kept, for a launch with no
+ *  signal. Newest first: a plain match across every cache answers with the
+ *  oldest copy, which held a screen on a build long since replaced. */
+async function olderShell(key) {
+  try {
+    const names = (await caches.keys()).filter((n) => n.startsWith("fso-shell-") && n !== SHELL).reverse();
+    for (const n of names) {
+      const hit = await inCache(n, key);
+      if (hit) return hit;
+    }
+  } catch {
+    /* no copy */
+  }
+  return null;
+}
+
 function timeout(ms) {
   return new Promise((resolve) => setTimeout(() => resolve(null), ms));
 }
@@ -205,12 +221,13 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      const builds = ((await metaGet("builds")) || []).filter((b) => b !== BUILD);
-      builds.unshift(BUILD);
-      const keep = builds.slice(0, KEEP_BUILDS);
-      await metaPut("builds", keep);
+      // Builds in the order their caches were made, newest last. This build
+      // and the one before it stay; every older one goes.
+      const names = await caches.keys();
+      const older = [...new Set(names.filter((n) => n.startsWith("fso-static-")).map((n) => n.slice(11)))].filter((b) => b !== BUILD);
+      const keep = [BUILD, ...older.slice(-(KEEP_BUILDS - 1))];
       const allowed = new Set(keep.flatMap((b) => [`fso-static-${b}`, `fso-shell-${b}`]));
-      for (const n of await caches.keys()) {
+      for (const n of names) {
         if ((n.startsWith("fso-static-") || n.startsWith("fso-shell-")) && !allowed.has(n)) await caches.delete(n);
       }
       if (self.registration.navigationPreload) {
@@ -326,7 +343,9 @@ async function navigate(event, url) {
 
   if (SHELL_SET.has(p)) {
     const key = p;
-    const cached = await kept(key);
+    // Only this build's copy paints at once; an older build's screen would
+    // run that build's code.
+    const cached = await inCache(SHELL, key);
     const fresh = network(event, url).then(
       async (res) => {
         if (okPage(res)) {
@@ -347,7 +366,7 @@ async function navigate(event, url) {
       return cached;
     }
     const res = await fresh;
-    return res || offlinePage();
+    return res || (await olderShell(key)) || offlinePage();
   }
 
   // A screen that renders a rep's data: the network first, the rep's last
