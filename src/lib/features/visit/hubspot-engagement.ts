@@ -183,7 +183,7 @@ function typedProperties(
       hs_timestamp: ts,
       hs_email_subject: title,
       hs_email_html: body,
-      hs_email_text: plainBody,
+      hs_email_text: `${plainBody}\n${marker(activity.id)}`,
       hs_email_direction: otype === "INCOMING_EMAIL" ? "INCOMING_EMAIL" : "EMAIL",
       hs_email_status: "SENT",
       hubspot_owner_id: OWNER_ID,
@@ -384,7 +384,7 @@ function noteBody(lines: string[], activityId: number): string {
 async function alreadyFiled(activityId: number, otype: EngagementType): Promise<string | null> {
   const objectType = ENGAGEMENT_OBJECT[otype];
   const bodyProp =
-    otype === "CALL" ? "hs_call_body" : otype === "MEETING" ? "hs_meeting_body" : otype === "EMAIL" || otype === "INCOMING_EMAIL" ? "hs_email_html" : "hs_note_body";
+    otype === "CALL" ? "hs_call_body" : otype === "MEETING" ? "hs_meeting_body" : otype === "EMAIL" || otype === "INCOMING_EMAIL" ? "hs_email_text" : "hs_note_body";
   try {
     const res = await request<{ results?: Array<{ id: string; properties?: Record<string, string | null> }> }>({
       method: "POST",
