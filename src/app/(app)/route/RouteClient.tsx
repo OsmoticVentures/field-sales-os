@@ -181,7 +181,8 @@ function buildSchedule(
       if (hop) priced[betweenOffset + i - 1] = hop;
       t += hop?.minutes ?? 0;
     }
-    const anchor = anchors[s.id];
+    // Lunch takes its time from the route, never a stated one.
+    const anchor = s.type === "custom" && s.custom.kind === "lunch" ? undefined : anchors[s.id];
     if (anchor) {
       const at = minutesOfDay(anchor);
       if (at >= t) t = at;
@@ -494,6 +495,14 @@ function RouteDay({
     patchDraft(activeDay, [...draft.slice(0, at + 1), lunch, ...draft.slice(at + 1)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lunchAfter, activeDay]);
+
+  // A time stored on a Lunch stop from before it followed the route.
+  const staleLunchTimes = stops.filter((s) => s.type === "custom" && s.custom.kind === "lunch" && stopTimes[s.id]).map((s) => s.id);
+  useEffect(() => {
+    if (staleLunchTimes.length === 0) return;
+    patchTimes(activeDay, Object.fromEntries(Object.entries(stopTimes).filter(([id]) => !staleLunchTimes.includes(id))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleLunchTimes.join(","), activeDay]);
   const shownLegs = schedule?.priced ?? legs;
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
@@ -927,7 +936,7 @@ function RouteDay({
                           )}
                         </div>
                       )}
-                      {c && (c.kind === "lunch" || c.kind === "hotel") && (
+                      {c && c.kind === "hotel" && (
                         <label className="mt-1 flex items-center gap-1.5 text-[12.5px] text-[#5B6560]">
                           At
                           <input
