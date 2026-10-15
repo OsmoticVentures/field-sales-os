@@ -87,7 +87,8 @@ async function sbPut(key: string, response: unknown): Promise<void> {
         "Content-Type": "application/json",
         Prefer: "return=minimal",
       },
-      body: JSON.stringify({ id: key, response }),
+      // response is NOT NULL; a write that returns nothing is stored as JSON null.
+      body: JSON.stringify({ id: key, response: response ?? null }),
     });
   } catch {
     // Best effort. A failed durable write never blocks or duplicates the
