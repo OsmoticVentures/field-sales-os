@@ -106,6 +106,26 @@ function ReviewCard({ summary, error }: { summary: Summary; error: string | null
 // photos: one drop zone, it sorts, pairs, dates, and files
 // ---------------------------------------------------------------------------
 
+/** The model refuses an image over 5 MB (as base64) or in a format it does not
+ *  read, and a phone camera photo is often both. The copy sent to be read is a
+ *  JPEG at most 1600 px on a side; the original is what gets filed. If the
+ *  browser cannot redraw it, the original goes as it is. */
+async function shrinkForReading(file: File): Promise<Blob> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.85));
+    return blob ?? file;
+  } catch {
+    return file;
+  }
+}
+
 function PhotosCard() {
   const [cards, setCards] = useState<PhotoCard[]>([]);
   // null = follow the auto-detected date; a string = an override, held until
@@ -139,7 +159,7 @@ function PhotosCard() {
   async function classify(card: PhotoCard) {
     try {
       const form = new FormData();
-      form.append("photo", card.file);
+      form.append("photo", await shrinkForReading(card.file), "photo.jpg");
       const res = await apiFetch("/api/expenses/classify", { method: "POST", body: form });
       const j = await res.json();
       if (!j.ok) {
