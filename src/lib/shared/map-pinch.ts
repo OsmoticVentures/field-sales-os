@@ -28,7 +28,6 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
   // The zoom follows the fingers continuously instead of stepping whole levels.
   map.setOptions({ isFractionalZoomEnabled: true });
   let start = map.getZoom() ?? 10;
-  let pinching = false;
   // The world point (zoom 0 pixels) under the fingers when the pinch began.
   let anchor: XY | null = null;
   let at: XY = { x: 0, y: 0 };
@@ -85,23 +84,13 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
 
   // UIKit reports the scale back at 1 when the fingers lift, so the end only
   // releases the pinch; applying it would snap the map back to where it began.
-  const onNative = (e: Event) => {
-    const d = (e as CustomEvent<NativePinch>).detail;
+  const onNative = (d: NativePinch) => {
     if (d.state === "began") {
-      const r = el.getBoundingClientRect();
-      pinching = r.width > 0 && d.x >= r.left && d.x <= r.right && d.y >= r.top && d.y <= r.bottom;
-      if (pinching) {
-        start = map.getZoom() ?? start;
-        anchorAt(d.x, d.y);
-        (window as unknown as { __pinchHit?: boolean }).__pinchHit = true;
-      }
+      start = map.getZoom() ?? start;
+      anchorAt(d.x, d.y);
       return;
     }
-    if (!pinching) return;
-    if (d.state === "ended") {
-      pinching = false;
-      return;
-    }
+    if (d.state === "ended") return;
     at = { x: d.x, y: d.y };
     apply(d.scale);
   };
@@ -109,11 +98,38 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
   el.addEventListener("wheel", onWheel, { passive: false, capture: true });
   el.addEventListener("gesturestart", onGestureStart);
   el.addEventListener("gesturechange", onGestureChange);
-  window.addEventListener("nativepinch", onNative);
+  const tagged = el as PinchTarget;
+  tagged.dataset.pinchMap = "";
+  tagged.__pinch = onNative;
+  listenNative();
   return () => {
+    if (tagged.__pinch === onNative) {
+      delete tagged.__pinch;
+      delete tagged.dataset.pinchMap;
+    }
     el.removeEventListener("wheel", onWheel, { capture: true });
     el.removeEventListener("gesturestart", onGestureStart);
     el.removeEventListener("gesturechange", onGestureChange);
-    window.removeEventListener("nativepinch", onNative);
   };
+}
+
+/** The map a Mac pinch lands on is the one under the pointer when it begins,
+ * found from the page itself, so it holds as screens and maps come and go. */
+type PinchTarget = HTMLElement & { __pinch?: (d: NativePinch) => void };
+let listening = false;
+let active: ((d: NativePinch) => void) | null = null;
+
+function listenNative() {
+  if (listening) return;
+  listening = true;
+  window.addEventListener("nativepinch", (e) => {
+    const d = (e as CustomEvent<NativePinch>).detail;
+    if (d.state === "began") {
+      const hit = document.elementFromPoint(d.x, d.y)?.closest<PinchTarget>("[data-pinch-map]");
+      active = hit?.__pinch ?? null;
+      (window as unknown as { __pinchHit?: boolean }).__pinchHit = active !== null;
+    }
+    active?.(d);
+    if (d.state === "ended") active = null;
+  });
 }
