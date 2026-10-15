@@ -11,45 +11,13 @@
 import Link from "next/link";
 import { useState } from "react";
 import { apiFetch } from "../../../lib/core/api";
-import { Card, Ico, SuccessNote, ghostBtn, primaryBtn } from "../../../lib/core/ui";
+import { Card, Ico, SuccessNote, ghostBtn } from "../../../lib/core/ui";
 import { daysAgo } from "../../../lib/features/prospect/format";
 import type { Draft } from "../../../lib/features/outbound/dal";
-import { outlookAppComposeLink, owaComposeLink } from "../../../lib/features/outbound/mail-links";
-import { useOnPhone } from "../../../lib/features/outbound/use-on-phone";
-import { bodyToHtml, bodyToPlain, hasTable, splitBody } from "../../../lib/features/outbound/table-body";
+import { OpenEmailButtons } from "../../../lib/features/outbound/open-email";
+import { splitBody } from "../../../lib/features/outbound/table-body";
 
 type Row = { draft: Draft; accountName: string | null };
-
-function CopyBodyButton({ body }: { body: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy() {
-    try {
-      if (hasTable(body) && typeof ClipboardItem !== "undefined") {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": new Blob([bodyToHtml(body)], { type: "text/html" }),
-            "text/plain": new Blob([bodyToPlain(body)], { type: "text/plain" }),
-          }),
-        ]);
-      } else {
-        await navigator.clipboard.writeText(body);
-      }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard permission refused. The body is on screen above either
-      // way, so this degrades to selecting it by hand rather than to
-      // nothing.
-    }
-  }
-
-  return (
-    <button type="button" onClick={copy} className={`${ghostBtn} bg-white px-3 text-[13px]`}>
-      {copied ? "Copied" : "Copy body"}
-    </button>
-  );
-}
 
 function BodyView({ body }: { body: string }) {
   return (
@@ -81,12 +49,6 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
   const [decided, setDecided] = useState<"sent" | "dismissed" | null>(null);
   const [note, setNote] = useState<{ title: string; detail?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const onPhone = useOnPhone();
-  const tableBody = hasTable(d.body_md);
-  const outlook = d.to_email
-    ? (onPhone ? outlookAppComposeLink : owaComposeLink)(d.to_email, d.subject, d.body_md, d.bcc_email, tableBody)
-    : null;
 
   async function decide(decision: "sent" | "dismissed") {
     setPending(decision);
@@ -181,23 +143,7 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
       <BodyView body={d.body_md} />
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
-        {d.to_email && outlook && (
-          <>
-            <a href={outlook.href} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
-              Open in Outlook &rarr;
-            </a>
-            <CopyBodyButton body={d.body_md} />
-            {outlook.bodyOmitted && !tableBody && (
-              <span className="text-[12px] text-[#8A6D2F]">Too long to prefill. Outlook opens addressed, paste the body in.</span>
-            )}
-          </>
-        )}
-        {!d.to_email && (
-          <>
-            <CopyBodyButton body={d.body_md} />
-            <span className="text-[12px] text-[#8A928C]">No email on file, paste into their site&rsquo;s contact form.</span>
-          </>
-        )}
+        <OpenEmailButtons draft={d} />
         <button
           type="button"
           onClick={() => decide("sent")}

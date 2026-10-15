@@ -409,6 +409,30 @@ export async function listVisitedAccountIds(day: string): Promise<Set<string>> {
   return out;
 }
 
+/**
+ * The stops on `day` a visit or meeting was logged for that day (Los
+ * Angeles), by account id. Whatever path filed it (the Visit screen, a
+ * "cliente" capture, the account view), a logged in-person touch is the
+ * stop made, so Route marks it done. Scoped to the ids asked, which are the
+ * rep's own route, so no owner filter is needed here.
+ */
+export async function listLoggedStopIds(ids: string[], day: string): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const [y, m, d] = day.split("-").map(Number);
+  const from = new Date(Date.UTC(y, m - 1, d)).toISOString();
+  const to = new Date(Date.UTC(y, m - 1, d + 2)).toISOString();
+  const rows = await raw<{ account_id: string | null; at: string | null }>(
+    "nb_activities",
+    `select=account_id,at&kind=in.(visit,meeting)&account_id=in.(${ids.join(",")})&at=gte.${from}&at=lt.${to}&limit=200`,
+  );
+  const out = new Set<string>();
+  for (const r of rows) {
+    if (!r.account_id || !r.at) continue;
+    if (new Date(r.at).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" }) === day) out.add(r.account_id);
+  }
+  return ids.filter((id) => out.has(id));
+}
+
 // ---------------------------------------------------------------------------
 // Return-visit directives (Suggested returns)
 // ---------------------------------------------------------------------------

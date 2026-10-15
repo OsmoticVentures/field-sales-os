@@ -11,9 +11,12 @@ import {
   getRouteSchedulePrefs,
   getRouteStateByDay,
   isConfigured,
+  listLoggedStopIds,
   listOwnerAccounts,
+  setRouteDone,
 } from "../../../../lib/features/route/dal";
-import { planningHorizonDates, defaultActiveDay } from "../../../../lib/features/route/field-week";
+import { planningHorizonDates, defaultActiveDay, laTodayIso } from "../../../../lib/features/route/field-week";
+import { listPendingDrafts, type Draft } from "../../../../lib/features/outbound/dal";
 import { hasAccess } from "../../../../lib/core/devices";
 import { captureError } from "@/lib/core/errors";
 
@@ -42,6 +45,8 @@ export async function GET() {
         calls: {},
         done: {},
         times: {},
+        logged: {},
+        emails: {},
       },
       { headers: { "cache-control": "no-store" } },
     );
@@ -55,6 +60,27 @@ export async function GET() {
       getRouteStateByDay(),
       getRouteEndpointsByDay(),
     ]);
+
+    // A visit or meeting logged today for one of today's stops marks it
+    // done, kept with the rest of the day's done marks so every reader of
+    // the route (the widget, the ETAs) sees the same day. Its pending
+    // Outbound draft rides along for the stop's Open email button.
+    const today = laTodayIso();
+    const todayIds = (state.draft[today] ?? []).filter((e): e is string => typeof e === "string");
+    const logged = await listLoggedStopIds(todayIds, today).catch(() => [] as string[]);
+    const doneToday = state.done[today] ?? [];
+    const newlyDone = logged.filter((id) => !doneToday.includes(id));
+    if (newlyDone.length > 0) {
+      state.done = { ...state.done, [today]: [...doneToday, ...newlyDone] };
+      await setRouteDone(state.done).catch((e) => captureError(e, "/api/route/state auto-done"));
+    }
+    const emails: Record<string, Draft> = {};
+    if (logged.length > 0) {
+      const drafts = await listPendingDrafts().catch(() => [] as Draft[]);
+      for (const d of drafts) {
+        if (d.account_id && logged.includes(d.account_id) && !emails[d.account_id] && d.channel === "email") emails[d.account_id] = d;
+      }
+    }
 
     return Response.json(
       {
@@ -70,6 +96,8 @@ export async function GET() {
         calls: state.calls,
         done: state.done,
         times: state.times,
+        logged: { [today]: logged },
+        emails,
       },
       { headers: { "cache-control": "no-store" } },
     );

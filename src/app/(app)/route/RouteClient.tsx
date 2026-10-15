@@ -22,7 +22,7 @@ import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { AccountsMap } from "./AccountsMap";
-import { dayLabel, defaultActiveDay, workingDayIso, planningHorizonDates } from "@/lib/features/route/field-week";
+import { dayLabel, defaultActiveDay, laTodayIso, workingDayIso, planningHorizonDates } from "@/lib/features/route/field-week";
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
@@ -41,6 +41,8 @@ import { AddStop } from "./AddStop";
 import { ReturnSuggestions } from "./ReturnSuggestions";
 import { DayMoveMenu, RowIco } from "./RowControls";
 import { HUBSPOT_COMPANY_URL } from "@/lib/features/prospect/format";
+import type { Draft } from "@/lib/features/outbound/dal";
+import { OpenEmailButtons } from "@/lib/features/outbound/open-email";
 
 type StatePayload = {
   ok: boolean;
@@ -56,6 +58,10 @@ type StatePayload = {
   calls: Record<string, CallEntry[]>;
   done: Record<string, string[]>;
   times: Record<string, Record<string, string>>;
+  /** Stops a visit or meeting was logged for that day, marked done by it. */
+  logged?: Record<string, string[]>;
+  /** The pending Outbound email for a logged stop's account, by account id. */
+  emails?: Record<string, Draft>;
 };
 
 function newKey(): string {
@@ -152,6 +158,8 @@ function buildSchedule(
   dayISO: string,
   anchors: Record<string, string>,
   lunchOff: boolean,
+  /** The whole day, done stops too: a Lunch already eaten still counts. */
+  dayStops: RouteStopView[] = stops,
 ): Schedule {
   const price = (leg: DriveLeg | undefined, atMinutes: number): DriveLeg | null => {
     if (!leg) return null;
@@ -172,7 +180,7 @@ function buildSchedule(
   const missedAnchors = new Set<string>();
   const closedToday = new Set<string>();
   let t = depart + (toFirst?.minutes ?? 0);
-  const lunchStop = lunchOff || stops.some((s) => s.type === "custom" && s.custom.kind === "lunch");
+  const lunchStop = lunchOff || dayStops.some((s) => s.type === "custom" && s.custom.kind === "lunch");
   let lunch: Schedule["lunch"] = null;
 
   stops.forEach((s, i) => {
@@ -324,6 +332,21 @@ function RouteDay({
   const start = data.startByDay[activeDay] ?? startFallback;
   const end = data.endByDay[activeDay] ?? myLoc ?? data.home;
 
+  // Today, once a stop is done, the clock runs from here and now: the stops
+  // left are routed from where the rep is (or the last stop made), so the
+  // ETAs after it are the real ones, not the morning's plan.
+  const live = activeDay === laTodayIso() && stops.some((s) => doneIds.has(s.id));
+  const routed = useMemo(() => (live ? stops.filter((s) => !doneIds.has(s.id)) : stops), [live, stops, doneIds]);
+  const routedIndex = useMemo(() => new Map(routed.map((s, i) => [s.id, i])), [routed]);
+  const routeStart = useMemo<RouteEndpoint | null>(() => {
+    if (!live) return start;
+    if (myLoc) return myLoc;
+    const lastDone = [...stops].reverse().find((s) => doneIds.has(s.id));
+    if (!lastDone) return start;
+    const label = lastDone.type === "account" ? lastDone.account.name : lastDone.custom.label;
+    return { label, address: "", lat: lastDone.lat, lng: lastDone.lng };
+  }, [live, myLoc, stops, doneIds, start]);
+
   const [depart, setDepart] = useState(nowHHMM);
   const [prefs, setPrefsLocal] = useState<RouteSchedulePrefs>({ ...data.prefs, depart });
   // Saved prefs or a new departure time reset the local prefs, during render.
@@ -336,7 +359,7 @@ function RouteDay({
   const [busy, setBusy] = useState(false);
   const [legs, setLegs] = useState<DriveLeg[] | null>(null);
   const [coords, setCoords] = useState<[number, number][] | null>(null);
-  const pointCount = (start ? 1 : 0) + stops.length + (end ? 1 : 0);
+  const pointCount = routed.length === 0 ? 0 : (routeStart ? 1 : 0) + routed.length + (end ? 1 : 0);
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">(() => (pointCount < 2 ? "ok" : "loading"));
   const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
@@ -416,11 +439,11 @@ function RouteDay({
   const pathKey = useMemo(
     () =>
       [
-        start ? `s:${start.lat},${start.lng}` : "s:-",
-        ...stops.map((s) => `${s.lat},${s.lng}`),
+        routeStart ? `s:${routeStart.lat},${routeStart.lng}` : "s:-",
+        ...routed.map((s) => `${s.lat},${s.lng}`),
         end ? `e:${end.lat},${end.lng}` : "e:-",
       ].join("|"),
-    [stops, start, end],
+    [routed, routeStart, end],
   );
 
   /* A new path clears or marks the drive legs during render; the effect
@@ -438,8 +461,8 @@ function RouteDay({
   }
 
   useEffect(() => {
-    const points = [...(start ? [start] : []), ...stops, ...(end ? [end] : [])];
-    if (points.length < 2) return;
+    if (pointCount < 2) return;
+    const points = [...(routeStart ? [routeStart] : []), ...routed, ...(end ? [end] : [])];
     let live = true;
     apiFetch("/api/route/drive", {
       method: "POST",
@@ -467,8 +490,11 @@ function RouteDay({
   }, [pathKey]);
 
   const schedule = useMemo(
-    () => (legs ? buildSchedule(stops, legs, start !== null, end !== null, prefs, activeDay, stopTimes, lunchOff) : null),
-    [legs, stops, start, end, prefs, activeDay, stopTimes, lunchOff],
+    () =>
+      legs && routed.length > 0
+        ? buildSchedule(routed, legs, routeStart !== null, end !== null, prefs, activeDay, stopTimes, lunchOff, stops)
+        : null,
+    [legs, routed, routeStart, end, prefs, activeDay, stopTimes, lunchOff, stops],
   );
 
   // The day's Lunch stop goes in on its own, right after the stop it falls
@@ -477,7 +503,7 @@ function RouteDay({
   const lunchAfter = schedule?.lunch?.after ?? null;
   useEffect(() => {
     if (lunchAfter === null) return;
-    const before = stops[lunchAfter];
+    const before = routed[lunchAfter];
     if (!before) return;
     const area = before.type === "account" ? (before.account.area ?? before.account.city) : (before.custom.area ?? null);
     const lunch: CustomStop = {
@@ -609,6 +635,7 @@ function RouteDay({
         next.delete(id);
         return next;
       });
+      if (day === laTodayIso()) setDepart(nowHHMM());
       setData((prev) => {
         const nextDone = Array.from(new Set([...(prev.done[day] ?? []), id]));
         postJson("/api/route/done", { day, done: nextDone }).catch(() => {});
@@ -679,7 +706,7 @@ function RouteDay({
 
   function legBetween(i: number): DriveLeg | null {
     if (!shownLegs || i < 1) return null;
-    return shownLegs.slice(start ? 1 : 0, shownLegs.length - (end ? 1 : 0))[i - 1] ?? null;
+    return shownLegs.slice(routeStart ? 1 : 0, shownLegs.length - (end ? 1 : 0))[i - 1] ?? null;
   }
 
   return (
@@ -718,7 +745,7 @@ function RouteDay({
           activeDay={activeDay}
           draftByDay={data.draft}
           stops={stops}
-          start={start}
+          start={routeStart}
           end={end}
           coords={coords}
           doneIds={doneIds}
@@ -784,10 +811,10 @@ function RouteDay({
         <p className="text-[13.5px] text-[#8A928C]">Nothing on this day yet.</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
-          {start && (
+          {routeStart && (
             <div className="flex items-center justify-between border-b border-[#EEECE3] bg-[#FAF9F5] px-4 py-2 text-[12.5px] text-[#5B6560]">
               <span>
-                Leave {start.label} <span className="font-medium tabular-nums text-[#3D4A44]">{prefs.depart}</span>
+                Leave {routeStart.label} <span className="font-medium tabular-nums text-[#3D4A44]">{prefs.depart}</span>
               </span>
               {schedule?.toFirst && (
                 <span className="tabular-nums text-[#8A928C]">
@@ -802,8 +829,11 @@ function RouteDay({
               const c = s.type === "custom" ? s.custom : null;
               const title = a ? a.name : c!.pending ? (c!.area ? (areaLabels.get(c!.area) ?? c!.area) : "Lunch") : c!.label;
               const isDone = doneIds.has(s.id);
-              const leg = legBetween(i);
-              const prev = i > 0 ? stops[i - 1] : null;
+              // A done stop on a live day is behind the rep: no ETA, no drive.
+              const ri = routedIndex.get(s.id);
+              const leg = ri === undefined ? null : legBetween(ri);
+              const prev = ri !== undefined && ri > 0 ? routed[ri - 1] : null;
+              const email = isDone && data.logged?.[activeDay]?.includes(s.id) ? data.emails?.[s.id] : undefined;
               const hours = a ? hoursStatusNow(a.business_hours) : null;
               const closed = schedule?.closedToday.has(s.id);
               const missedAnchor = schedule?.missedAnchors.has(s.id);
@@ -843,8 +873,8 @@ function RouteDay({
                             {CUSTOM_STOP_LABEL[c.kind]}
                           </span>
                         )}
-                        {schedule && (
-                          <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.rows[i].arrive)}</span>
+                        {schedule && ri !== undefined && schedule.rows[ri] && (
+                          <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.rows[ri].arrive)}</span>
                         )}
                         {closed && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">closed the rest of the day</span>
@@ -1005,6 +1035,7 @@ function RouteDay({
                         <Ico name="check" size={13} />
                         {isDone ? "Done" : "Mark done"}
                       </button>
+                      {email && <OpenEmailButtons draft={email} label="Open email" copy={false} />}
                       {days.length > 1 && (
                         <DayMoveMenu
                           days={days}
