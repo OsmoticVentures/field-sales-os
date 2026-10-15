@@ -43,6 +43,10 @@ eight drafts I rewrote before sending, 2026-08-18 to 2026-09-23, each paired wit
 writing to. It shows I care. "Following up after meeting with Carmen." / "Hi Honey and Susan," /
 "Miriam told me this address is the way to reach Mehrdad." / "come see you and Silvia/Carmen".
 
+**Where the person who sent me works, when they have more than one location.** Draft: "Clinton
+mentioned" / Sent: "Clinton from your Silverlake location mentioned you're the right person to
+talk to". With one location, the name alone.
+
 **Who I am, in one line, in a first email.** "I'm Juan, your representative with NutriBiotic." /
 "I'm Juan, the new representative for NutriBiotic." Not in a reply to something they sent me.
 
@@ -56,6 +60,10 @@ what is not." Sent: "help you sell our products better." / "My goal is to help y
 products, so your team can better inform customers to make buying decisions." / "help you better
 sell the GSE products you carry" / "see if our products would be a good fit for your patients."
 
+**Why this product fits them, in one sentence.** Not an offer to explain later. Draft: "happy to
+walk through how those differ ... whenever it's useful" / Sent: "This is a staple in sports
+medicine, especially for rehab and older adults when hydration is essential."
+
 **One hook from what is new, when it fits.** A line from 'nutribiotic/config/talking_points.json',
 never more than one or two: "This year the company joined forces in Europe with lab in Spain,
 combining 45+42 years of experience." / "NutriBiotic is innovating with 4 new products per year."
@@ -68,6 +76,19 @@ ones I rewrite. Fifteen minutes is the usual size: "Just 15 minutes should be go
 ready to buy, the ask is the order itself: "Let me know what order size makes sense, and I'll get
 that processed for you."
 
+**Exact minutes and a concrete day, every time.** My most repeated edit. "Do you have 15 minutes on
+Thursday or Friday mornings?" / "Will you be in on Tuesday Sep 29th? I'd like to come visit in the
+morning." / "I'm asking for a short 10 minutes with Dr. Ganem." Ten or fifteen minutes, never an
+open-ended "let's find a time".
+
+**Two ways to meet, and an easy out.** "I can come to any of the Yummy locations to meet you or
+just give you a quick phone call." / "If you aren't looking for supplements at all, please let me
+know and I won't bother you."
+
+**To a clinic, ask to see the practitioners as a request, not a question.** Draft: "Who decides
+what supplements the clinic carries?" / Sent: "I'd like to come see if the ND and DCs in your
+facility are open to incorporating supplements in their practice."
+
 **Relative time, not dates.** They do not care whether it was September 2 or September 3. "a
 couple weeks ago", "recently", "two days ago". An exact day only when it is very recent. Draft:
 "Nikki told me on September 2 that email is the way to ask you for a meeting, with at least a week
@@ -77,6 +98,17 @@ meeting."
 **No logistics they already know or that go without saying.** "with at least a week of notice",
 "I understand you're available Tuesday and Wednesday mornings", "so I am writing here" all came
 out.
+
+**One topic.** A side question comes out of a pitch, even one they asked. Draft: "On your question
+about returns: yes, we do them ..." / Sent: nothing.
+
+**Orders and confirmations.** The item list is always a table, Item, Item # and Units, however
+short the order. In the confirmation to the client, the price column reads "Wholesale price", not
+"Unit price"; the total line reads "Total: $1,202.36. Shipping is complimentary." rather than
+"before shipping and tax"; a discount names its condition, "(25% off first purchase)"; and it ends
+"I'll update you when we process these internally." The note to the orders desk opens with what
+the order means when it is a big one, "Big order for New Frontiers Natural Marketplace (Solvang):",
+and can end on a line like "So excited to be making some better sales."
 
 **An attachment always says what to do with it.** Never "attaching X" on its own. "They may be
 helpful to print and show to customers." / "I attached our best seller guide so you can see all
@@ -160,6 +192,10 @@ reason I am asking. Same shape to HQ: "Is it a requirement to buy in bulk from N
 their Seller's Permit if they use the products instead of reselling to their clients? / Do we have
 an online application process that collects this or other wholesale buyer data?"
 
+Asking several people at HQ in one email, each question carries the name of who should answer it:
+"(Cheryl) Could you send me our new client application?" / "(Fra) Can we get them started with 2x2
+or 3x3 for the first order of these items?"
+
 ## How I close
 
 Always appreciation, then my first name alone. "Juan", not "Juan Arenas": the full block is my auto
@@ -170,6 +206,9 @@ signature, not something I type.
 - "Thanks," for a short one, and "Thanks Jeremy!" with someone I know.
 - "Gracias," to a Spanish-speaking buyer, even when the email is in English.
 - "See you again soon." after a visit, above the appreciation line.
+- A draft that ends on a bare name or "Thanks, Juan" gets "Thank you," and then "Juan". I made that
+  edit four times. With someone who helped me, the warmer close: "Happy to connect." / "Thank you
+  for your help. Means a lot."
 
 ## Registers
 

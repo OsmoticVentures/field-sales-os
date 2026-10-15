@@ -49,5 +49,30 @@ export const TALKING_POINTS: TalkingPoint[] = [
     "id": "content-with-users",
     "topic": "success stories",
     "line": "I'm going around making content with real users I meet at stores. Will get these videos to you when they're ready."
+  },
+  {
+    "id": "staff-sample",
+    "topic": "offer",
+    "line": "We'll add the staff sample of clarity and dual relax so you can try the innovation firsthand."
+  },
+  {
+    "id": "gse-star",
+    "topic": "product hook",
+    "line": "I'd like to show GSE as our star product."
+  },
+  {
+    "id": "electrolytes-sports-medicine",
+    "topic": "product hook",
+    "line": "This is a staple in sports medicine, especially for rehab and older adults when hydration is essential."
+  },
+  {
+    "id": "market-insights",
+    "topic": "meeting ask",
+    "line": "how I can help with market insights and what sells best in other groceries"
+  },
+  {
+    "id": "free-shipping",
+    "topic": "order terms",
+    "line": "Shipping is complimentary."
   }
 ];
