@@ -218,11 +218,14 @@ self.addEventListener("install", (event) => {
   );
 });
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    (async () => {
-      // Builds in the order their caches were made, newest last. This build
-      // and the one before it stay; every older one goes.
+/** Builds in the order their caches were made, newest last. This build and
+ *  the one before it stay; every older one goes. Run on activate and again on
+ *  the first screen this worker opens, since WebKit can activate a worker
+ *  without the activate work having run. */
+let pruned = null;
+function prune() {
+  pruned ??= (async () => {
+    try {
       const names = await caches.keys();
       const older = [...new Set(names.filter((n) => n.startsWith("fso-static-")).map((n) => n.slice(11)))].filter((b) => b !== BUILD);
       const keep = [BUILD, ...older.slice(-(KEEP_BUILDS - 1))];
@@ -230,6 +233,17 @@ self.addEventListener("activate", (event) => {
       for (const n of names) {
         if ((n.startsWith("fso-static-") || n.startsWith("fso-shell-")) && !allowed.has(n)) await caches.delete(n);
       }
+    } catch {
+      pruned = null;
+    }
+  })();
+  return pruned;
+}
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      await prune();
       if (self.registration.navigationPreload) {
         try {
           await self.registration.navigationPreload.enable();
@@ -290,6 +304,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (req.mode === "navigate") {
+    event.waitUntil(prune());
     event.respondWith(navigate(event, url));
     return;
   }
