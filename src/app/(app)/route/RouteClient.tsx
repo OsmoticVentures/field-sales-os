@@ -17,7 +17,7 @@
 
 import Link from "next/link";
 import { Geolocation } from "@capacitor/geolocation";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
@@ -26,7 +26,7 @@ import { dayLabel, defaultActiveDay, workingDayIso, planningHorizonDates } from 
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, lunchDue } from "@/lib/features/route/types";
 import type {
   CallEntry,
   CustomStop,
@@ -130,6 +130,8 @@ type Schedule = {
   priced: DriveLeg[];
   missedAnchors: Set<string>;
   closedToday: Set<string>;
+  /** The lunch block, after the stop at this index, when no Lunch stop is on the day. */
+  lunch: { after: number; start: number; end: number } | null;
 };
 
 /** Priced forward, one pass: a leg's cost depends on when it departs, and
@@ -165,6 +167,8 @@ function buildSchedule(
   const missedAnchors = new Set<string>();
   const closedToday = new Set<string>();
   let t = depart + (toFirst?.minutes ?? 0);
+  const lunchStop = stops.some((s) => s.type === "custom" && s.custom.kind === "lunch");
+  let lunch: Schedule["lunch"] = null;
 
   stops.forEach((s, i) => {
     if (i > 0) {
@@ -187,13 +191,17 @@ function buildSchedule(
     const stay = kind === "lunch" ? prefs.lunchMinutes : kind === "hotel" ? 0 : prefs.dwellMinutes;
     rows.push({ arrive: t, leave: t + stay, stay });
     t += stay;
+    if (!lunch && !lunchStop && prefs.lunchMinutes > 0 && lunchDue(t)) {
+      lunch = { after: i, start: t, end: t + prefs.lunchMinutes };
+      t = lunch.end;
+    }
   });
 
   const endLeg = hasEnd ? price(legs[legs.length - 1], t) : null;
   if (hasEnd && endLeg) priced[legs.length - 1] = endLeg;
   for (let i = 0; i < legs.length; i++) if (!priced[i]) priced[i] = legs[i];
 
-  return { rows, finish: t + (endLeg?.minutes ?? 0), toFirst, end: endLeg, priced, missedAnchors, closedToday };
+  return { rows, finish: t + (endLeg?.minutes ?? 0), toFirst, end: endLeg, priced, missedAnchors, closedToday, lunch };
 }
 
 const dayBtn = (active: boolean) =>
@@ -742,8 +750,8 @@ function RouteDay({
               const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
               const dropAtEnd = drag && drag.dropIndex === stops.length && i === stops.length - 1;
               return (
+                <Fragment key={s.id}>
                 <li
-                  key={s.id}
                   data-stop-id={s.id}
                   className={`flex flex-col gap-2 px-4 py-3 ${drag?.id === s.id ? "opacity-40" : ""} ${
                     dropBefore ? "border-t-2 border-[#2C6A46]" : ""
@@ -963,6 +971,19 @@ function RouteDay({
                     </div>
                   )}
                 </li>
+                {schedule?.lunch?.after === i && (
+                  <li className="flex items-center gap-3 bg-[#FBF7EE] px-4 py-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-[#A0762C] text-white">
+                      <Ico name="clock" size={13} />
+                    </span>
+                    <span className="text-[14.5px] font-medium text-[#14201B]">Lunch</span>
+                    <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.lunch.start)}</span>
+                    <span className="text-[12px] text-[#8A928C]">
+                      to <span className="tabular-nums">{clock(schedule.lunch.end)}</span>
+                    </span>
+                  </li>
+                )}
+                </Fragment>
               );
             })}
           </ul>

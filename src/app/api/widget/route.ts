@@ -19,7 +19,7 @@ import {
 } from "../../../lib/features/route/dal";
 import { defaultActiveDay, planningHorizonDates } from "../../../lib/features/route/field-week";
 import { likelyDriveMinutes } from "../../../lib/features/route/traffic";
-import type { CustomStopKind, RouteAccount, Tier } from "../../../lib/features/route/types";
+import { lunchDue, type CustomStopKind, type RouteAccount, type Tier } from "../../../lib/features/route/types";
 import { hasAccess } from "../../../lib/core/devices";
 import { hasWidgetToken } from "../../../lib/features/route/widget-auth";
 
@@ -246,10 +246,16 @@ export async function GET(request: Request) {
 
     let t = dayStarted ? nowMin : future ? departMin : Math.max(departMin, nowMin);
     let pos = startPos;
+    // Lunch is a block on the day unless a Lunch stop is on it (RouteClient).
+    let lunchTaken = stops.some((s) => s.kind === "lunch");
     for (const s of remaining) {
       t += leg(pos, s, t);
       const dwell = s.kind === "lunch" ? prefs.lunchMinutes : s.kind === "hotel" ? 0 : prefs.dwellMinutes;
       t += dwell;
+      if (!lunchTaken && lunchDue(t)) {
+        t += prefs.lunchMinutes;
+        lunchTaken = true;
+      }
       pos = s;
     }
     t += leg(pos, home, t);

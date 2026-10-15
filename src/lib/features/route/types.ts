@@ -29,6 +29,12 @@ export type RouteSchedulePrefs = {
   lunchMinutes: number;
 };
 
+/** A day with no Lunch stop on it still takes lunch: one block of the rep's
+ *  lunch minutes, right after the first stop that ends between 11:30 and 2:30. */
+export const LUNCH_FROM_MINUTES = 11 * 60 + 30;
+export const LUNCH_UNTIL_MINUTES = 14 * 60 + 30;
+export const lunchDue = (leaveMinutes: number) => leaveMinutes >= LUNCH_FROM_MINUTES && leaveMinutes <= LUNCH_UNTIL_MINUTES;
+
 export type CustomStopKind = "lunch" | "hotel" | "stop";
 
 export const CUSTOM_STOP_LABEL: Record<CustomStopKind, string> = {
