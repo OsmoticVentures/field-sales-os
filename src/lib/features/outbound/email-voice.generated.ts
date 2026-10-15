@@ -1,15 +1,13 @@
 /**
- * PORTED COPY, DO NOT EDIT BY HAND.
+ * GENERATED FILE, DO NOT EDIT.
  *
- * Source of truth: assistant/EMAIL-VOICE.md in the agency repo, written from
- * Juan's own sent mail by bridges/email_voice/email_voice_scout.py, then
- * carried into the NutriBiotic OS
- * (portfolio/src/app/nutribiotic/lib/email-voice.generated.ts) by
- * scripts/sync_email_voice.py. This file is a manual copy of that generated
- * copy: this app (field-sales-os) is its own Vercel project and cannot see
- * either the agency repo or the portfolio repo, so it needs the same
- * constant baked in. Regenerate by re-copying the portfolio file's export
- * after EMAIL-VOICE.md changes; no sync script is wired for this repo yet.
+ * Source: assistant/EMAIL-VOICE.md in the agency repo, which is written from
+ * Juan's own sent mail by bridges/email_voice/email_voice_scout.py. Regenerate with
+ * `python3 scripts/sync_email_voice.py` after that file changes.
+ *
+ * It lives here as a constant because this app runs on Vercel, where the
+ * agency repo does not exist. Editing this copy loses the edit on the next
+ * sync; edit the source.
  */
 
 export const EMAIL_VOICE = String.raw`# EMAIL VOICE
