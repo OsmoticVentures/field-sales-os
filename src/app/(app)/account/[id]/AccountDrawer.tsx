@@ -27,6 +27,7 @@ import { project, rubberband, runFade, runSpring } from "../../../../lib/core/sp
 import { Ico, displayFace } from "../../../../lib/core/ui";
 import type { AccountPayload } from "../../../../lib/features/clients/account-payload";
 import { absoluteUrl, outlookCompose } from "../../../../lib/features/clients/ui";
+import { useOnPhone } from "../../../../lib/features/outbound/use-on-phone";
 import { HUBSPOT_COMPANY_URL } from "../../../../lib/features/prospect/format";
 import { AccountClient } from "./AccountClient";
 import { AccountSheet } from "./AccountSheet";
@@ -152,6 +153,7 @@ function DraftTile({ accountId, leave }: { accountId: string; leave: (href: stri
 export function AccountDrawer({ id }: { id: string }) {
   const router = useRouter();
   const me = useMe();
+  const onPhone = useOnPhone();
   const { payload, fail } = useAccountPayload(id);
   const a = payload?.account;
 
@@ -474,7 +476,7 @@ export function AccountDrawer({ id }: { id: string }) {
   }
   if (a?.email) {
     tiles.push(
-      <a key="email" href={outlookCompose(a.email)} target="_blank" rel="noreferrer" className={tileCls}>
+      <a key="email" href={outlookCompose(a.email, onPhone)} target="_blank" rel="noreferrer" className={tileCls}>
         <span className={tileIcon}>
           <Ico name="mail" size={24} />
         </span>

@@ -14,7 +14,8 @@ import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote, ghostBtn, primaryBtn } from "../../../lib/core/ui";
 import { daysAgo } from "../../../lib/features/prospect/format";
 import type { Draft } from "../../../lib/features/outbound/dal";
-import { owaComposeLink } from "../../../lib/features/outbound/mail-links";
+import { outlookAppComposeLink, owaComposeLink } from "../../../lib/features/outbound/mail-links";
+import { useOnPhone } from "../../../lib/features/outbound/use-on-phone";
 import { bodyToHtml, bodyToPlain, hasTable, splitBody } from "../../../lib/features/outbound/table-body";
 
 type Row = { draft: Draft; accountName: string | null };
@@ -81,8 +82,11 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
   const [note, setNote] = useState<{ title: string; detail?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const onPhone = useOnPhone();
   const tableBody = hasTable(d.body_md);
-  const outlook = d.to_email ? owaComposeLink(d.to_email, d.subject, d.body_md, d.bcc_email, tableBody) : null;
+  const outlook = d.to_email
+    ? (onPhone ? outlookAppComposeLink : owaComposeLink)(d.to_email, d.subject, d.body_md, d.bcc_email, tableBody)
+    : null;
 
   async function decide(decision: "sent" | "dismissed") {
     setPending(decision);
@@ -182,7 +186,7 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
             <a href={outlook.href} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
               Open in Outlook &rarr;
             </a>
-            {outlook.bodyOmitted && <CopyBodyButton body={d.body_md} />}
+            <CopyBodyButton body={d.body_md} />
             {outlook.bodyOmitted && !tableBody && (
               <span className="text-[12px] text-[#8A6D2F]">Too long to prefill. Outlook opens addressed, paste the body in.</span>
             )}

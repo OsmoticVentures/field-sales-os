@@ -96,6 +96,8 @@ export function withinTrailing12mo(iso: string | null): boolean {
   return new Date(iso).getTime() >= Date.now() - 365 * 86_400_000;
 }
 
-export function outlookCompose(email: string): string {
+/** Addressed compose: the Outlook app on a phone (ms-outlook://), Outlook on the web otherwise. */
+export function outlookCompose(email: string, phone = false): string {
+  if (phone) return `ms-outlook://compose?to=${encodeURIComponent(email)}`;
   return `https://outlook.cloud.microsoft/mail/deeplink/compose?to=${encodeURIComponent(email)}`;
 }

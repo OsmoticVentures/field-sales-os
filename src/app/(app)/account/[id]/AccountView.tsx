@@ -3,6 +3,7 @@
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useOnPhone } from "@/lib/features/outbound/use-on-phone";
 import { apiFetch } from "../../../../lib/core/api";
 import { refreshAccount } from "../../../../lib/core/phone-sync";
 import { Card, Ico, SuccessNote, eyebrowCls } from "../../../../lib/core/ui";
@@ -496,9 +497,10 @@ export function AccountView({
   routeDraftByDay: Record<string, RouteDraftEntry[]>;
 }) {
   const me = useMe();
+  const onPhone = useOnPhone();
   const hasSummary = a.current_state || a.future_state || a.impact;
   const channels = [
-    a.email && { href: outlookCompose(a.email), label: a.email, icon: "mail" },
+    a.email && { href: outlookCompose(a.email, onPhone), label: a.email, icon: "mail" },
     a.instagram_url && { href: a.instagram_url, label: "Instagram", icon: "external" },
     a.facebook_url && { href: a.facebook_url, label: "Facebook", icon: "external" },
     a.linkedin_url && { href: a.linkedin_url, label: "LinkedIn", icon: "external" },
@@ -596,7 +598,7 @@ export function AccountView({
                       </div>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-[#5B6560]">
                         {c.email && (
-                          <a href={outlookCompose(c.email)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+                          <a href={outlookCompose(c.email, onPhone)} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
                             {c.email}
                           </a>
                         )}

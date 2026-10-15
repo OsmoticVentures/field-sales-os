@@ -47,3 +47,23 @@ export function owaComposeLink(
   if (bccEmail) withoutBodyParams.bcc = bccEmail;
   return { href: base + owaQuery(withoutBodyParams), bodyOmitted: true };
 }
+
+/**
+ * The Outlook app's own compose link (ms-outlook://), for the phone. The app
+ * shell hands any non-web link to iOS, which opens Outlook addressed and
+ * filled. App-to-app links carry no practical length ceiling, so the body
+ * rides along unless it holds a table, which a compose link cannot draw.
+ */
+export function outlookAppComposeLink(
+  toEmail: string,
+  subject: string | null,
+  body: string,
+  bccEmail?: string | null,
+  omitBody = false,
+): { href: string; bodyOmitted: boolean } {
+  const params: Record<string, string> = { to: toEmail };
+  if (subject) params.subject = subject;
+  if (bccEmail) params.bcc = bccEmail;
+  if (!omitBody) params.body = body;
+  return { href: "ms-outlook://compose?" + owaQuery(params), bodyOmitted: omitBody };
+}
