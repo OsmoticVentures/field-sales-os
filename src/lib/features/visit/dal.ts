@@ -565,6 +565,19 @@ export async function setAccountPotentialJuan(accountId: string, grade: VisitGra
 }
 
 export async function setAccountReadiness(accountId: string, readiness: Readiness | null): Promise<void> {
+  if (readiness === "corporate") {
+    // Corporate moves the account into the corporate list (chain_excluded), which routes,
+    // search and the planner all read. Only on his own book.
+    const now = new Date().toISOString();
+    const rows = await mutate<{ id: string }>(
+      "nb_accounts",
+      "PATCH",
+      { readiness, readiness_set_at: now, chain_excluded: true, chain_excluded_at: now },
+      { id: `eq.${accountId}`, hubspot_owner_id: `eq.${await myOwnerId()}`, select: "id" },
+    );
+    if (rows.length === 0) throw new Error("That account is not in your book.");
+    return;
+  }
   await mutate(
     "nb_accounts",
     "PATCH",

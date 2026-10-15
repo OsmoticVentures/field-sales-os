@@ -30,6 +30,7 @@ import {
 } from "../../core/outbox";
 import { waitsForType, type AccountPick, type NeedsAccount } from "../../core/outbox-core";
 import { Ico, ghostBtn } from "../../core/ui";
+import { ReadinessIcon } from "../clients/WarmthPicker";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
 function Spinner({ light = true }: { light?: boolean }) {
@@ -70,12 +71,13 @@ const STORE_TYPE_OPTIONS = [
   { value: "pet_specialty", label: "Pet" },
 ] as const;
 
-type Readiness = "urgent" | "hot" | "normal" | "cold";
+type Readiness = "urgent" | "hot" | "normal" | "cold" | "corporate";
 const READINESS_OPTIONS: { value: Readiness; icon: string; title: string; activeClass: string }[] = [
   { value: "urgent", icon: "urgent", title: "Urgent, ready now, +20 to priority", activeClass: "bg-[#9C4A44] text-[#F7F6F1]" },
   { value: "hot", icon: "hot", title: "Hot, close, +10 to priority", activeClass: "bg-[#A8703D] text-[#F7F6F1]" },
   { value: "normal", icon: "dot", title: "Normal, no change to priority", activeClass: "bg-[#14201B] text-[#F7F6F1]" },
   { value: "cold", icon: "snowflake", title: "Cold, not close, -10 to priority", activeClass: "bg-[#5C7E8C] text-[#F7F6F1]" },
+  { value: "corporate", icon: "corporate", title: "Corporate, governed by corporate, moves to the corporate list", activeClass: "bg-[#14201B] text-[#F7F6F1]" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -308,7 +310,7 @@ export function TouchpointCapture({
                     active ? opt.activeClass : "bg-[#ECEAE1] text-[#3D4A44]"
                   }`}
                 >
-                  <Ico name={opt.icon} size={15} />
+                  {opt.icon === "corporate" ? <ReadinessIcon level="corporate" size={15} /> : <Ico name={opt.icon} size={15} />}
                 </button>
               );
             })}
