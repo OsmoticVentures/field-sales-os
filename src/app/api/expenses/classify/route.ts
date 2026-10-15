@@ -66,6 +66,10 @@ export async function POST(req: Request) {
   }
 
   const mimeType = photo.type || "image/jpeg";
+  // The model answers 400 to an image it cannot read; say so here instead.
+  if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mimeType) || photo.size > 3_500_000) {
+    return Response.json({ ok: false, error: "Could not read that photo." }, { status: 422 });
+  }
   const bytes = await photo.arrayBuffer();
   const base64 = Buffer.from(bytes).toString("base64");
 
