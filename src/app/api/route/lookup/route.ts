@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "Sign in again." }, { status: 401 });
   }
 
-  let body: { query?: string; mode?: "resolve" | "search" };
+  let body: { query?: string; mode?: "resolve" | "search"; near?: { lat?: unknown; lng?: unknown } };
   try {
     body = await req.json();
   } catch {
@@ -22,7 +22,9 @@ export async function POST(req: Request) {
   const query = typeof body.query === "string" ? body.query : "";
 
   if (body.mode === "search") {
-    const results = await searchRouteAddresses(query);
+    const n = body.near;
+    const near = n && typeof n.lat === "number" && typeof n.lng === "number" ? { lat: n.lat, lng: n.lng } : undefined;
+    const results = await searchRouteAddresses(query, near);
     return Response.json({ ok: true, results });
   }
 

@@ -17,7 +17,7 @@
 
 import Link from "next/link";
 import { Geolocation } from "@capacitor/geolocation";
-import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
@@ -26,7 +26,7 @@ import { dayLabel, defaultActiveDay, workingDayIso, planningHorizonDates } from 
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, lunchDue } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, LUNCH_OFF, lunchDue } from "@/lib/features/route/types";
 import type {
   CallEntry,
   CustomStop,
@@ -130,8 +130,9 @@ type Schedule = {
   priced: DriveLeg[];
   missedAnchors: Set<string>;
   closedToday: Set<string>;
-  /** The lunch block, after the stop at this index, when no Lunch stop is on the day. */
-  lunch: { after: number; start: number; end: number } | null;
+  /** Where the day's Lunch stop goes, after the stop at this index, while
+   *  the day has none yet (RouteDay then places it there). */
+  lunch: { after: number } | null;
 };
 
 /** Priced forward, one pass: a leg's cost depends on when it departs, and
@@ -147,6 +148,7 @@ function buildSchedule(
   prefs: RouteSchedulePrefs,
   dayISO: string,
   anchors: Record<string, string>,
+  lunchOff: boolean,
 ): Schedule {
   const price = (leg: DriveLeg | undefined, atMinutes: number): DriveLeg | null => {
     if (!leg) return null;
@@ -167,7 +169,7 @@ function buildSchedule(
   const missedAnchors = new Set<string>();
   const closedToday = new Set<string>();
   let t = depart + (toFirst?.minutes ?? 0);
-  const lunchStop = stops.some((s) => s.type === "custom" && s.custom.kind === "lunch");
+  const lunchStop = lunchOff || stops.some((s) => s.type === "custom" && s.custom.kind === "lunch");
   let lunch: Schedule["lunch"] = null;
 
   stops.forEach((s, i) => {
@@ -192,8 +194,8 @@ function buildSchedule(
     rows.push({ arrive: t, leave: t + stay, stay });
     t += stay;
     if (!lunch && !lunchStop && prefs.lunchMinutes > 0 && lunchDue(t)) {
-      lunch = { after: i, start: t, end: t + prefs.lunchMinutes };
-      t = lunch.end;
+      lunch = { after: i };
+      t += prefs.lunchMinutes;
     }
   });
 
@@ -281,6 +283,7 @@ function RouteDay({
   const calls = data.calls[activeDay] ?? [];
   const doneIds = useMemo(() => new Set(data.done[activeDay] ?? []), [data.done, activeDay]);
   const stopTimes = data.times[activeDay] ?? {};
+  const lunchOff = stopTimes[LUNCH_OFF] === "off";
 
   const stops = useMemo<RouteStopView[]>(
     () =>
@@ -448,9 +451,34 @@ function RouteDay({
   }, [pathKey]);
 
   const schedule = useMemo(
-    () => (legs ? buildSchedule(stops, legs, start !== null, end !== null, prefs, activeDay, stopTimes) : null),
-    [legs, stops, start, end, prefs, activeDay, stopTimes],
+    () => (legs ? buildSchedule(stops, legs, start !== null, end !== null, prefs, activeDay, stopTimes, lunchOff) : null),
+    [legs, stops, start, end, prefs, activeDay, stopTimes, lunchOff],
   );
+
+  // The day's Lunch stop goes in on its own, right after the stop it falls
+  // behind, at that stop's spot and named for its area until a place is
+  // picked. Taking it off the day keeps it off (LUNCH_OFF).
+  const lunchAfter = schedule?.lunch?.after ?? null;
+  useEffect(() => {
+    if (lunchAfter === null) return;
+    const before = stops[lunchAfter];
+    if (!before) return;
+    const area = before.type === "account" ? (before.account.area ?? before.account.city) : (before.custom.area ?? null);
+    const lunch: CustomStop = {
+      id: `custom:${newKey()}`,
+      kind: "lunch",
+      label: "Lunch",
+      address: area ?? "",
+      lat: before.lat,
+      lng: before.lng,
+      pending: true,
+      area,
+    };
+    const at = draft.findIndex((e) => (typeof e === "string" ? e : e.id) === before.id);
+    if (at < 0) return;
+    patchDraft(activeDay, [...draft.slice(0, at + 1), lunch, ...draft.slice(at + 1)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lunchAfter, activeDay]);
   const shownLegs = schedule?.priced ?? legs;
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
@@ -527,9 +555,17 @@ function RouteDay({
   }
 
   function removeStop(id: string) {
+    const gone = draft.find((e) => typeof e !== "string" && e.id === id);
+    if (gone && typeof gone !== "string" && gone.kind === "lunch") patchTimes(activeDay, { ...stopTimes, [LUNCH_OFF]: "off" });
     patchDraft(
       activeDay,
       draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id)),
+    );
+  }
+  function patchCustom(id: string, next: Partial<CustomStop>) {
+    patchDraft(
+      activeDay,
+      draft.map((e) => (typeof e !== "string" && e.id === id ? { ...e, ...next } : e)),
     );
   }
   function reorder(order: string[]) {
@@ -740,7 +776,7 @@ function RouteDay({
             {stops.map((s, i) => {
               const a = s.type === "account" ? s.account : null;
               const c = s.type === "custom" ? s.custom : null;
-              const title = a ? a.name : c!.label;
+              const title = a ? a.name : c!.pending ? (c!.area ?? "Lunch") : c!.label;
               const isDone = doneIds.has(s.id);
               const leg = legBetween(i);
               const prev = i > 0 ? stops[i - 1] : null;
@@ -750,8 +786,8 @@ function RouteDay({
               const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
               const dropAtEnd = drag && drag.dropIndex === stops.length && i === stops.length - 1;
               return (
-                <Fragment key={s.id}>
                 <li
+                  key={s.id}
                   data-stop-id={s.id}
                   className={`flex flex-col gap-2 px-4 py-3 ${drag?.id === s.id ? "opacity-40" : ""} ${
                     dropBefore ? "border-t-2 border-[#2C6A46]" : ""
@@ -796,7 +832,24 @@ function RouteDay({
                           <span className={`text-[12px] font-medium ${hours.open ? "text-[#2C6A46]" : "text-[#8A928C]"}`}>{hours.label}</span>
                         )}
                       </div>
-                      <div className="mt-0.5 truncate text-[13px] text-[#5B6560]">{a ? `${a.street ?? ""}${a.city ? `, ${a.city}` : ""}` : c!.address}</div>
+                      {!c?.pending && (
+                        <div className="mt-0.5 truncate text-[13px] text-[#5B6560]">{a ? `${a.street ?? ""}${a.city ? `, ${a.city}` : ""}` : c!.address}</div>
+                      )}
+                      {c && c.kind === "lunch" && (
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]">
+                          <LunchPlace
+                            near={{ lat: s.lat, lng: s.lng }}
+                            picked={!c.pending}
+                            onPick={(p) => patchCustom(c.id, { label: p.label, address: p.address, lat: p.lat, lng: p.lng, phone: p.phone, pending: undefined })}
+                          />
+                          {c.phone && (
+                            <a href={`tel:${c.phone}`} className="inline-flex min-h-8 items-center gap-1 font-medium tabular-nums text-[#3D4A44] hover:underline">
+                              <Ico name="phone" size={12} />
+                              {prettyPhone(c.phone)}
+                            </a>
+                          )}
+                        </div>
+                      )}
                       {a && (
                         <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12px] text-[#5B6560]">
                           {a.last_order_at ? (
@@ -954,12 +1007,14 @@ function RouteDay({
                           {sdrQueued.has(a.id) ? "Added" : sdrBusy.has(a.id) ? "Adding" : "Add to SDR"}
                         </button>
                       )}
-                      <a
-                        href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
-                        className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
-                      >
-                        GO
-                      </a>
+                      {!c?.pending && (
+                        <a
+                          href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
+                          className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+                        >
+                          GO
+                        </a>
+                      )}
                       <button
                         type="button"
                         onClick={() => removeStop(s.id)}
@@ -971,19 +1026,6 @@ function RouteDay({
                     </div>
                   )}
                 </li>
-                {schedule?.lunch?.after === i && (
-                  <li className="flex items-center gap-3 bg-[#FBF7EE] px-4 py-3">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] bg-[#A0762C] text-white">
-                      <Ico name="clock" size={13} />
-                    </span>
-                    <span className="text-[14.5px] font-medium text-[#14201B]">Lunch</span>
-                    <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.lunch.start)}</span>
-                    <span className="text-[12px] text-[#8A928C]">
-                      to <span className="tabular-nums">{clock(schedule.lunch.end)}</span>
-                    </span>
-                  </li>
-                )}
-                </Fragment>
               );
             })}
           </ul>
@@ -1179,6 +1221,86 @@ function EndpointField({
               type="button"
               onMouseDown={() => {
                 onChange(r);
+                setOpen(false);
+                setQuery("");
+              }}
+              className="flex min-h-11 w-full flex-col items-start justify-center px-3 py-1.5 text-left text-[13px] hover:bg-[#FAF9F5]"
+            >
+              <span className="truncate font-medium">{r.label}</span>
+              <span className="truncate text-[11.5px] text-[#8A928C]">{r.address}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** The lunch spot, picked by its Google Maps name near where the day has
+ *  lunch. Picking one moves the stop there and brings its phone number. */
+type LunchPick = { label: string; address: string; lat: number; lng: number; phone: string | null };
+function LunchPlace({ near, picked, onPick }: { near: { lat: number; lng: number }; picked: boolean; onPick: (p: LunchPick) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<LunchPick[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function runSearch(q: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.trim().length < 3) {
+      setResults([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await apiFetch("/api/route/lookup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ query: q, mode: "search", near }),
+        });
+        const j = await res.json();
+        setResults(j.ok ? j.results : []);
+      } catch {
+        setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 250);
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)} className={iconBtn}>
+        <Ico name="search" size={13} />
+        {picked ? "Change place" : "Pick a place"}
+      </button>
+    );
+  }
+
+  return (
+    <span className="relative inline-block">
+      <input
+        autoFocus
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          runSearch(e.target.value);
+        }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Restaurant name"
+        className="min-h-11 w-60 glass rounded-xl px-2.5 py-1 text-base outline-none"
+      />
+      {(results.length > 0 || searching) && (
+        <div className="absolute left-0 top-full z-20 mt-1 max-h-64 w-72 overflow-auto rounded-md border border-[#E2DFD5] bg-white py-1 shadow-lg">
+          {searching && <div className="px-3 py-1.5 text-[12px] text-[#8A928C]">Searching</div>}
+          {results.map((r, i) => (
+            <button
+              key={`${r.lat},${r.lng},${i}`}
+              type="button"
+              onMouseDown={() => {
+                onPick(r);
                 setOpen(false);
                 setQuery("");
               }}

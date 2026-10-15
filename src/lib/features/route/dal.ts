@@ -199,7 +199,17 @@ function asDraftEntry(x: unknown): RouteDraftEntry | null {
   if (typeof o.label !== "string" || typeof o.address !== "string") return null;
   if (typeof o.lat !== "number" || typeof o.lng !== "number") return null;
   if (!Number.isFinite(o.lat) || !Number.isFinite(o.lng)) return null;
-  return { id: o.id, kind: o.kind as CustomStopKind, label: o.label, address: o.address, lat: o.lat, lng: o.lng };
+  return {
+    id: o.id,
+    kind: o.kind as CustomStopKind,
+    label: o.label,
+    address: o.address,
+    lat: o.lat,
+    lng: o.lng,
+    ...(o.pending === true ? { pending: true } : {}),
+    ...(typeof o.area === "string" ? { area: o.area } : {}),
+    ...(typeof o.phone === "string" ? { phone: o.phone } : {}),
+  };
 }
 
 function asDraftByDay(stored: unknown): Record<string, RouteDraftEntry[]> {

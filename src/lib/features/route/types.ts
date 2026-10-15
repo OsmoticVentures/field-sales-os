@@ -29,10 +29,13 @@ export type RouteSchedulePrefs = {
   lunchMinutes: number;
 };
 
-/** A day with no Lunch stop on it still takes lunch: one block of the rep's
- *  lunch minutes, right after the first stop that ends between 11:30 and 2:30. */
+/** Every day gets a Lunch stop, placed right after the first stop that ends
+ *  between 11:30 and 2:30, unless it was taken off that day. */
 export const LUNCH_FROM_MINUTES = 11 * 60 + 30;
 export const LUNCH_UNTIL_MINUTES = 14 * 60 + 30;
+/** The key in a day's stop times that records its Lunch stop was taken off,
+ *  so the day doesn't put it back. No stop id looks like it. */
+export const LUNCH_OFF = "lunch";
 export const lunchDue = (leaveMinutes: number) => leaveMinutes >= LUNCH_FROM_MINUTES && leaveMinutes <= LUNCH_UNTIL_MINUTES;
 
 export type CustomStopKind = "lunch" | "hotel" | "stop";
@@ -51,6 +54,11 @@ export type CustomStop = {
   address: string;
   lat: number;
   lng: number;
+  /** A lunch placed by the day itself, before a spot is picked: it sits at
+   *  the stop before it and names that stop's area. */
+  pending?: boolean;
+  area?: string | null;
+  phone?: string | null;
 };
 
 /** One position in the route: an account id, or a stop that carries itself. */

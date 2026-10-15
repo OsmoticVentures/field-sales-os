@@ -253,15 +253,21 @@ const SOCAL_BIAS: Rectangle = {
   high: { latitude: 35.6, longitude: -115.9 },
 };
 
-const STOP_FIELD_MASK = ["places.displayName", "places.formattedAddress", "places.location"];
+const STOP_FIELD_MASK = ["places.displayName", "places.formattedAddress", "places.location", "places.nationalPhoneNumber"];
 
-export type ResolvedPlace = { label: string; address: string; lat: number; lng: number };
+export type ResolvedPlace = { label: string; address: string; lat: number; lng: number; phone: string | null };
 
 function toResolved(hit: RawPlace, q: string): ResolvedPlace | null {
   const lat = hit.location?.latitude;
   const lng = hit.location?.longitude;
   if (typeof lat !== "number" || typeof lng !== "number") return null;
-  return { label: hit.displayName?.text?.trim() || hit.formattedAddress || q, address: hit.formattedAddress || q, lat, lng };
+  return {
+    label: hit.displayName?.text?.trim() || hit.formattedAddress || q,
+    address: hit.formattedAddress || q,
+    lat,
+    lng,
+    phone: normalizePhone(hit.nationalPhoneNumber),
+  };
 }
 
 /** Nothing is written here; a stop only exists once it is added to a day's
@@ -282,12 +288,17 @@ export async function resolveStopAddress(query: string): Promise<{ ok: true; pla
   return { ok: true, place };
 }
 
-export async function searchRouteAddresses(query: string): Promise<ResolvedPlace[]> {
+/** `near` biases the search to a few miles around a point, the way a lunch
+ *  spot is looked for around the stop before it. */
+export async function searchRouteAddresses(query: string, near?: { lat: number; lng: number }): Promise<ResolvedPlace[]> {
   const q = query.trim();
   if (q.length < 3 || !process.env.NB_PLACES_API_KEY) return [];
+  const locationBias = near
+    ? { circle: { center: { latitude: near.lat, longitude: near.lng }, radius: 8_000 } }
+    : { rectangle: SOCAL_BIAS };
   let places: RawPlace[];
   try {
-    places = await textSearch({ textQuery: q, fieldMask: STOP_FIELD_MASK, maxResultCount: 5, locationBias: { rectangle: SOCAL_BIAS } });
+    places = await textSearch({ textQuery: q, fieldMask: STOP_FIELD_MASK, maxResultCount: 5, locationBias });
   } catch {
     return [];
   }
