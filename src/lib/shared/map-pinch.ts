@@ -15,15 +15,18 @@ type PinchMap = {
   getCenter(): LatLng | undefined;
   getProjection(): Projection | undefined | null;
   moveCamera(o: { center: LatLng; zoom: number }): void;
+  setOptions(o: { isFractionalZoomEnabled: boolean }): void;
 };
 type NativePinch = { state: "began" | "changed" | "ended"; scale: number; x: number; y: number };
 
 const MIN_ZOOM = 3;
 const MAX_ZOOM = 20;
-const GAIN = 3;
+const GAIN = 2;
 const clamp = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
 
 export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
+  // The zoom follows the fingers continuously instead of stepping whole levels.
+  map.setOptions({ isFractionalZoomEnabled: true });
   let start = map.getZoom() ?? 10;
   let pinching = false;
   // The world point (zoom 0 pixels) under the fingers when the pinch began.
@@ -54,24 +57,19 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
     if (center) map.moveCamera({ center, zoom: z });
     else map.setZoom(z);
   };
-  // A trackpad pinch moves the scale far less than fingers on glass, so it is
-  // amplified: a level for about every 12% of pinch. Fractional zoom isn't on
-  // for these maps, so it steps whole levels.
+  // A trackpad pinch moves the scale less than fingers on glass, so it is
+  // amplified: doubling the pinch is two levels.
   const apply = (scale: number) => {
-    const next = Math.round(clamp(start + GAIN * Math.log2(scale)));
-    if (next !== map.getZoom()) zoomTo(next);
+    const next = clamp(start + GAIN * Math.log2(scale));
+    if (Math.abs(next - (map.getZoom() ?? start)) > 0.01) zoomTo(next);
   };
 
-  let wheel = 0;
   const onWheel = (e: WheelEvent) => {
     if (!e.ctrlKey) return;
     e.preventDefault();
     e.stopPropagation();
-    wheel -= e.deltaY;
-    if (Math.abs(wheel) < 40) return;
     anchorAt(e.clientX, e.clientY);
-    zoomTo(clamp((map.getZoom() ?? 10) + Math.sign(wheel)));
-    wheel = 0;
+    zoomTo(clamp((map.getZoom() ?? 10) - e.deltaY / 50));
   };
 
   const onGestureStart = (e: Event) => {
@@ -91,7 +89,7 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
     const d = (e as CustomEvent<NativePinch>).detail;
     if (d.state === "began") {
       const r = el.getBoundingClientRect();
-      pinching = d.x >= r.left && d.x <= r.right && d.y >= r.top && d.y <= r.bottom;
+      pinching = r.width > 0 && d.x >= r.left && d.x <= r.right && d.y >= r.top && d.y <= r.bottom;
       if (pinching) {
         start = map.getZoom() ?? start;
         anchorAt(d.x, d.y);

@@ -45,6 +45,7 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
         guard ProcessInfo.processInfo.isiOSAppOnMac, let webView else { return }
         webView.configuration.userContentController.addUserScript(
             WKUserScript(source: Self.largerText, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        webView.pageZoom = Self.savedZoom
         let pinch = UIPinchGestureRecognizer(target: self, action: #selector(trackpadPinch(_:)))
         pinch.cancelsTouchesInView = false
         pinch.delegate = self
@@ -54,9 +55,12 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
     }
 
     /// A trackpad pinch on the Mac never reaches the page as a gesture, so it
-    /// is handed over as "nativepinch" and the map under the fingers zooms
-    /// (src/lib/shared/map-pinch.ts).
-    private var peak: CGFloat = 1
+    /// is handed over as "nativepinch" and a map under the fingers zooms
+    /// (src/lib/shared/map-pinch.ts). Anywhere else the pinch zooms the whole
+    /// app, the way Command plus and minus do, and the size is kept.
+    private enum PinchMode { case asking, map, page }
+    private var mode = PinchMode.asking
+    private var zoomAtStart: CGFloat = 1
 
     @objc private func trackpadPinch(_ g: UIPinchGestureRecognizer) {
         guard let webView else { return }
@@ -67,15 +71,54 @@ final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDe
         case .ended, .cancelled, .failed: state = "ended"
         default: return
         }
+        if state == "began" {
+            mode = .asking
+            zoomAtStart = webView.pageZoom
+        }
+        if mode == .page {
+            if state == "changed" { setZoom(zoomAtStart * g.scale) }
+            if state == "ended" { Self.log.notice("pinch page zoom=\(webView.pageZoom, privacy: .public)") }
+            return
+        }
+        // The page lays out in its own pixels, which a page zoom scales.
         let p = g.location(in: webView)
-        if state == "began" { peak = 1 }
-        if state == "changed", abs(g.scale - 1) > abs(peak - 1) { peak = g.scale }
-        let peakNow = peak
-        let js = (state == "began" ? "window.__pinchHit=false;" : "") + "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x),y:\(p.y)}}));window.__pinchHit===true"
-        webView.evaluateJavaScript(js) { hit, err in
-            if state != "changed" { Self.log.notice("pinch \(state, privacy: .public) scale=\(g.scale, privacy: .public) peak=\(peakNow, privacy: .public) onMap=\(String(describing: hit), privacy: .public) err=\(String(describing: err), privacy: .public)") }
+        let z = webView.pageZoom
+        let js = (state == "began" ? "window.__pinchHit=false;" : "") + "window.dispatchEvent(new CustomEvent('nativepinch',{detail:{state:'\(state)',scale:\(g.scale),x:\(p.x / z),y:\(p.y / z)}}));window.__pinchHit===true"
+        webView.evaluateJavaScript(js) { [weak self] hit, _ in
+            guard let self, state == "began", self.mode == .asking else { return }
+            let onMap = (hit as? Bool) == true
+            self.mode = onMap ? .map : .page
+            Self.log.notice("pinch began onMap=\(onMap, privacy: .public) at=\(p.x, privacy: .public),\(p.y, privacy: .public)")
+            if !onMap, g.state == .changed { self.setZoom(self.zoomAtStart * g.scale) }
         }
     }
+
+    private static let zoomKey = "mac.pageZoom"
+    private static var savedZoom: CGFloat {
+        let z = UserDefaults.standard.double(forKey: zoomKey)
+        return z > 0 ? CGFloat(z) : 1
+    }
+
+    private func setZoom(_ z: CGFloat) {
+        guard let webView else { return }
+        let next = min(max(z, 0.5), 3)
+        if abs(next - webView.pageZoom) < 0.005 { return }
+        webView.pageZoom = next
+        UserDefaults.standard.set(Double(next), forKey: Self.zoomKey)
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard ProcessInfo.processInfo.isiOSAppOnMac else { return super.keyCommands }
+        return (super.keyCommands ?? []) + [
+            UIKeyCommand(title: "Zoom In", action: #selector(zoomIn), input: "=", modifierFlags: .command),
+            UIKeyCommand(title: "Zoom In", action: #selector(zoomIn), input: "+", modifierFlags: .command),
+            UIKeyCommand(title: "Zoom Out", action: #selector(zoomOut), input: "-", modifierFlags: .command),
+            UIKeyCommand(title: "Actual Size", action: #selector(zoomReset), input: "0", modifierFlags: .command),
+        ]
+    }
+    @objc private func zoomIn() { setZoom((webView?.pageZoom ?? 1) * 1.1) }
+    @objc private func zoomOut() { setZoom((webView?.pageZoom ?? 1) / 1.1) }
+    @objc private func zoomReset() { setZoom(1) }
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
