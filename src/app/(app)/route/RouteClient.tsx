@@ -140,6 +140,9 @@ type Schedule = {
  *  hours (a hard constraint) both only ever push the clock FORWARD, never
  *  rewind it, and a stop that cannot be reached open is named rather than
  *  scheduled anyway. */
+type AreasPayload = { ok: boolean; areas?: { id: string; label: string }[] };
+const areaLabelMap = (j: AreasPayload | null | undefined) => new Map((j?.areas ?? []).map((a) => [a.id, a.label]));
+
 function buildSchedule(
   stops: RouteStopView[],
   legs: DriveLeg[],
@@ -284,6 +287,18 @@ function RouteDay({
   const doneIds = useMemo(() => new Set(data.done[activeDay] ?? []), [data.done, activeDay]);
   const stopTimes = data.times[activeDay] ?? {};
   const lunchOff = stopTimes[LUNCH_OFF] === "off";
+
+  // Area ids read as their names ("hollywood-pasadena" is Hollywood - Pasadena).
+  const [areaLabels, setAreaLabels] = useState(() => areaLabelMap(peekJson<AreasPayload>("/api/route/map")));
+  useEffect(() => {
+    let live = true;
+    getJson<AreasPayload>("/api/route/map")
+      .then((j) => live && setAreaLabels(areaLabelMap(j)))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const stops = useMemo<RouteStopView[]>(
     () =>
@@ -776,7 +791,7 @@ function RouteDay({
             {stops.map((s, i) => {
               const a = s.type === "account" ? s.account : null;
               const c = s.type === "custom" ? s.custom : null;
-              const title = a ? a.name : c!.pending ? (c!.area ?? "Lunch") : c!.label;
+              const title = a ? a.name : c!.pending ? (c!.area ? (areaLabels.get(c!.area) ?? c!.area) : "Lunch") : c!.label;
               const isDone = doneIds.has(s.id);
               const leg = legBetween(i);
               const prev = i > 0 ? stops[i - 1] : null;
@@ -924,11 +939,13 @@ function RouteDay({
                               else delete next[s.id];
                               patchTimes(activeDay, next);
                             }}
-                            className={`${inputCls} w-[8rem]`}
+                            className={inputCls}
+                            style={{ width: "8rem" }}
                           />
                         </label>
                       )}
                       {prev &&
+                        !c?.pending &&
                         (leg ? (
                           <div className="mt-0.5 flex items-center gap-1.5 text-[12px] text-[#8A928C]">
                             <span
