@@ -693,6 +693,10 @@ function RouteDay({
         inRoute={inRoute}
         activeDay={activeDay}
         onAddAccount={(a) => addEntry(a.id, a.lat, a.lng)}
+        onAddPlaceAccount={(a) => {
+          setData((prev) => (prev.accounts.some((x) => x.id === a.id) ? prev : { ...prev, accounts: [...prev.accounts, a] }));
+          void addEntry(a.id, a.lat, a.lng);
+        }}
         onAddCustomStop={(stop) => {
           const id = `custom:${newKey()}`;
           addEntry({ ...stop, id }, stop.lat, stop.lng);

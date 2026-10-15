@@ -13,6 +13,11 @@
  * both fields; nothing locks, so a wrong autofill is one keystroke to fix,
  * and a name HubSpot has never heard of still types straight through.
  *
+ * A place that is not an account yet: "Search places" under the account
+ * results looks the name up in Google Places (/api/search/place, the Search
+ * screen's own lookup), and picking one makes it a prospect through
+ * /api/visit/new-account, then puts it on the day like any account.
+ *
  * SDR (2026-09-25, from the source map's "+" sheet): the same account search,
  * then a priority, queues a call on nb_sdr_schedule for the active day
  * through /api/prospect/schedule, the route Prospect already posts to.
@@ -27,6 +32,52 @@ import type { CustomStop, RouteAccount } from "@/lib/features/route/types";
 
 type AddKind = "client" | "stop" | "sdr";
 
+type PlaceHit = {
+  placeId: string;
+  name: string;
+  formattedAddress: string | null;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  lat: number | null;
+  lng: number | null;
+  phone: string | null;
+  website: string | null;
+  businessHours: Record<string, string[][]> | null;
+  accountId: string | null;
+};
+
+/** The route's view of an account the place lookup just made (or found):
+ *  the columns nb_accounts gives a new row, the rest from Places. */
+function placeAccount(id: string, h: PlaceHit, channel: string | null): RouteAccount {
+  return {
+    id,
+    name: h.name,
+    street: h.street,
+    city: h.city,
+    state: h.state,
+    lat: h.lat as number,
+    lng: h.lng as number,
+    phone: h.phone,
+    website: h.website,
+    hubspot_company_id: null,
+    tier: null,
+    lifecycle: "dormant",
+    last_order_at: null,
+    trailing_12m_revenue: null,
+    lifetime_revenue: null,
+    business_hours: h.businessHours,
+    channel: channel ?? "unknown",
+    area: null,
+    lead_status: null,
+    lead_stage: null,
+    chain_excluded: false,
+    practice_excluded: false,
+    do_not_visit: false,
+    readiness: null,
+  };
+}
+
 const STOP_HINT = "Lunch, hotel, any address or place name";
 
 const SDR_PRIORITIES: { value: "low" | "mid" | "high"; label: string; tone: string }[] = [
@@ -40,12 +91,15 @@ export function AddStop({
   inRoute,
   activeDay,
   onAddAccount,
+  onAddPlaceAccount,
   onAddCustomStop,
 }: {
   accounts: RouteAccount[];
   inRoute: Set<string>;
   activeDay: string;
   onAddAccount: (a: RouteAccount) => void;
+  /** An account the route's book did not have yet: joins the book, then the day. */
+  onAddPlaceAccount: (a: RouteAccount) => void;
   onAddCustomStop: (stop: Omit<CustomStop, "id">) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -55,6 +109,8 @@ export function AddStop({
   const [error, setError] = useState<string | null>(null);
   const [sdrAccount, setSdrAccount] = useState<RouteAccount | null>(null);
   const [sdrQueued, setSdrQueued] = useState<string | null>(null);
+  const [places, setPlaces] = useState<{ q: string; hits: PlaceHit[] | null } | null>(null);
+  const [adding, setAdding] = useState<string | null>(null);
 
   const searchable = useMemo(() => accounts.filter((a) => a.lifecycle !== "waypoint"), [accounts]);
   const results = useMemo(() => {
@@ -65,6 +121,8 @@ export function AddStop({
   function reset() {
     setQuery("");
     setError(null);
+    setPlaces(null);
+    setAdding(null);
     setSdrAccount(null);
     setSdrQueued(null);
   }
@@ -93,6 +151,68 @@ export function AddStop({
       setError("Not scheduled. Try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function searchPlaces() {
+    const q = query.trim();
+    if (q.length < 3) return;
+    setPlaces({ q, hits: null });
+    setError(null);
+    try {
+      const res = await apiFetch("/api/search/place", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: q }),
+      });
+      const j: { ok: boolean; results?: PlaceHit[]; error?: string } = await res.json();
+      if (!j.ok) {
+        setPlaces(null);
+        setError(j.error ?? "Could not look that up.");
+        return;
+      }
+      setPlaces({ q, hits: (j.results ?? []).filter((h) => h.lat != null && h.lng != null) });
+    } catch {
+      setPlaces(null);
+      setError("Could not look that up.");
+    }
+  }
+
+  async function addPlace(h: PlaceHit) {
+    if (adding) return;
+    const known = h.accountId ? searchable.find((a) => a.id === h.accountId) : undefined;
+    if (known) {
+      onAddAccount(known);
+      reset();
+      setOpen(false);
+      return;
+    }
+    if (h.accountId) {
+      onAddPlaceAccount(placeAccount(h.accountId, h, null));
+      reset();
+      setOpen(false);
+      return;
+    }
+    setAdding(h.placeId);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/visit/new-account", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ name: h.name, place: h }),
+      });
+      const j: { ok: boolean; result?: { accountId: string; channel: string | null }; error?: string } = await res.json();
+      if (!j.ok || !j.result) {
+        setError(j.error ?? "Could not add it.");
+        setAdding(null);
+        return;
+      }
+      onAddPlaceAccount(placeAccount(j.result.accountId, h, j.result.channel));
+      reset();
+      setOpen(false);
+    } catch {
+      setError("Could not add it.");
+      setAdding(null);
     }
   }
 
@@ -205,6 +325,44 @@ export function AddStop({
               })}
             </ul>
           )}
+          {query.trim().length >= 3 && places?.q !== query.trim() && (
+            <button
+              type="button"
+              onClick={searchPlaces}
+              className="glass mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3.5 py-2 text-[13px] font-medium text-[#3D4A44] transition-transform active:scale-[0.97]"
+            >
+              <Ico name="search" size={14} />
+              Search places
+            </button>
+          )}
+          {places?.q === query.trim() && (
+            <ul className="mt-1.5 max-h-64 overflow-auto rounded-md border border-[#E2DFD5]">
+              {places.hits === null && <li className="px-3 py-2 text-[13px] text-[#8A928C]">Looking it up</li>}
+              {places.hits?.length === 0 && <li className="px-3 py-2 text-[13px] text-[#8A928C]">No place found. Add the city to the name.</li>}
+              {places.hits?.map((h) => {
+                const already = h.accountId ? inRoute.has(h.accountId) : false;
+                return (
+                  <li key={h.placeId}>
+                    <button
+                      type="button"
+                      disabled={already || adding !== null}
+                      onClick={() => addPlace(h)}
+                      className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2 text-left text-[14px] hover:bg-[#FAF9F5] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium text-[#14201B]">{h.name}</span>
+                        {h.formattedAddress && <span className="block truncate text-[12px] text-[#8A928C]">{h.formattedAddress}</span>}
+                      </span>
+                      <span className="shrink-0 text-[12px] text-[#8A928C]">
+                        {already ? "on this day" : adding === h.placeId ? "Adding" : h.accountId ? "Account" : "New prospect"}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {error && <span className="mt-1.5 block text-[13px] text-[#8A2E2E]">{error}</span>}
         </div>
       )}
 
