@@ -161,6 +161,39 @@ export async function getAccountForEngagement(id: string): Promise<EngagementAcc
   return rows[0] ?? null;
 }
 
+export type CompanyFacts = {
+  id: string;
+  name: string;
+  street: string | null;
+  city: string | null;
+  state: string | null;
+  postal: string | null;
+  phone: string | null;
+  website: string | null;
+  hubspot_company_id: string | null;
+};
+
+export async function getAccountCompanyFacts(id: string): Promise<CompanyFacts | null> {
+  const rows = await query<CompanyFacts>("nb_accounts", {
+    select: "id,name,street,city,state,postal,phone,website,hubspot_company_id",
+    id: `eq.${id}`,
+    limit: "1",
+  });
+  return rows[0] ?? null;
+}
+
+/** Links a freshly created portal company. Only fills a blank link, and marks
+ *  the account eligible, since the visit that got it here is what earns that
+ *  (migration 0065). */
+export async function linkAccountCompany(accountId: string, companyId: string): Promise<void> {
+  await mutate(
+    "nb_accounts",
+    "PATCH",
+    { hubspot_company_id: companyId, hubspot_sync_eligible: true },
+    { id: `eq.${accountId}`, hubspot_company_id: "is.null" },
+  );
+}
+
 export type AccountFactsReport = {
   business_hours: { status: "filled" | "updated"; old?: Record<string, string[][]> | null } | null;
   phone: { status: "filled" | "updated"; old?: string | null; value: string } | null;

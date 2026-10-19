@@ -30,6 +30,7 @@ import {
   type EngagementActivity,
 } from "./dal";
 import { assertOwnBook, batchRead, request, type HubspotFeature } from "./hubspot";
+import { ensureCompanyFor } from "./hubspot-company";
 import { currentUser } from "../../core/user";
 import { Held, once } from "../../core/once-server";
 
@@ -439,10 +440,14 @@ export async function runEngagement(
   if ((account.owner_name ?? "") !== me.ownerName) {
     throw new Blocked(`account ${account.id} (${account.name}) is owned by '${account.owner_name || "(unowned)"}', not ${me.ownerName}. Out of scope.`);
   }
-  if (!account.hubspot_company_id) {
-    throw new Blocked(`account ${account.id} (${account.name}) is not linked to a portal company. Linking is a human decision.`);
+  // A visit always reaches HubSpot: an account with no company gets one here,
+  // dedupe-checked portal-wide (ensureCompanyFor). A dry preview never creates.
+  if (!account.hubspot_company_id && !opts.write) {
+    throw new Blocked(`account ${account.id} (${account.name}) has no portal company yet; filing it creates one.`);
   }
-  const companyId = account.hubspot_company_id;
+  const companyId = account.hubspot_company_id ?? (await ensureCompanyFor(account.id).catch((e: unknown) => {
+    throw new Blocked(e instanceof Error ? e.message : `Could not create a portal company for ${account.name}.`);
+  }));
   const etype = engagementType(activity.kind || "note");
   const otype = effectiveType(etype);
 

@@ -11,6 +11,8 @@
  */
 import "server-only";
 import { ownerId, request } from "./hubspot";
+import { getAccountCompanyFacts, linkAccountCompany } from "./dal";
+import { once } from "../../core/once-server";
 
 export type DuplicateCandidate = {
   id: string;
@@ -78,4 +80,28 @@ export async function createCompany(input: {
   });
   if (!res.id) throw new Error("HubSpot accepted the company but returned no id.");
   return res.id;
+}
+
+/** The portal company behind an account a visit is being filed on, created
+ *  on the spot when it has none (Juan, 2026-10-19: "when I log a visit it goes
+ *  to hubspot always"). A Lead Scout or Places prospect lands with no company
+ *  on purpose, and nothing ever gave it one once he walked in, so his Oct 16
+ *  re_ grocery visit stayed in the OS and missed his weekly report. The same
+ *  portal-wide duplicate check as a new business runs first, and any hit
+ *  fails loud with the names rather than creating a second record. */
+export async function ensureCompanyFor(accountId: string): Promise<string> {
+  const { result } = await once(`hubspot:company:${accountId}`, async () => {
+    const a = await getAccountCompanyFacts(accountId);
+    if (!a) throw new Error(`nb_accounts has no row with id ${accountId}.`);
+    if (a.hubspot_company_id) return a.hubspot_company_id;
+    const dupes = await findPossibleDuplicates(a.name, a.website);
+    if (dupes.length > 0) {
+      const names = dupes.slice(0, 3).map((d) => [d.name, d.city].filter(Boolean).join(", ")).join("; ");
+      throw new Error(`${a.name} may already be in HubSpot (${names}). Nothing created; link it to that company first.`);
+    }
+    const companyId = await createCompany(a);
+    await linkAccountCompany(accountId, companyId);
+    return companyId;
+  });
+  return result;
 }
