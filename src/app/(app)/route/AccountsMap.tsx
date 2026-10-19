@@ -86,6 +86,10 @@ const POTENTIAL_LEGEND: Tier[] = ["A", "B", "C", "D", "E"];
 
 const TIERS: Tier[] = ["A", "B", "C", "D", "E"];
 
+/** The scout's New Indies list (A to C), landed as prospects. */
+const NEW_INDIE_GRADES = new Set(["A", "B", "C"]);
+const NEW_INDIE_COLOR = "#6E5A8E";
+
 const SDR_PRIORITIES: { value: SdrPriority; label: string; tone: string }[] = [
   { value: "low", label: "Low", tone: "bg-[#ECEAE1] text-[#5B6560] hover:bg-[#E2DFD5]" },
   { value: "mid", label: "Mid", tone: "bg-[#E7EDE4] text-[#3D6B4A] hover:bg-[#DCE6D8]" },
@@ -111,6 +115,12 @@ function usd(n: number | null): string | null {
 
 function isProspect(a: Pick<RouteAccount, "lead_stage">): boolean {
   return a.lead_stage === "prospect";
+}
+
+/** A lead from the New Indies list nobody has touched yet. The first visit,
+ *  call or email makes it an ordinary account on the map. */
+function isNewIndie(a: Pick<RouteAccount, "lead_stage" | "source" | "scout_grade">): boolean {
+  return a.source === "lead_scout" && NEW_INDIE_GRADES.has(a.scout_grade ?? "") && isProspect(a);
 }
 
 /** A chain, or an account I marked Corporate in the account view: buying is
@@ -357,6 +367,9 @@ export function AccountsMap({
   }
 
   const [filters, setFilters] = useState<AccountFilterState>(emptyFilters());
+  // Tier E and New Indies start hidden on every load, not a saved preference.
+  const [showTierE, setShowTierE] = useState(false);
+  const [showNewIndies, setShowNewIndies] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const noAreas = useFlag("no-area-filters");
   const [selected, setSelected] = useState<RouteAccount | null>(null);
@@ -383,9 +396,10 @@ export function AccountsMap({
           (displayPrefs.showChains || !isChain(a)) &&
           (displayPrefs.showPractices || !isSmallPractice(a.channel, a.tier)) &&
           a.lead_status !== "Closed" &&
-          (displayPrefs.showProspects || !isProspect(a)),
+          (showTierE || a.tier !== "E") &&
+          (isNewIndie(a) ? showNewIndies : displayPrefs.showProspects || !isProspect(a)),
       ),
-    [accounts, displayPrefs],
+    [accounts, displayPrefs, showTierE, showNewIndies],
   );
 
   const subjects = useMemo(
@@ -443,7 +457,9 @@ export function AccountsMap({
 
   const chainExcludedCount = useMemo(() => accounts.filter(isChain).length, [accounts]);
   const practiceExcludedCount = useMemo(() => accounts.filter((a) => isSmallPractice(a.channel, a.tier)).length, [accounts]);
-  const prospectExcludedCount = useMemo(() => accounts.filter((a) => isProspect(a)).length, [accounts]);
+  const prospectExcludedCount = useMemo(() => accounts.filter((a) => isProspect(a) && !isNewIndie(a)).length, [accounts]);
+  const newIndieCount = useMemo(() => accounts.filter(isNewIndie).length, [accounts]);
+  const tierECount = useMemo(() => accounts.filter((a) => a.tier === "E" && a.lead_status !== "Closed").length, [accounts]);
 
   function toggle<T>(set: Set<T>, v: T): Set<T> {
     const next = new Set(set);
@@ -590,6 +606,7 @@ export function AccountsMap({
 
     for (const a of pinAccounts) {
       const prospect = isProspect(a);
+      const indie = isNewIndie(a);
       const potential = !prospect && a.tier ? POTENTIAL_COLOR[a.tier] : undefined;
       const routeNum = routeNumberById.get(a.id);
       const done = routeNum ? doneIds.has(a.id) : false;
@@ -597,9 +614,11 @@ export function AccountsMap({
         ? "#8A928C"
         : routeNum
           ? "#14201B"
-          : prospect
-            ? LEAD_STAGE_COLOR.prospect
-            : (potential ?? "#5B6560");
+          : indie
+            ? NEW_INDIE_COLOR
+            : prospect
+              ? LEAD_STAGE_COLOR.prospect
+              : (potential ?? "#5B6560");
       const marker = new g.maps.Marker({
         position: { lat: a.lat, lng: a.lng },
         map,
@@ -748,7 +767,7 @@ export function AccountsMap({
           )}
 
           <FilterSection label="Tier" onClear={filters.tiers.size > 0 ? () => setFiltersAndClose({ ...filters, tiers: new Set() }) : undefined}>
-            {TIERS.map((t) => (
+            {TIERS.filter((t) => t !== "E" || showTierE).map((t) => (
               <Chip
                 key={t}
                 active={filters.tiers.has(t)}
@@ -758,6 +777,18 @@ export function AccountsMap({
                 {t} <Count n={counts.tiers[t] ?? 0} />
               </Chip>
             ))}
+            {tierECount > 0 && (
+              <HideToggle
+                shown={showTierE}
+                onToggle={() => {
+                  if (showTierE && filters.tiers.has("E")) setFiltersAndClose({ ...filters, tiers: toggle(filters.tiers, "E") });
+                  setShowTierE(!showTierE);
+                }}
+                shownLabel="E shown"
+                hiddenLabel="E hidden"
+                count={tierECount}
+              />
+            )}
           </FilterSection>
 
           <FilterSection
@@ -827,6 +858,19 @@ export function AccountsMap({
                 shownLabel="Prospects shown"
                 hiddenLabel="Prospects hidden"
                 count={prospectExcludedCount}
+              />
+            )}
+            {newIndieCount > 0 && (
+              <HideToggle
+                shown={showNewIndies}
+                onToggle={() => {
+                  setSelected(null);
+                  setShowNewIndies(!showNewIndies);
+                }}
+                shownLabel="New Indies shown"
+                hiddenLabel="New Indies hidden"
+                count={newIndieCount}
+                dot={NEW_INDIE_COLOR}
               />
             )}
           </FilterSection>
@@ -905,12 +949,14 @@ function HideToggle({
   shownLabel,
   hiddenLabel,
   count,
+  dot,
 }: {
   shown: boolean;
   onToggle: () => void;
   shownLabel: string;
   hiddenLabel: string;
   count: number;
+  dot?: string;
 }) {
   return (
     <button
@@ -921,6 +967,7 @@ function HideToggle({
         shown ? "border-[#14201B] bg-[#14201B] text-[#F7F6F1]" : "border-[#E2DFD5] bg-white text-[#3D4A44] hover:bg-[#FAF9F5]"
       }`}
     >
+      {dot && <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: dot }} />}
       {shown ? shownLabel : hiddenLabel} <Count n={count} />
     </button>
   );
@@ -958,6 +1005,15 @@ function AccountPinCard({
                 title={`HQ potential ${a.tier}`}
               >
                 {a.tier}
+              </span>
+            )}
+            {isNewIndie(a) && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[11px] font-bold text-white"
+                style={{ background: NEW_INDIE_COLOR }}
+                title={`Scout grade ${a.scout_grade}`}
+              >
+                New Indie {a.scout_grade}
               </span>
             )}
             {priority && (

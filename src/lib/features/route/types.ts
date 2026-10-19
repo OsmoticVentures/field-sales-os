@@ -102,6 +102,10 @@ export type RouteAccount = {
   practice_excluded: boolean;
   do_not_visit: boolean;
   readiness: Readiness | null;
+  /** Where the row came from; "lead_scout" is a lead from the scout's list. */
+  source?: string | null;
+  /** The scout's own grade (A to E), not HQ potential. A to C is the New Indies list. */
+  scout_grade?: string | null;
 };
 
 export type RouteStopView = { id: string; lat: number; lng: number } & (
