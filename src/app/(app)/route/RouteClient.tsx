@@ -533,6 +533,13 @@ function RouteDay({
   function patchPrefs(next: RouteSchedulePrefs) {
     setDepart(next.depart);
     setPrefsLocal(next);
+    // Typing passes through values the database refuses (a cleared time, 0 or
+    // 300 minutes per stop). Keep them on screen, save only a usable set.
+    const ok =
+      /^\d{2}:\d{2}$/.test(next.depart) &&
+      Number.isInteger(next.dwellMinutes) && next.dwellMinutes >= 1 && next.dwellMinutes <= 240 &&
+      Number.isInteger(next.lunchMinutes) && next.lunchMinutes >= 0 && next.lunchMinutes <= 240;
+    if (!ok) return;
     postJson<{ ok: boolean }>("/api/route/prefs", next).catch(() => {});
   }
   function patchEndpoint(day: string, which: "start" | "end", ep: RouteEndpoint | null) {
