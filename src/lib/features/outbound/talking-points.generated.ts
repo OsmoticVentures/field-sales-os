@@ -74,5 +74,20 @@ export const TALKING_POINTS: TalkingPoint[] = [
     "id": "free-shipping",
     "topic": "order terms",
     "line": "Shipping is complimentary."
+  },
+  {
+    "id": "gse-since-1980s",
+    "topic": "product hook",
+    "line": "NutriBiotic has championed the market in GSE since the 1980s."
+  },
+  {
+    "id": "flu-season-training",
+    "topic": "offer",
+    "line": "I'm planning flu season trainings in which I cover Grapefruit Seed Extract and Vitamins C, D3, Zinc."
+  },
+  {
+    "id": "private-label-capabilities",
+    "topic": "company capability",
+    "line": "USA cGMP manufacturing in California, distribution to every state of the USA, an in-house quality assurance team that verifies nutrition claims and supplement facts for FDA and DSHEA compliance, private label or white label, and a partner in Spain for product R&D. Private label and manufacturing inquiries only."
   }
 ];
