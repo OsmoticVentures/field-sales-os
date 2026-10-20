@@ -89,5 +89,10 @@ export const TALKING_POINTS: TalkingPoint[] = [
     "id": "private-label-capabilities",
     "topic": "company capability",
     "line": "USA cGMP manufacturing in California, distribution to every state of the USA, an in-house quality assurance team that verifies nutrition claims and supplement facts for FDA and DSHEA compliance, private label or white label, and a partner in Spain for product R&D. Private label and manufacturing inquiries only."
+  },
+  {
+    "id": "company-one-liner",
+    "topic": "introduction",
+    "line": "I'm Juan, your representative with NutriBiotic, an immunity-focused supplements manufacturer in CA since 1981."
   }
 ];
