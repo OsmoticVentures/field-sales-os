@@ -23,6 +23,13 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "depart, dwellMinutes and lunchMinutes are required." }, { status: 400 });
   }
 
+  // Same limits as the ui_prefs_route_minutes_sane check in the database; a
+  // cleared box reads as 0 and would otherwise fail the PATCH with a 500.
+  const whole = (n: number, min: number) => Number.isInteger(n) && n >= min && n <= 240;
+  if (!whole(prefs.dwellMinutes, 1) || !whole(prefs.lunchMinutes, 0)) {
+    return Response.json({ ok: false, error: "Minutes per stop must be 1 to 240 and lunch 0 to 240." }, { status: 400 });
+  }
+
   try {
     const { result, replayed } = await withIdempotency(`route:prefs:${key}`, async () => {
       await saveRouteSchedulePrefs(prefs);
