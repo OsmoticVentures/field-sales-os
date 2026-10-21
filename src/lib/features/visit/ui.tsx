@@ -28,7 +28,9 @@ import {
   useOutbox,
   type OutboxItem,
 } from "../../core/outbox";
-import { waitsForType, type AccountPick, type NeedsAccount } from "../../core/outbox-core";
+import { waitsForType, type AccountPick, type DoorCounts, type NeedsAccount } from "../../core/outbox-core";
+import { getAccountPayload, refreshAccount } from "../../core/phone-sync";
+import { BLANK_COUNTS, COUNT_SLOTS, CountSlots, countsOf, type CountValues } from "../clients/CountSlots";
 import { Ico, ghostBtn } from "../../core/ui";
 import { ReadinessIcon } from "../clients/WarmthPicker";
 
@@ -116,6 +118,9 @@ export function TouchpointCapture({
   const [saved, setSaved] = useState<{ durable: boolean } | null>(null);
   const [grade, setGrade] = useState<VisitGrade | null>(null);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
+  // The door counts, prefilled with the chosen client's own; only a changed slot is sent.
+  const [counts, setCounts] = useState<CountValues>(BLANK_COUNTS);
+  const onFile = useRef<CountValues>(BLANK_COUNTS);
   const [newCompany, setNewCompany] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -134,6 +139,34 @@ export function TouchpointCapture({
   useEffect(() => {
     if (!accountIdHint) locate();
   }, [accountIdHint]);
+
+  useEffect(() => {
+    if (!accountIdHint) return;
+    let alive = true;
+    void (async () => {
+      const r = await getAccountPayload(accountIdHint);
+      let a = "payload" in r ? r.payload.account : null;
+      if (a && !("shelf_units" in a)) a = (await refreshAccount(accountIdHint))?.account ?? a;
+      if (!alive || !a) return;
+      const known = countsOf(a);
+      onFile.current = known;
+      // Never over a slot he has already typed into.
+      setCounts((cur) => (Object.values(cur).every((v) => v === "") ? known : cur));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [accountIdHint]);
+
+  /** The slots he changed, as numbers. A blank slot is no reading. */
+  function changedCounts(): DoorCounts | null {
+    const out: DoorCounts = {};
+    for (const { field } of COUNT_SLOTS) {
+      const v = counts[field];
+      if (v !== "" && v !== onFile.current[field]) out[field] = Number(v);
+    }
+    return Object.keys(out).length ? out : null;
+  }
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -172,6 +205,7 @@ export function TouchpointCapture({
     setKindTouched(Boolean(defaultKind));
     setGrade(null);
     setReadiness(null);
+    setCounts(onFile.current);
     setNewCompany(false);
     setPendingPhoto(null);
     refocus();
@@ -189,10 +223,13 @@ export function TouchpointCapture({
       newCompany,
       grade,
       readiness,
+      counts: changedCounts(),
       photoFile: pendingPhoto,
       near: newCompany ? nearRef.current : null,
     };
-    const was = { kind, kindTouched };
+    const was = { kind, kindTouched, counts };
+    // A client already chosen: what he typed is now what is on file.
+    if (accountIdHint) onFile.current = { ...onFile.current, ...stringsOf(note.counts) };
     setSaving(true);
     setError(null);
     setSaved(null);
@@ -208,6 +245,7 @@ export function TouchpointCapture({
       setKindTouched(was.kindTouched);
       setGrade(note.grade);
       setReadiness(note.readiness);
+      setCounts(was.counts);
       setNewCompany(note.newCompany);
       setPendingPhoto(note.photoFile);
       setError("Couldn't save that note on the phone. Try again.");
@@ -224,6 +262,7 @@ export function TouchpointCapture({
     setKindTouched(Boolean(it.kind ?? defaultKind));
     setGrade((it.grade as VisitGrade | null) ?? null);
     setReadiness((it.readiness as Readiness | null) ?? null);
+    setCounts({ ...onFile.current, ...stringsOf(it.counts) });
     setNewCompany(it.newCompany);
     setPendingPhoto(it.photo ? new File([it.photo.bytes], it.photo.name || "photo.jpg", { type: it.photo.type }) : null);
     setError(null);
@@ -317,6 +356,10 @@ export function TouchpointCapture({
           </div>
         </div>
 
+        <div className="mt-3">
+          <CountSlots values={counts} onChange={(f, v) => setCounts((p) => ({ ...p, [f]: v }))} />
+        </div>
+
         <div className="mt-3 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <input
@@ -386,6 +429,13 @@ export function TouchpointCapture({
       <OutboxList onTakeBack={restore} />
     </div>
   );
+}
+
+/** Only the slots a note carried, as strings, so the rest keep what is on file. */
+function stringsOf(c: DoorCounts | null | undefined): Partial<CountValues> {
+  const out: Partial<CountValues> = {};
+  for (const [k, v] of Object.entries(c ?? {})) if (v != null) out[k as keyof CountValues] = String(v);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -487,6 +537,10 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
                 onPick={(a) => void fileTo(it.id, a)}
                 onRetry={null}
               />
+            )}
+            {/* Still failing after a few rounds: the reason, never a bare "Retrying". */}
+            {!it.parked && it.attempts >= 3 && it.lastError && (
+              <ErrorLine message={it.lastError} picks={[]} busy={running === it.id} onPick={() => {}} onRetry={null} />
             )}
             {waitsForType(it) && (
               <div className="flex flex-wrap gap-1.5 pb-2">

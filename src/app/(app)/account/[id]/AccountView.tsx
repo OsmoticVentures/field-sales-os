@@ -2,10 +2,10 @@
 
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOnPhone } from "@/lib/features/outbound/use-on-phone";
 import { apiFetch } from "../../../../lib/core/api";
-import { refreshAccount } from "../../../../lib/core/phone-sync";
+import { patchAccount, refreshAccount } from "../../../../lib/core/phone-sync";
 import { Card, Ico, SuccessNote, eyebrowCls } from "../../../../lib/core/ui";
 import type { ClientAccount, ClientActivity, ClientContact } from "../../../../lib/features/clients/dal";
 import {
@@ -24,6 +24,7 @@ import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/pr
 import { dayLabel, workingDayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 import { WarmthPicker } from "../../../../lib/features/clients/WarmthPicker";
+import { CountSlots, countsOf, type CountField } from "../../../../lib/features/clients/CountSlots";
 import { sees, useMe } from "../../../../lib/core/me";
 
 const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
@@ -100,6 +101,51 @@ function PotentialGrade({ accountId, hq, juan, readiness }: { accountId: string;
       <div className="mt-3">
         <WarmthPicker key={`readiness-${accountId}`} accountId={accountId} value={readiness} compact onSaved={() => void refreshAccount(accountId)} />
       </div>
+    </Card>
+  );
+}
+
+/** The door counts, saved on the account as each slot is left. */
+function StoreCounts({ account }: { account: ClientAccount }) {
+  const [values, setValues] = useState(() => countsOf(account));
+  const [saved, setSaved] = useState(() => countsOf(account));
+  const [note, setNote] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // A copy kept on the phone before the counts were in it: read it fresh once.
+  useEffect(() => {
+    if (!("shelf_units" in account)) void refreshAccount(account.id);
+  }, [account]);
+
+  async function commit(field: CountField) {
+    const v = values[field];
+    // A blank slot is no reading: it never clears a count already on file.
+    if (v === "" || v === saved[field]) {
+      if (v === "") setValues((p) => ({ ...p, [field]: saved[field] }));
+      return;
+    }
+    setError(null);
+    try {
+      await postJson("/api/visit/account-read", { account_id: account.id, counts: { [field]: Number(v) } });
+      setSaved((p) => ({ ...p, [field]: v }));
+      setNote(true);
+      setTimeout(() => setNote(false), 1000);
+      void patchAccount(account.id, (p) => ({ ...p, account: { ...p.account, [field]: Number(v) } }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save that.");
+    }
+  }
+
+  return (
+    <Card>
+      <div className={`mb-2.5 ${eyebrowCls}`}>Store size</div>
+      <CountSlots values={values} onChange={(f, v) => setValues((p) => ({ ...p, [f]: v }))} onCommit={commit} />
+      {note && (
+        <div className="mt-2.5">
+          <SuccessNote title="Saved" />
+        </div>
+      )}
+      {error && <p className="mt-2 text-[12px] text-[#8A2E2E]">Not saved: {error}</p>}
     </Card>
   );
 }
@@ -670,6 +716,7 @@ export function AccountView({
         <aside className="flex min-w-0 flex-col gap-4">
           {a.fit_verdict && <FitCard key={`fit-${a.id}-${a.fit_verdict}`} accountId={a.id} verdict={a.fit_verdict} reason={a.fit_reason ?? null} />}
           <PotentialGrade accountId={a.id} hq={a.potential_hq} juan={a.potential_juan} readiness={a.readiness ?? null} />
+          <StoreCounts key={`counts-${a.id}-${a.shelf_units}-${a.employee_count}-${a.stores_per_decision_maker}`} account={a} />
 
           <Card>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 text-[13.5px] lg:flex lg:flex-col lg:gap-2.5">

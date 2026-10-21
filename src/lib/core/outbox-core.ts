@@ -16,7 +16,7 @@
  *                checks for its own earlier note first, so a retry never
  *                makes a second one. "CRM filing off" and a field note count
  *                as done: there is nothing to confirm.
- *   read         grade and readiness, POST /api/visit/account-read.
+ *   read         grade, readiness and the door counts, POST /api/visit/account-read.
  *   photo        POST /api/visit/attach.
  *   type         a store New company just created: its type is his pick,
  *                asked once the note is filed, POST /api/visit/account-type.
@@ -32,6 +32,12 @@
 export type KindOverride = "meeting" | "call" | "email" | "field_note";
 
 export type AccountPick = { id: string; name: string; city: string | null };
+
+/** What he counted at the door: supplement shelves, the staff selling them,
+ *  the stores one owner runs. Whole numbers; a slot left blank is absent. */
+export type DoorCounts = { shelf_units?: number; employee_count?: number; stores_per_decision_maker?: number };
+
+const hasCounts = (c: DoorCounts | null | undefined): boolean => Boolean(c && Object.keys(c).length > 0);
 
 /** A store New company created: the type Places suggested, the one he
  *  picked, and whether it is on the account. */
@@ -62,6 +68,8 @@ export type OutboxItem = {
   newCompany: boolean;
   grade: string | null;
   readiness: string | null;
+  /** Absent on a note saved before the door counts existed. */
+  counts?: DoorCounts | null;
   /** Bytes, not a Blob: an ArrayBuffer survives every WebKit IndexedDB. */
   photo: { bytes: ArrayBuffer; type: string; name: string } | null;
   /** Where the phone was when Log was tapped, for finding a new store. */
@@ -110,6 +118,7 @@ export type EnqueueInput = {
   newCompany?: boolean;
   grade?: string | null;
   readiness?: string | null;
+  counts?: DoorCounts | null;
   photo?: OutboxItem["photo"];
   near?: { lat: number; lng: number } | null;
   now: number;
@@ -124,6 +133,7 @@ export function newItem(i: EnqueueInput): OutboxItem {
     newCompany: Boolean(i.newCompany) && !i.accountIdHint,
     grade: i.grade ?? null,
     readiness: i.readiness ?? null,
+    counts: hasCounts(i.counts) ? i.counts : null,
     photo: i.photo ?? null,
     near: i.near ?? null,
     createdAt: i.now,
@@ -138,7 +148,7 @@ export function newItem(i: EnqueueInput): OutboxItem {
     filed: false,
     hubspot: "pending",
     hubspotRefused: null,
-    readDone: !i.grade && !i.readiness,
+    readDone: !i.grade && !i.readiness && !hasCounts(i.counts),
     photoDone: !i.photo,
     storeType: null,
     attempts: 0,
@@ -225,7 +235,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
       req: {
         path: "/api/visit/account-read",
         key: `${it.id}:read`,
-        json: { account_id: it.accountId, grade: it.grade ?? undefined, readiness: it.readiness ?? undefined },
+        json: { account_id: it.accountId, grade: it.grade ?? undefined, readiness: it.readiness ?? undefined, counts: it.counts ?? undefined },
       },
     };
   }
@@ -303,13 +313,14 @@ export function applyOutcome(it: OutboxItem, step: Step, out: Outcome, ctx: Appl
 
   switch (step.stage) {
     case "new-account": {
-      const r = out.result as { accountId: string; accountName: string; channel?: string | null };
+      const r = out.result as { accountId: string; accountName: string; channel?: string | null; existing?: boolean };
       return {
         item: {
           ...base,
           pickedAccountId: r.accountId,
           accountName: r.accountName,
-          storeType: { suggested: r.channel ?? null, picked: null, done: false },
+          // A store already in the book keeps its type; only a new one asks.
+          storeType: r.existing ? null : { suggested: r.channel ?? null, picked: null, done: false },
         },
         ok: true,
       };

@@ -284,6 +284,42 @@ function enqueue(world: ReturnType<typeof fakeWorld>, over: Partial<Parameters<t
   t("9 a store already in the book is never asked its type", r3.removed && !r3.item.storeType);
 }
 
+// 10. Door counts ride the read stage to whichever account the note lands on.
+{
+  const w = fakeWorld(() => filed({ accountId: "acc-c", accountName: "Counted" }));
+  const it = enqueue(w, { counts: { shelf_units: 6, employee_count: 2 } });
+  t("10 counts alone hold the read open", !it.readDone);
+  const r = await advance(it, w.deps);
+  const read = w.sent.find((s) => s.path === "/api/visit/account-read");
+  const sent = read?.json as { account_id: string; counts: { shelf_units: number; employee_count: number } } | undefined;
+  t("10 read posts the counts to the filed account", sent?.account_id === "acc-c" && sent.counts.shelf_units === 6 && sent.counts.employee_count === 2, sent);
+  t("10 complete once the counts are on", r.removed);
+  t("10 empty counts send no read", enqueue(fakeWorld(() => filed()), { counts: {} }).readDone);
+}
+
+// 11. New company on a store already in the book: filed to that account, never asked its type.
+{
+  const w = fakeWorld((req, n) => {
+    if (n === 1) return ok({ ok: true, needsAccount: true, summary: "s", businessNameGuess: "afterburn athletic club", matchAccountId: null, matchAccountName: null, candidates: [], parsed: {} });
+    if (req.path === "/api/visit/new-account") return ok({ accountId: "acc-a", accountName: "Afterburn Athletic Club (South Bay)", channel: null, existing: true });
+    return filed({ accountId: "acc-a", accountName: "Afterburn Athletic Club (South Bay)" });
+  });
+  const it = enqueue(w, { newCompany: true });
+  const r = await advance(it, w.deps);
+  const tp = w.sent[w.sent.length - 1];
+  t("11 the note files to the account already in the book", tp.path === "/api/visit/touchpoint" && (tp.json as { accountIdHint: string }).accountIdHint === "acc-a");
+  t("11 complete, no type asked", r.removed && !w.disk.has(it.id));
+
+  const w2 = fakeWorld((req, n) => {
+    if (n === 1) return ok({ ok: true, needsAccount: true, summary: "s", businessNameGuess: "Other Rep Store", matchAccountId: null, matchAccountName: null, candidates: [], parsed: {} });
+    return { type: "http", status: 409, error: "Other Rep Store may already be in HubSpot (Other Rep Store, Irvine). Nothing created. Search for it instead." };
+  });
+  const it2 = enqueue(w2, { newCompany: true });
+  await advance(it2, w2.deps);
+  const d2 = w2.disk.get(it2.id)!;
+  t("11 another rep's store holds in red with the reason, not retried", d2.parked === "rejected" && Boolean(d2.lastError?.includes("may already be in HubSpot")) && !isDue(d2, w2.now() + 3_600_000));
+}
+
 if (failures) {
   console.error(`outbox: ${failures} failing`);
   process.exitCode = 1;

@@ -136,6 +136,21 @@ export type Account = {
   owner_name: string | null;
 };
 
+/** The open account in this rep's book linked to one of these HubSpot
+ *  companies, if any: a "new" store that is already his. */
+export async function findBookAccountByCompany(companyIds: string[]): Promise<AccountCandidate | null> {
+  const ids = companyIds.filter((id) => /^\d+$/.test(id));
+  if (ids.length === 0) return null;
+  const rows = await query<AccountCandidate>("nb_accounts", {
+    select: "id,name,city",
+    hubspot_owner_id: `eq.${await myOwnerId()}`,
+    hubspot_company_id: `in.(${ids.join(",")})`,
+    closed_at: "is.null",
+    limit: "1",
+  });
+  return rows[0] ?? null;
+}
+
 export async function getAccount(id: string): Promise<Account | null> {
   const rows = await query<Account>("nb_accounts", {
     select: "id,name,city,phone,email,business_hours,enrichment_status,hubspot_company_id,owner_name",
@@ -617,6 +632,16 @@ export async function setAccountReadiness(accountId: string, readiness: Readines
     { readiness, readiness_set_at: readiness ? new Date().toISOString() : null },
     { id: `eq.${accountId}` },
   );
+}
+
+export const DOOR_COUNT_FIELDS = ["shelf_units", "employee_count", "stores_per_decision_maker"] as const;
+export type DoorCountField = (typeof DOOR_COUNT_FIELDS)[number];
+
+/** What he counted at the door. His count is the observed value: it sits in
+ *  the account's own column, ahead of any Lead Scout estimate. */
+export async function setAccountCounts(accountId: string, counts: Partial<Record<DoorCountField, number>>): Promise<void> {
+  if (Object.keys(counts).length === 0) return;
+  await mutate("nb_accounts", "PATCH", counts, { id: `eq.${accountId}` });
 }
 
 /** The store types the Visit screen offers for a store New company created. */

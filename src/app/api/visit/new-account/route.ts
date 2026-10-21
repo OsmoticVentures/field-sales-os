@@ -11,7 +11,7 @@ import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotenc
 import { createCompany, findPossibleDuplicates } from "../../../../lib/features/visit/hubspot-company";
 import { writeEnabled } from "../../../../lib/features/visit/hubspot";
 import { searchPlaces, type LatLng, type PlaceCandidate } from "../../../../lib/shared/places";
-import { insertBareAccount } from "../../../../lib/features/visit/dal";
+import { findBookAccountByCompany, insertBareAccount } from "../../../../lib/features/visit/dal";
 import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
@@ -124,8 +124,11 @@ export async function POST(req: Request) {
       if (writeEnabled("visit")) {
         const dupes = await findPossibleDuplicates(name, site);
         if (dupes.length > 0) {
+          // Already in his book: the note files to that account, nothing is created.
+          const mine = await findBookAccountByCompany(dupes.map((d) => d.id));
+          if (mine) return { accountId: mine.id, accountName: mine.name, channel: null, existing: true };
           const names = dupes.slice(0, 3).map((d) => [d.name, d.city].filter(Boolean).join(", ")).join("; ");
-          throw new Error(`${name} may already be in HubSpot (${names}). Nothing created. Search for it instead.`);
+          throw new AlreadyInHubspot(`${name} may already be in HubSpot (${names}). Nothing created. Search for it instead.`);
         }
         companyId = await createCompany({
           name,
@@ -142,7 +145,12 @@ export async function POST(req: Request) {
     });
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
+    // Another rep's company: asking again cannot change the answer, so the
+    // phone holds the note in red with the reason instead of retrying it.
+    if (err instanceof AlreadyInHubspot) return Response.json({ ok: false, error: err.message }, { status: 409 });
     captureError(err, "/api/visit/new-account");
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "Could not create that account." }, { status: 500 });
   }
 }
+
+class AlreadyInHubspot extends Error {}
