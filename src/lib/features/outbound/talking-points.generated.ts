@@ -41,11 +41,6 @@ export const TALKING_POINTS: TalkingPoint[] = [
     "line": "Let me know what you need for restock and I'll give you our best discounts."
   },
   {
-    "id": "fifteen-minutes",
-    "topic": "meeting ask",
-    "line": "Just 15 minutes should be good."
-  },
-  {
     "id": "content-with-users",
     "topic": "success stories",
     "line": "I'm going around making content with real users I meet at stores. Will get these videos to you when they're ready."
