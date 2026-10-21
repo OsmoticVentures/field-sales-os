@@ -328,16 +328,23 @@ export function reportHref(name: string): string {
 }
 
 /** Whether an object exists in the bucket, without minting a signature just
- *  to find out. Returns the stable href, not the signed URL. */
+ *  to find out. Returns the stable href, not the signed URL. Asks the list
+ *  endpoint, which answers 200 with an empty list for a missing object;
+ *  object/info answers 400 for one, which the upstream watch reports as a
+ *  failure even though "not there yet" is a normal state for a preview. */
 export async function reportPreviewHref(userId: string, name: string): Promise<string | null> {
   try {
-    const path = reportObjectPath(userId, name).split("/").map(enc).join("/");
-    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/info/${REPORTS_BUCKET}/${path}`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    const full = reportObjectPath(userId, name);
+    const slash = full.lastIndexOf("/");
+    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/list/${REPORTS_BUCKET}`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix: full.slice(0, slash + 1), search: full.slice(slash + 1), limit: 100 }),
       cache: "no-store",
     });
     if (!res.ok) return null;
-    return reportHref(name);
+    const objects = (await res.json()) as Array<{ name: string }>;
+    return objects.some((o) => o.name === full.slice(slash + 1)) ? reportHref(name) : null;
   } catch {
     return null;
   }
