@@ -118,9 +118,10 @@ function isProspect(a: Pick<RouteAccount, "lead_stage">): boolean {
 }
 
 /** A lead from the New Indies list nobody has touched yet. The first visit,
- *  call or email makes it an ordinary account on the map. */
-function isNewIndie(a: Pick<RouteAccount, "lead_stage" | "source" | "scout_grade">): boolean {
-  return a.source === "lead_scout" && NEW_INDIE_GRADES.has(a.scout_grade ?? "") && isProspect(a);
+ *  call or email makes it an ordinary account on the map. A do-not-visit lead
+ *  (a Ridgeline door, 2026-10-21) is never a New Indie. */
+function isNewIndie(a: Pick<RouteAccount, "lead_stage" | "source" | "scout_grade" | "do_not_visit">): boolean {
+  return a.source === "lead_scout" && NEW_INDIE_GRADES.has(a.scout_grade ?? "") && isProspect(a) && !a.do_not_visit;
 }
 
 /** A chain, or an account I marked Corporate in the account view: buying is
