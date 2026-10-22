@@ -612,6 +612,10 @@ export function AccountView({
 
       <div className="grid min-w-0 gap-5 lg:grid-cols-[1fr_300px]">
         <div className="flex min-w-0 flex-col gap-5">
+          {/* On a phone the side column falls under History; the counts lead instead. */}
+          <div className="lg:hidden">
+            <StoreCounts key={`counts-${a.id}-${a.shelf_units}-${a.employee_count}-${a.stores_per_decision_maker}`} account={a} />
+          </div>
           {a.quirks && (
             <Card className="border-l-[3px] border-l-[#14201B]">
               <div className={`mb-1.5 flex items-center gap-2 ${eyebrowCls}`}>
@@ -716,7 +720,9 @@ export function AccountView({
         <aside className="flex min-w-0 flex-col gap-4">
           {a.fit_verdict && <FitCard key={`fit-${a.id}-${a.fit_verdict}`} accountId={a.id} verdict={a.fit_verdict} reason={a.fit_reason ?? null} />}
           <PotentialGrade accountId={a.id} hq={a.potential_hq} juan={a.potential_juan} readiness={a.readiness ?? null} />
-          <StoreCounts key={`counts-${a.id}-${a.shelf_units}-${a.employee_count}-${a.stores_per_decision_maker}`} account={a} />
+          <div className="hidden lg:block">
+            <StoreCounts key={`counts-${a.id}-${a.shelf_units}-${a.employee_count}-${a.stores_per_decision_maker}`} account={a} />
+          </div>
 
           <Card>
             <dl className="grid grid-cols-2 gap-x-5 gap-y-4 text-[13.5px] lg:flex lg:flex-col lg:gap-2.5">

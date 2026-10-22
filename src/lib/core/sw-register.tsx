@@ -7,17 +7,42 @@ import { BASE_PATH } from "./api";
  * Registers the service worker (/nb/sw.js, src/app/sw.js/route.ts, from
  * scripts/sw.template.js; OFFLINE.md says why) on whichever screen the app
  * opens to, and checks for a newer one when the app comes back to the front,
- * at most every half hour. Production only: in dev it would serve stale
- * chunks to a hot reload. Renders nothing.
+ * at most once a minute. A newer build that takes over reloads the screen
+ * while it is out of sight or just back, never under a half-typed note, so
+ * an app left open on the phone runs today's build, not the one it launched
+ * with. Production only: in dev it would serve stale chunks to a hot reload.
+ * Renders nothing.
  */
-const CHECK_GAP_MS = 30 * 60 * 1000;
+const CHECK_GAP_MS = 60 * 1000;
+/** Back in front this recently: nothing typed yet, a reload costs nothing. */
+const JUST_BACK_MS = 4000;
+
+/** Text in a box he has not sent: a reload would lose it. */
+function typing(): boolean {
+  return Array.from(document.querySelectorAll("textarea")).some((t) => t.value.trim() !== "");
+}
 
 export function ServiceWorkerRegister() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
     let lastCheck = Date.now();
+    let backAt = Date.now();
     let reg: ServiceWorkerRegistration | null = null;
+    // The first worker ever taking control is not a new build.
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let newBuild = false;
+
+    const reloadIfSafe = () => {
+      if (!newBuild || typing()) return;
+      if (document.visibilityState === "hidden" || Date.now() - backAt < JUST_BACK_MS) window.location.reload();
+    };
+    const onController = () => {
+      if (!hadController) return;
+      newBuild = true;
+      reloadIfSafe();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onController);
 
     navigator.serviceWorker
       .register(`${BASE_PATH}/sw.js`, { scope: BASE_PATH, updateViaCache: "none" })
@@ -39,7 +64,10 @@ export function ServiceWorkerRegister() {
     navigator.serviceWorker.addEventListener("message", onMessage);
 
     const onVisible = () => {
-      if (document.visibilityState !== "visible" || !reg) return;
+      if (document.visibilityState !== "visible") return reloadIfSafe();
+      backAt = Date.now();
+      reloadIfSafe();
+      if (!reg) return;
       if (Date.now() - lastCheck < CHECK_GAP_MS) return;
       lastCheck = Date.now();
       void reg.update().catch(() => {});
@@ -47,6 +75,7 @@ export function ServiceWorkerRegister() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       navigator.serviceWorker.removeEventListener("message", onMessage);
+      navigator.serviceWorker.removeEventListener("controllerchange", onController);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
