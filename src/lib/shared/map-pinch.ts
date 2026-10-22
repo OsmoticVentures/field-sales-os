@@ -95,9 +95,15 @@ export function enablePinchZoom(el: HTMLElement, map: PinchMap): () => void {
     apply(d.scale);
   };
 
+  // On a touch screen WebKit fires these for fingers on glass too, and
+  // taking them pins the map in place: two fingers zoom but never pan.
+  // Google already pinches and pans there, so only a trackpad needs them.
+  const touch = navigator.maxTouchPoints > 0;
   el.addEventListener("wheel", onWheel, { passive: false, capture: true });
-  el.addEventListener("gesturestart", onGestureStart);
-  el.addEventListener("gesturechange", onGestureChange);
+  if (!touch) {
+    el.addEventListener("gesturestart", onGestureStart);
+    el.addEventListener("gesturechange", onGestureChange);
+  }
   const tagged = el as PinchTarget;
   tagged.dataset.pinchMap = "";
   tagged.__pinch = onNative;
