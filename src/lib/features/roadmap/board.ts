@@ -5,7 +5,7 @@
  * the claude.ai artifact it began as (agency resources/artifacts/
  * nutribiotic-marketing-roadmap.html), which already ran on a tested vanilla
  * render loop; rewriting it as React would only re-open what worked. Each
- * board is Next up (priority first, then the matrix), a six-month Gantt you
+ * board is Current work (stages running today, soonest end first), a six-month Gantt you
  * drag and resize, and the effort and yield matrix you place by hand;
  * marketing also carries a budget slider per project.
  *
@@ -83,7 +83,7 @@ export function mountRoadmaps(db, writable) {
   function boardHTML(k, withBudget){
     return `
     <section aria-labelledby="${k}-nu-h">
-      <h2 id="${k}-nu-h">Next up</h2>
+      <h2 id="${k}-nu-h">Current work</h2>
       <div class="next" id="${k}-next"><div class="empty">Loading.</div></div>
     </section>
     <section aria-labelledby="${k}-g-h">
@@ -147,16 +147,23 @@ export function mountRoadmaps(db, writable) {
       return projects.filter(p => !isDone(p)).sort((a,b) => prio(a)-prio(b) || score(b)-score(a) || posOf(b)[1]-posOf(a)[1]).slice(0,3);
     }
 
+    /* Current work (Juan, 2026-10-22): every stage running today, across
+       projects, the one ending soonest first. Not what comes next. */
+    function currentStages(){
+      const out = [];
+      projects.forEach(p => stagesOf(p).forEach(s => { if((s.start || s.end) <= TODAY && s.end >= TODAY) out.push({p, s}); }));
+      return out.sort((a,b) => a.s.end.localeCompare(b.s.end) || prio(a.p)-prio(b.p));
+    }
+
     function renderNext(){
-      const t = topThree(), box = q("next");
+      const t = currentStages(), box = q("next");
       if(!projects.length){ box.innerHTML = '<div class="empty">No projects yet. Add the first with Add project.</div>'; return; }
-      if(!t.length){ box.innerHTML = '<div class="empty">Every project has passed its last milestone.</div>'; return; }
-      box.innerHTML = t.map((p,i) => { const m = nextMs(p);
-        return `<button type="button" class="nu" data-id="${esc(p.id)}">
+      if(!t.length){ box.innerHTML = '<div class="empty">Nothing running today.</div>'; return; }
+      box.innerHTML = t.map(({p, s: m}, i) => `<button type="button" class="nu" data-id="${esc(p.id)}">
           <div class="top"><span class="n">${i+1}</span><h3>${esc(p.title)}</h3></div>
-          <div><div class="ms">${esc(m.milestone || m.type+" done")}</div><div class="date">${fmt(m.end)}</div></div>
+          <div><div class="ms">${esc(m.milestone || m.type+" done")}</div><div class="date">Ends ${fmt(m.end)}</div></div>
           <div class="ey"><span class="chip stage" style="background:var(${SCOLOR[m.type]||"--st-measure"})">${esc(m.type)}</span></div>
-        </button>`; }).join("");
+        </button>`).join("");
     }
 
     const inWindow = p => stagesOf(p).some(s => s.end >= iso(W0) && (s.start||s.end) < iso(W1));
