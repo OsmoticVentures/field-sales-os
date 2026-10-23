@@ -462,9 +462,12 @@ function RouteDay({
   useEffect(() => {
     locateMe().then(setMyLoc);
   }, []);
-  const startFallback = myLoc ?? (prevDay ? data.endByDay[prevDay] : null) ?? data.home;
+  // Where the rep is right now only matters on today's route. A future day
+  // is planned: it leaves from the day before's end, or home, at 9.
+  const here = activeDay === laTodayIso() ? myLoc : null;
+  const startFallback = here ?? (prevDay ? data.endByDay[prevDay] : null) ?? data.home;
   const start = data.startByDay[activeDay] ?? startFallback;
-  const end = data.endByDay[activeDay] ?? myLoc ?? data.home;
+  const end = data.endByDay[activeDay] ?? here ?? data.home;
 
   // Today, once a stop is done, the clock runs from here and now: the stops
   // left are routed from where the rep is (or the last stop made), so the
