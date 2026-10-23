@@ -629,8 +629,11 @@ function RouteDay({
   // behind, at that stop's spot and named for its area until a place is
   // picked. Taking it off the day keeps it off (LUNCH_OFF).
   const lunchAfter = schedule?.lunch?.after ?? null;
+  // A day of calendar events only (a Saturday errand, a brunch) is not a
+  // field day and gets no Lunch stop.
+  const fieldDay = stops.some((s) => s.type === "account");
   useEffect(() => {
-    if (lunchAfter === null) return;
+    if (lunchAfter === null || !fieldDay) return;
     const before = routed[lunchAfter];
     if (!before) return;
     const area = before.type === "account" ? (before.account.area ?? before.account.city) : (before.custom.area ?? null);
