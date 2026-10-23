@@ -257,19 +257,30 @@ export type RouteState = {
   calls: Record<string, CallEntry[]>;
   done: Record<string, string[]>;
   times: Record<string, Record<string, string>>;
+  /** The row's updated_at, read with the route itself: the fingerprint a
+   *  second device compares against to know the route moved. */
+  version: string;
 };
 
 export async function getRouteStateByDay(): Promise<RouteState> {
-  const row = await prefsSelect<{ route_draft: unknown; route_calls: unknown; route_done: unknown; route_stop_times: unknown }>(
-    "route_draft,route_calls,route_done,route_stop_times",
+  const row = await prefsSelect<{ route_draft: unknown; route_calls: unknown; route_done: unknown; route_stop_times: unknown; updated_at: string }>(
+    "route_draft,route_calls,route_done,route_stop_times,updated_at",
   );
-  if (!row) return { draft: {}, calls: {}, done: {}, times: {} };
+  if (!row) return { draft: {}, calls: {}, done: {}, times: {}, version: "" };
   return {
     draft: asDraftByDay(row.route_draft),
     calls: asCallsByDay(row.route_calls),
     done: asDoneByDay(row.route_done),
     times: asTimesByDay(row.route_stop_times),
+    version: row.updated_at ?? "",
   };
+}
+
+/** Just the fingerprint, about 60 bytes: what every sync tick reads before
+ *  deciding whether the route itself is worth reading (root AGENTS.md P9). */
+export async function getRouteVersion(): Promise<string> {
+  const row = await prefsSelect<{ updated_at: string }>("updated_at");
+  return row?.updated_at ?? "";
 }
 
 export async function setRouteDraft(byDay: Record<string, RouteDraftEntry[]>): Promise<void> {

@@ -58,6 +58,8 @@ type StatePayload = {
   calls: Record<string, CallEntry[]>;
   done: Record<string, string[]>;
   times: Record<string, Record<string, string>>;
+  /** The saved route's fingerprint, compared by the sync below. */
+  version?: string;
   /** Stops a visit or meeting was logged for that day, marked done by it. */
   logged?: Record<string, string[]>;
   /** The pending Outbound email for a logged stop's account, by account id. */
@@ -68,13 +70,50 @@ function newKey(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 }
 
+/**
+ * Two devices, one route. Every save counts itself here so the sync never
+ * paints a read taken before a save over the save; a refused or unsent save
+ * is said in red on the screen and the route goes back to what is saved.
+ */
+const routeSync: {
+  version: string;
+  inFlight: number;
+  saves: number;
+  failed: (msg: string) => void;
+  saved: () => void;
+  resync: () => void;
+} = {
+  version: "",
+  inFlight: 0,
+  saves: 0,
+  failed: () => {},
+  saved: () => {},
+  resync: () => {},
+};
+const SYNC_MS = 30_000;
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const res = await apiFetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json", "idempotency-key": newKey() },
-    body: JSON.stringify(body),
-  });
-  return res.json();
+  routeSync.inFlight++;
+  routeSync.saves++;
+  try {
+    const res = await apiFetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": newKey() },
+      body: JSON.stringify(body),
+    });
+    const j = (await res.json().catch(() => null)) as (T & { ok?: boolean; error?: string }) | null;
+    if (!res.ok || !j || j.ok === false) throw new Error(j?.error ?? "Couldn't save that change.");
+    routeSync.saved();
+    return j;
+  } catch (e) {
+    const msg = e instanceof TypeError ? "No signal. That change didn't save." : e instanceof Error ? e.message : "Couldn't save that change.";
+    routeSync.failed(msg);
+    throw e;
+  } finally {
+    routeSync.inFlight--;
+    // The save moved the version: read it now rather than on the next tick.
+    if (routeSync.inFlight === 0) routeSync.resync();
+  }
 }
 
 function minutesOfDay(hhmm: string): number {
@@ -233,6 +272,7 @@ export function RouteClient() {
   // the day stays put if the rep already picked one.
   const [data, setData] = useState<StatePayload | null>(() => peekJson<StatePayload>("/api/route/state") ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<string | null>(() => data?.activeDay ?? null);
 
   useEffect(() => {
@@ -252,12 +292,82 @@ export function RouteClient() {
           setLoadError("Couldn't load the route.");
           return;
         }
+        routeSync.version = j.version ?? "";
         setData(j);
         setActiveDay((d) => (d && j.days.includes(d) ? d : j.activeDay));
       })
       .catch(() => live && setLoadError("Couldn't load the route."));
     return () => {
       live = false;
+    };
+  }, []);
+
+  // The route another device changed shows up here: on resume, on focus,
+  // and every 30 seconds while the screen is open. A tick where nothing
+  // moved costs a few bytes; a moved route reads the route, not the book.
+  useEffect(() => {
+    let live = true;
+    let force = false;
+    async function tick() {
+      if (!live || routeSync.inFlight > 0 || document.visibilityState !== "visible") return;
+      const savesAtStart = routeSync.saves;
+      const v = force ? "" : routeSync.version;
+      force = false;
+      try {
+        const res = await apiFetch(`/api/route/sync?v=${encodeURIComponent(v)}`, { cache: "no-store" });
+        const j = (await res.json()) as Partial<StatePayload> & { ok: boolean; same?: boolean; version?: string };
+        // A save started while this read was out: the read may predate it.
+        if (!live || !j.ok || routeSync.saves !== savesAtStart || routeSync.inFlight > 0) return;
+        routeSync.version = j.version ?? routeSync.version;
+        if (j.same) return;
+        setData((prev) => {
+          if (!prev) return prev;
+          const known = new Set(prev.accounts.map((a) => a.id));
+          const unknown = Object.values(j.draft ?? {}).some((es) => es.some((e) => typeof e === "string" && !known.has(e)));
+          // A stop for an account this device has not loaded: read the whole screen again.
+          if (unknown) {
+            getJson<StatePayload>("/api/route/state").then((full) => live && full.ok && setData(full)).catch(() => {});
+            return prev;
+          }
+          return {
+            ...prev,
+            draft: j.draft ?? prev.draft,
+            calls: j.calls ?? prev.calls,
+            done: j.done ?? prev.done,
+            times: j.times ?? prev.times,
+            startByDay: j.startByDay ?? prev.startByDay,
+            endByDay: j.endByDay ?? prev.endByDay,
+            version: j.version,
+          };
+        });
+      } catch {
+        // No signal: the next tick or resume tries again.
+      }
+    }
+    routeSync.resync = () => void tick();
+    routeSync.failed = (msg) => {
+      if (!live) return;
+      setSaveError(msg);
+      force = true;
+      setTimeout(() => void tick(), 0);
+    };
+    routeSync.saved = () => {
+      if (live) setSaveError(null);
+    };
+    const onVisible = () => void tick();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("online", onVisible);
+    const timer = setInterval(() => void tick(), SYNC_MS);
+    return () => {
+      live = false;
+      routeSync.resync = () => {};
+      routeSync.failed = () => {};
+      routeSync.saved = () => {};
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("online", onVisible);
+      clearInterval(timer);
     };
   }, []);
 
@@ -274,7 +384,12 @@ export function RouteClient() {
   // data is guaranteed non-null past the guard above; RouteDay's functional
   // setData updates never see the null branch React's own Dispatch type allows.
   const setDataForDay = setData as unknown as (next: StatePayload | ((prev: StatePayload) => StatePayload)) => void;
-  return <RouteDay data={data} setData={setDataForDay} activeDay={activeDay} setActiveDay={setActiveDay} />;
+  return (
+    <>
+      {saveError && <p className="text-[14px] text-[#8A2E2E]">{saveError} The route shows what is saved.</p>}
+      <RouteDay data={data} setData={setDataForDay} activeDay={activeDay} setActiveDay={setActiveDay} />
+    </>
+  );
 }
 
 function RouteDay({
