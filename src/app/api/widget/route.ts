@@ -19,7 +19,7 @@ import {
 } from "../../../lib/features/route/dal";
 import { defaultActiveDay, planningHorizonDates } from "../../../lib/features/route/field-week";
 import { likelyDriveMinutes } from "../../../lib/features/route/traffic";
-import { LUNCH_OFF, lunchDue, type CustomStopKind, type RouteAccount, type Tier } from "../../../lib/features/route/types";
+import { DEPART_KEY, LUNCH_OFF, lunchDue, type CustomStopKind, type RouteAccount, type Tier } from "../../../lib/features/route/types";
 import { hasAccess } from "../../../lib/core/devices";
 import { hasWidgetToken } from "../../../lib/features/route/widget-auth";
 
@@ -221,7 +221,8 @@ export async function GET(request: Request) {
       const freeFlow = (miles / mph) * 60;
       return Math.max(4, likelyDriveMinutes(freeFlow, dateAtMinutes(departAtMinutes)));
     };
-    const [dh, dm] = prefs.depart.split(":").map(Number);
+    const dayDepart = state.times[day]?.[DEPART_KEY] ?? prefs.depart;
+    const [dh, dm] = dayDepart.split(":").map(Number);
     const departMin = (Number.isFinite(dh) ? dh : 9) * 60 + (Number.isFinite(dm) ? dm : 30);
     const nowMin = nowMinutesLA();
 
@@ -269,7 +270,7 @@ export async function GET(request: Request) {
       return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
     };
     schedule = {
-      depart: prefs.depart,
+      depart: dayDepart,
       finish_clock: clock(t),
       live: dayStarted,
       rough: true,

@@ -26,7 +26,7 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, FINISH_BY_MINUTES, LUNCH_OFF, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -234,8 +234,8 @@ function buildSchedule(
       if (hop) priced[betweenOffset + i - 1] = hop;
       t += hop?.minutes ?? 0;
     }
-    // Lunch takes its time from the route, never a stated one.
-    const anchor = s.type === "custom" && s.custom.kind === "lunch" ? undefined : anchors[s.id];
+    // Lunch follows the route unless a time was stated for it ("noon in the valley").
+    const anchor = anchors[s.id];
     if (anchor) {
       const at = minutesOfDay(anchor);
       if (at >= t) t = at;
@@ -486,9 +486,10 @@ function RouteDay({
 
   // A field day leaves at the saved time (9); today never leaves in the past.
   const departFor = (day: string) => {
-    if (day !== laTodayIso()) return data.prefs.depart;
+    const planned = data.times[day]?.[DEPART_KEY] ?? data.prefs.depart;
+    if (day !== laTodayIso()) return planned;
     const now = nowHHMM();
-    return now > data.prefs.depart ? now : data.prefs.depart;
+    return now > planned ? now : planned;
   };
   const [depart, setDepart] = useState(() => departFor(activeDay));
   const [departDay, setDepartDay] = useState(activeDay);
@@ -619,7 +620,7 @@ function RouteDay({
   useEffect(() => {
     if (activeDay < laTodayIso()) return;
     const next = reconcileCalendar(draft, stopTimes, calDay, dayEvents, (order, timed) =>
-      placeByTime(order, timed, pointOfEntry, start, minutesOfDay(data.prefs.depart), prefs.dwellMinutes, timeOfEntry),
+      placeByTime(order, timed, pointOfEntry, start, minutesOfDay(stopTimes[DEPART_KEY] ?? data.prefs.depart), prefs.dwellMinutes, timeOfEntry),
     );
     if (next) patchDraftAndTimes(activeDay, next.draft, next.times);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -653,13 +654,6 @@ function RouteDay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lunchAfter, activeDay]);
 
-  // A time stored on a Lunch stop from before it followed the route.
-  const staleLunchTimes = stops.filter((s) => s.type === "custom" && s.custom.kind === "lunch" && stopTimes[s.id]).map((s) => s.id);
-  useEffect(() => {
-    if (staleLunchTimes.length === 0) return;
-    patchTimes(activeDay, Object.fromEntries(Object.entries(stopTimes).filter(([id]) => !staleLunchTimes.includes(id))));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staleLunchTimes.join(","), activeDay]);
   const shownLegs = schedule?.priced ?? legs;
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
@@ -711,7 +705,9 @@ function RouteDay({
   function patchPrefs(next: RouteSchedulePrefs) {
     setDepart(next.depart);
     setPrefsLocal(next);
-    postJson<{ ok: boolean }>("/api/route/prefs", next).catch(() => {});
+    // The leave time belongs to this day; stay and lunch lengths are saved for every day.
+    if (next.depart !== prefs.depart) patchTimes(activeDay, { ...stopTimes, [DEPART_KEY]: next.depart });
+    postJson<{ ok: boolean }>("/api/route/prefs", { ...next, depart: data.prefs.depart }).catch(() => {});
   }
   function patchEndpoint(day: string, which: "start" | "end", ep: RouteEndpoint | null) {
     const key = which === "start" ? "startByDay" : "endByDay";
@@ -863,7 +859,7 @@ function RouteDay({
         timed.map((e) => ({ entry: e, at: minutesOfDay(stopTimes[e.id] ?? "00:00") })),
         pointOfEntry,
         start,
-        minutesOfDay(data.prefs.depart),
+        minutesOfDay(stopTimes[DEPART_KEY] ?? data.prefs.depart),
         prefs.dwellMinutes,
         timeOfEntry,
       );
@@ -1186,7 +1182,7 @@ function RouteDay({
                           {clock(minutesOfDay(stopTimes[s.id]))} to {clock(minutesOfDay(stopTimes[s.id]) + (c.minutes ?? 0))}
                         </div>
                       )}
-                      {c && c.kind === "hotel" && (
+                      {c && (c.kind === "hotel" || c.kind === "lunch") && (
                         <label className="mt-1 flex items-center gap-1.5 text-[12.5px] text-[#5B6560]">
                           At
                           <input

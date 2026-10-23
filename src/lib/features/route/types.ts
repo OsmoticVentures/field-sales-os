@@ -40,6 +40,9 @@ export const LUNCH_UNTIL_MINUTES = 14 * 60 + 30;
 /** The key in a day's stop times that records its Lunch stop was taken off,
  *  so the day doesn't put it back. No stop id looks like it. */
 export const LUNCH_OFF = "lunch";
+/** The key in a day's stop times holding that day's own leave time, when it
+ *  differs from the saved one ("10:30" on a day with a morning call). */
+export const DEPART_KEY = "depart";
 export const lunchDue = (leaveMinutes: number) => leaveMinutes >= LUNCH_FROM_MINUTES && leaveMinutes <= LUNCH_UNTIL_MINUTES;
 
 export type CustomStopKind = "lunch" | "hotel" | "stop" | "event";
