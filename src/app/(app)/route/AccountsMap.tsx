@@ -490,9 +490,8 @@ export function AccountsMap({
           styles: MAP_STYLE,
           disableDefaultUI: true,
           zoomControl: true,
-          // Two-finger pan on a touch device so the map never traps a
-          // one-finger page scroll.
-          gestureHandling: "cooperative",
+          // One finger drags the map on a phone, the way a map app does.
+          gestureHandling: "greedy",
           keyboardShortcuts: false,
         });
         unpinch = enablePinchZoom(containerRef.current, mapRef.current);

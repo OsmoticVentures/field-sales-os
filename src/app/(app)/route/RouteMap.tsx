@@ -80,7 +80,7 @@ export function RouteMap({
           styles: MAP_STYLE,
           disableDefaultUI: true,
           zoomControl: true,
-          gestureHandling: "cooperative",
+          gestureHandling: "greedy",
           keyboardShortcuts: false,
         });
         unpinch = enablePinchZoom(containerRef.current, mapRef.current);
