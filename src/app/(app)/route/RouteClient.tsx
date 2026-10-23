@@ -255,7 +255,9 @@ function buildSchedule(
           : kind === "hotel"
             ? 0
             : prefs.dwellMinutes;
-    if (kind !== "event") {
+    // A stop with a stated time is where that time is spent (the noon call
+    // taken at the valley lunch), so a hold never pushes it.
+    if (kind !== "event" && !anchor) {
       for (const h of holds) if (t < h.end && t + stay > h.start) t = h.end;
     }
     rows.push({ arrive: t, leave: t + stay, stay });
