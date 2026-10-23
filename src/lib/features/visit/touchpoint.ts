@@ -54,6 +54,7 @@ import { strictJsonSchema } from "../../core/ai/core";
 import { laDay, noteKey, once } from "../../core/once-server";
 import { currentUser } from "../../core/user";
 import { TouchpointSchema } from "./touchpoint-schema";
+import { readOnMac } from "./mac-reader";
 
 export type HubspotFilingReport = {
   hubspotFiled: boolean;
@@ -311,6 +312,9 @@ export async function recordTouchpoint(
      *  the model's raw shape: validated by the schema here, then used in place
      *  of this server's own model call. */
     macParsed?: unknown;
+    /** false: don't hand the note to the Mac's reader (the Mac's own door,
+     *  which already tried its own Max read). Default true. */
+    tryMac?: boolean;
     /** When it happened, if the caller stated a time. Default: now. */
     occurredAt?: string | null;
     /** false: write the OS only. The Mac's `cliente` door files HubSpot itself
@@ -331,6 +335,11 @@ export async function recordTouchpoint(
     const read = TouchpointSchema.safeParse(opts.macParsed);
     if (!read.success) return { ok: false, error: "That read of the note does not fit the schema. Nothing filed." };
     return continueTouchpoint(text, read.data as ParsedTouchpoint, candidates, accountIdHint, opts);
+  }
+  // Laptop open: the Mac reads it on the Max plan. Any miss reads it here.
+  if (opts.tryMac !== false) {
+    const read = TouchpointSchema.safeParse(await readOnMac(text));
+    if (read.success) return continueTouchpoint(text, read.data as ParsedTouchpoint, candidates, accountIdHint, opts);
   }
   if (!aiConfigured()) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
 

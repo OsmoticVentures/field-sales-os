@@ -37,7 +37,7 @@ export async function POST(req: Request) {
 
   let result;
   try {
-    result = await recordTouchpoint(text, accountIdHint, { occurredAt, parsed, macParsed, autoFileHubspot: false });
+    result = await recordTouchpoint(text, accountIdHint, { occurredAt, parsed, macParsed, tryMac: false, autoFileHubspot: false });
   } catch (err) {
     if (isAiCap(err)) return Response.json({ ok: false, error: err.message }, { status: AI_CAP_STATUS });
     throw err;
