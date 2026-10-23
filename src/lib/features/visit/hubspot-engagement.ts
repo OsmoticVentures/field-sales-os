@@ -1,28 +1,34 @@
 /**
  * Carrying one logged activity across the HubSpot boundary as a Note, Call,
- * or Meeting. Ported from portfolio/src/app/nutribiotic/lib/hubspot-engagement.ts,
- * which is itself a port of bridges/nutribiotic/hubspot_notes.py. The body
- * builder below (typedProperties, noteLines, noteBody, the marker) is kept
- * exactly, per this milestone's instruction.
+ * Meeting or Email. THE ONLY ENGAGEMENT FILER IN THE AGENCY (2026-10-22): the
+ * Mac's Python copy (bridges/nutribiotic/hubspot_notes.py) is gone, and every
+ * Mac script that files an engagement (clients.py, file_outreach.py, the two
+ * Outlook email pulls) calls this through /api/mac/hubspot via
+ * bridges/nutribiotic/lib/clientos.py's file_engagement().
+ *
+ * The body is the touchpoint's own hubspot_summary (the condensed first-person
+ * rewrite made once at extraction, touchpoint.ts) with its stated next step as
+ * the last line, falling back to the activity's verbatim detail when no
+ * touchpoint produced the activity (an email pulled from Outlook).
  *
  * Every person the touchpoint names is attached to the engagement as a
  * HubSpot contact (Juan, 2026-09-29: "hubspot contacts always"): found on the
  * company first, created and linked back to nb_contacts on a true miss.
  *
- * NOT PORTED, deliberately (see the handback for the full list): pushing the company phone
- * back to HubSpot, and the association-leak auto-detach. Those are all
- * enrichment on top of a filed engagement, not the engagement itself, and
- * every one of them only runs when that feature's own write flag is "true",
- * which this deployment leaves off by default. An account with no portal company yet
- * (hubspot-graduate.ts's job in the source) is refused here rather than
- * auto-created; the touchpoint still files into the OS either way.
+ * NOT HERE, deliberately: pushing stated business hours, phone or email onto
+ * the portal company, and the association-leak auto-detach. Those are
+ * enrichment on top of a filed engagement, not the engagement itself.
+ *
+ * An account with no portal company gets one on a write (ensureCompanyFor,
+ * duplicate-checked portal-wide). A dry pass never creates one; it says so
+ * with createsCompany: true and still returns the lines it would post.
  */
 import "server-only";
 import {
   findRecentDuplicateEngagement,
   getAccountForEngagement,
   getActivityById,
-  getTouchpointPeople,
+  getTouchpointForEngagement,
   linkContactHubspotId,
   listContacts,
   stampActivityEngagementId,
@@ -82,7 +88,10 @@ const CALL_DISPOSITION: Record<string, string> = {
   no_answer: CALL_DISPOSITION_NO_ANSWER,
 };
 
-const MEETING_OUTCOME: Record<string, string> = { reschedule: "RESCHEDULED", declined: "NO_SHOW" };
+// A visit Juan reports already happened, so COMPLETED is the default. `declined`
+// is NOT a no-show: the buyer was there and said no (2026-10-19, HQ's meetings
+// report dropped four real visits that were filed as NO_SHOW).
+const MEETING_OUTCOME: Record<string, string> = { reschedule: "RESCHEDULED" };
 const DEFAULT_MEETING_OUTCOME = "COMPLETED";
 
 const OUTCOME_LABEL: Record<string, string> = {
@@ -167,12 +176,17 @@ function hsTimestamp(activity: EngagementActivity): number {
  *  layer that catches a POST-succeeded-stamp-failed race. */
 const marker = (activityId: number): string => `[nb-activity:${activityId}]`;
 
+/** What an email pulled from Outlook knows that the activity row does not: the
+ *  real subject line and the address on the other end. */
+export type EmailOverride = { subject?: string | null; to?: string | null; from?: string | null };
+
 function typedProperties(
   otype: EngagementType,
   activity: EngagementActivity,
   body: string,
   plainBody: string,
   OWNER_ID: string,
+  email?: EmailOverride,
 ): Record<string, string | number | null> {
   const ts = hsTimestamp(activity);
   const kind = activity.kind || "";
@@ -182,11 +196,13 @@ function typedProperties(
   if (otype === "EMAIL" || otype === "INCOMING_EMAIL") {
     return {
       hs_timestamp: ts,
-      hs_email_subject: title,
+      hs_email_subject: email?.subject?.trim() || title,
       hs_email_html: body,
       hs_email_text: plainBody,
       hs_email_direction: otype === "INCOMING_EMAIL" ? "INCOMING_EMAIL" : "EMAIL",
       hs_email_status: "SENT",
+      hs_email_to_email: email?.to?.trim() || null,
+      hs_email_from_email: email?.from?.trim() || null,
       hubspot_owner_id: OWNER_ID,
     };
   }
@@ -412,6 +428,11 @@ export type EngagementResult = {
   activityId: number;
   accountId: string;
   accountName: string;
+  kind: string;
+  /** The portal company it files onto; null on a dry pass for an account
+   *  that has none yet (createsCompany says the write would make one). */
+  companyId: string | null;
+  createsCompany: boolean;
   otype: EngagementType;
   etype: EngagementType;
   lines: string[];
@@ -421,17 +442,26 @@ export type EngagementResult = {
   noteId: string | null;
 };
 
-/** One activity, all the way to a Note/Call/Meeting, or a dry preview of
- *  the same. Mirrors the source's runEngagement: every read runs
- *  regardless of `write`; only the final POST and its stamp are gated.
- *  `feature` says which caller this is (Visit Logger vs Outbound
- *  mark-sent), so the actual create POST checks that feature's own flag. */
+/** One activity, all the way to a Note/Call/Meeting/Email, or a dry preview
+ *  of the same. Every read runs regardless of `write`; only the creates and
+ *  the stamp are gated. `feature` says which caller this is (Visit Logger vs
+ *  Outbound), so every create POST checks that feature's own flag. `email`
+ *  carries the real subject and address of an email pulled from Outlook. */
 export async function runEngagement(
   activityId: number,
-  opts: { write: boolean; feature: HubspotFeature },
+  opts: { write: boolean; feature: HubspotFeature; email?: EmailOverride },
 ): Promise<EngagementResult> {
   const activity = await getActivityById(activityId);
   if (!activity) throw new Blocked(`nb_activities has no row with id ${activityId}.`);
+  // Seeded rows never cross into a portal another rep and HQ read: there is
+  // no telling a seeded visit from a real one once it is there.
+  if (activity.origin === "synthetic") {
+    throw new Blocked(`activity ${activityId} has origin 'synthetic'. Seeded data never crosses into the shared portal.`);
+  }
+  // Before any read of the portal and before a company could be created for
+  // it: a field note is never customer contact (the 2026-09-02 incident).
+  const etype = engagementType(activity.kind || "note");
+  const otype = effectiveType(etype);
   if (!activity.account_id) throw new Blocked(`activity ${activityId} has no account_id.`);
 
   const account = await getAccountForEngagement(activity.account_id);
@@ -440,48 +470,42 @@ export async function runEngagement(
   if ((account.owner_name ?? "") !== me.ownerName) {
     throw new Blocked(`account ${account.id} (${account.name}) is owned by '${account.owner_name || "(unowned)"}', not ${me.ownerName}. Out of scope.`);
   }
-  // A visit always reaches HubSpot: an account with no company gets one here,
-  // dedupe-checked portal-wide (ensureCompanyFor). A dry preview never creates.
-  if (!account.hubspot_company_id && !opts.write) {
-    throw new Blocked(`account ${account.id} (${account.name}) has no portal company yet; filing it creates one.`);
-  }
-  const companyId = account.hubspot_company_id ?? (await ensureCompanyFor(account.id).catch((e: unknown) => {
-    throw new Blocked(e instanceof Error ? e.message : `Could not create a portal company for ${account.name}.`);
-  }));
-  const etype = engagementType(activity.kind || "note");
-  const otype = effectiveType(etype);
+  const base = {
+    status: "ok" as const, activityId, accountId: account.id, accountName: account.name, kind: activity.kind,
+    companyId: account.hubspot_company_id ?? null, createsCompany: !account.hubspot_company_id, otype, etype,
+  };
 
   if (activity.hubspot_engagement_id) {
-    return {
-      status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype,
-      lines: [], matchedNames: [], alreadyFiledId: activity.hubspot_engagement_id, wrote: false, noteId: activity.hubspot_engagement_id,
-    };
+    return { ...base, lines: [], matchedNames: [], alreadyFiledId: activity.hubspot_engagement_id, wrote: false, noteId: activity.hubspot_engagement_id };
   }
 
   if (activity.detail) {
     const sibling = await findRecentDuplicateEngagement(account.id, activity.detail, activityId);
     if (sibling) {
       if (opts.write) await stampActivityEngagementId(activityId, sibling.hubspot_engagement_id);
-      return {
-        status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype,
-        lines: [], matchedNames: [], alreadyFiledId: sibling.hubspot_engagement_id, wrote: false, noteId: sibling.hubspot_engagement_id,
-      };
+      return { ...base, lines: [], matchedNames: [], alreadyFiledId: sibling.hubspot_engagement_id, wrote: false, noteId: sibling.hubspot_engagement_id };
     }
   }
 
   const contacts = await listContacts(account.id);
-  const parsed = { people: (await getTouchpointPeople(activityId)) as ParsedPerson[] };
-  const { matched } = matchPeople(contacts, activity, parsed);
+  const tp = await getTouchpointForEngagement(activityId);
+  const { matched } = matchPeople(contacts, activity, { people: tp.people as ParsedPerson[] });
 
-  const lines = noteLines(activity, matched, etype, otype, activity.detail, null);
+  const lines = noteLines(activity, matched, etype, otype, tp.hubspotSummary, tp.nextStep);
   const body = noteBody(lines, activityId);
   const matchedNames = matched
     .map((m) => [m.contact.first_name, m.contact.last_name].filter(Boolean).join(" ").trim())
     .filter(Boolean);
 
   if (!opts.write) {
-    return { status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype, lines, matchedNames, alreadyFiledId: null, wrote: false, noteId: null };
+    return { ...base, lines, matchedNames, alreadyFiledId: null, wrote: false, noteId: null };
   }
+
+  // A logged visit always reaches HubSpot: an account with no company gets
+  // one here, duplicate-checked portal-wide (ensureCompanyFor).
+  const companyId = account.hubspot_company_id ?? (await ensureCompanyFor(account.id).catch((e: unknown) => {
+    throw new Blocked(e instanceof Error ? e.message : `Could not create a portal company for ${account.name}.`);
+  }));
 
   const scope = await assertOwnBook([companyId]);
   if (!scope.allowed.includes(companyId)) {
@@ -509,7 +533,7 @@ export async function runEngagement(
           { to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_COMPANY[otype] }] },
           ...contactIds.map((cid) => ({ to: { id: cid }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: ENGAGEMENT_TO_CONTACT[otype] }] })),
         ];
-        const props = typedProperties(otype, activity, body, lines.join("\n"), me.ownerId);
+        const props = typedProperties(otype, activity, body, lines.join("\n"), me.ownerId, opts.email);
         const writeProps = Object.fromEntries(Object.entries(props).filter(([, v]) => v !== null));
         const res = await request<{ id?: string }>({
           method: "POST",
@@ -532,5 +556,5 @@ export async function runEngagement(
     if (!now?.hubspot_engagement_id) throw new Blocked("Still being filed to HubSpot.");
     filed = { noteId: now.hubspot_engagement_id, wrote: false };
   }
-  return { status: "ok", activityId, accountId: account.id, accountName: account.name, otype, etype, lines, matchedNames, alreadyFiledId: filed.wrote ? null : filed.noteId, wrote: filed.wrote, noteId: filed.noteId };
+  return { ...base, companyId, lines, matchedNames, alreadyFiledId: filed.wrote ? null : filed.noteId, wrote: filed.wrote, noteId: filed.noteId };
 }

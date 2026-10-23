@@ -371,17 +371,28 @@ export async function patchContact(id: string, patch: Partial<NewContact>): Prom
   return row;
 }
 
-/** The people the extractor parsed out of the touchpoint that produced this
- *  activity. Empty when the activity was not logged from a touchpoint. */
-export async function getTouchpointPeople(activityId: number): Promise<
-  Array<{ first_name?: string | null; last_name?: string | null; title?: string | null; email?: string | null; phone?: string | null }>
-> {
-  const rows = await query<{ parsed: { people?: Array<Record<string, string | null>> } | null }>("nb_touchpoints", {
+/** What the extractor parsed out of the touchpoint that produced this
+ *  activity: the people it named, the hubspot_summary written for the portal,
+ *  and the stated next step. Empty when the activity was not logged from a
+ *  touchpoint (an email pulled from Outlook). */
+export async function getTouchpointForEngagement(activityId: number): Promise<{
+  people: Array<{ first_name?: string | null; last_name?: string | null; title?: string | null; email?: string | null; phone?: string | null }>;
+  hubspotSummary: string | null;
+  nextStep: string | null;
+}> {
+  const rows = await query<{
+    parsed: { people?: Array<Record<string, string | null>>; activity?: { hubspot_summary?: string | null }; next_step?: string | null } | null;
+  }>("nb_touchpoints", {
     select: "parsed",
     activity_id: `eq.${activityId}`,
     limit: "1",
   });
-  return rows[0]?.parsed?.people ?? [];
+  const parsed = rows[0]?.parsed;
+  return {
+    people: parsed?.people ?? [],
+    hubspotSummary: parsed?.activity?.hubspot_summary ?? null,
+    nextStep: parsed?.next_step ?? null,
+  };
 }
 
 /** Idempotent: if another nb_contacts row already holds this HubSpot id, the
