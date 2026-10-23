@@ -51,7 +51,7 @@ async function query<T>(table: string, opts: QueryOpts): Promise<T[]> {
 
 async function mutate<T>(
   table: string,
-  method: "POST" | "PATCH",
+  method: "POST" | "PATCH" | "DELETE",
   body: Record<string, unknown>,
   filter?: QueryOpts,
 ): Promise<T[]> {
@@ -516,6 +516,20 @@ export async function findFiledTouchpoint(accountId: string, rawText: string): P
     limit: 1,
   });
   return rows[0] ?? null;
+}
+
+/** An edited visit replaces the one HubSpot refused: the old activity and
+ *  touchpoint leave the OS, but only while no HubSpot note exists for them. */
+export async function withdrawUnfiledVisit(touchpointId: string, activityId: number): Promise<boolean> {
+  const rows = await query<{ hubspot_engagement_id: string | null }>("nb_activities", {
+    select: "hubspot_engagement_id",
+    id: `eq.${activityId}`,
+    limit: 1,
+  });
+  if (rows.length === 0 || rows[0].hubspot_engagement_id) return false;
+  await mutate("nb_touchpoints", "DELETE", {}, { id: `eq.${touchpointId}`, activity_id: `eq.${activityId}` });
+  await mutate("nb_activities", "DELETE", {}, { id: `eq.${activityId}` });
+  return true;
 }
 
 export async function getAccountNames(ids: string[]): Promise<Record<string, string>> {

@@ -337,11 +337,12 @@ export async function discard(id: string): Promise<void> {
   await remove(id);
 }
 
-/** Back to the composer: an unfiled note leaves the outbox and its text,
+/** Back to the composer: an unfiled note, or one HubSpot refused, leaves the outbox and its text,
  *  reads and photo return to the screen, so nothing is lost. */
 export async function takeBack(id: string): Promise<OutboxItem | null> {
   const it = cache.get(id);
-  if (!it || it.filed || state.running === id) return null;
+  // A filed visit can come back only when HubSpot refused it: its edit replaces it.
+  if (!it || state.running === id || (it.filed && !(it.hubspotRefused && it.touchpointId && it.activityId))) return null;
   discarded.add(id);
   await remove(id);
   return it;

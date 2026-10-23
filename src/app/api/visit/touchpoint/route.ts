@@ -10,6 +10,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { recordTouchpoint, type ParsedTouchpoint } from "../../../../lib/features/visit/touchpoint";
+import { withdrawUnfiledVisit } from "../../../../lib/features/visit/dal";
 import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
 import { AI_CAP_STATUS, isAiCap } from "../../../../lib/core/ai/client";
 
@@ -37,6 +38,7 @@ export async function POST(req: Request) {
   const kindOverride = body?.kindOverride as "meeting" | "call" | "email" | "field_note" | undefined;
   const forceNewAccount = Boolean(body?.forceNewAccount);
   const parsed = (body?.parsed as ParsedTouchpoint | undefined) ?? null;
+  const replaces = body?.replaces as { touchpointId?: string; activityId?: number } | undefined;
 
   try {
     // A failure is thrown, not returned, so it is never stored under the key:
@@ -49,6 +51,12 @@ export async function POST(req: Request) {
       if (r.needsAccount) throw new NotSure(r);
       return r;
     });
+    // An edited visit replaces the refused one, after the new one is in.
+    const old = replaces?.touchpointId && Number.isInteger(replaces.activityId) ? replaces : null;
+    const filed = result as { touchpoint_id?: string };
+    if (old && filed.touchpoint_id && filed.touchpoint_id !== old.touchpointId) {
+      await withdrawUnfiledVisit(old.touchpointId!, old.activityId!).catch(() => false);
+    }
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
     if (err instanceof NotSure) return Response.json({ ok: true, result: err.result, replayed: false });

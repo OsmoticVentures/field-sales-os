@@ -74,6 +74,8 @@ export type OutboxItem = {
   photo: { bytes: ArrayBuffer; type: string; name: string } | null;
   /** Where the phone was when Log was tapped, for finding a new store. */
   near?: { lat: number; lng: number } | null;
+  /** The visit HubSpot refused, which this edited one replaces once it is in. */
+  replaces?: { touchpointId: string; activityId: number } | null;
   createdAt: number;
 
   // step state, written after every stage
@@ -121,6 +123,7 @@ export type EnqueueInput = {
   counts?: DoorCounts | null;
   photo?: OutboxItem["photo"];
   near?: { lat: number; lng: number } | null;
+  replaces?: OutboxItem["replaces"];
   now: number;
 };
 
@@ -136,6 +139,7 @@ export function newItem(i: EnqueueInput): OutboxItem {
     counts: hasCounts(i.counts) ? i.counts : null,
     photo: i.photo ?? null,
     near: i.near ?? null,
+    replaces: i.replaces ?? null,
     createdAt: i.now,
     accountName: i.accountName ?? null,
     pickedAccountId: null,
@@ -212,7 +216,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
         req: {
           path: "/api/visit/touchpoint",
           key: `${it.id}:${it.pickedAccountId}`,
-          json: { text: it.text, accountIdHint: it.pickedAccountId, kindOverride, parsed: it.parsed ?? undefined },
+          json: { text: it.text, accountIdHint: it.pickedAccountId, kindOverride, parsed: it.parsed ?? undefined, replaces: it.replaces ?? undefined },
         },
       };
     }
@@ -221,7 +225,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
       req: {
         path: "/api/visit/touchpoint",
         key: it.id,
-        json: { text: it.text, accountIdHint: it.accountIdHint ?? undefined, kindOverride, forceNewAccount: it.newCompany },
+        json: { text: it.text, accountIdHint: it.accountIdHint ?? undefined, kindOverride, forceNewAccount: it.newCompany, replaces: it.replaces ?? undefined },
       },
     };
   }

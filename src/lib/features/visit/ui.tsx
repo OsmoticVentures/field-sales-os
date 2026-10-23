@@ -123,6 +123,9 @@ export function TouchpointCapture({
   const onFile = useRef<CountValues>(BLANK_COUNTS);
   const [newCompany, setNewCompany] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  // The refused visit being edited; the re-logged one replaces it.
+  const editAccount = useRef<{ id: string; name: string | null } | null>(null);
+  const replacesRef = useRef<OutboxItem["replaces"]>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Where the phone is, so a new store is found at this door, not across town.
@@ -208,6 +211,8 @@ export function TouchpointCapture({
     setCounts(onFile.current);
     setNewCompany(false);
     setPendingPhoto(null);
+    replacesRef.current = null;
+    editAccount.current = null;
     refocus();
   }
 
@@ -217,8 +222,9 @@ export function TouchpointCapture({
     if (!value.trim() || saving) return;
     const note = {
       text: value,
-      accountIdHint: accountIdHint ?? null,
-      accountName: accountName ?? null,
+      accountIdHint: accountIdHint ?? editAccount.current?.id ?? null,
+      accountName: accountName ?? editAccount.current?.name ?? null,
+      replaces: replacesRef.current,
       kind: kindTouched ? kind : null,
       newCompany,
       grade,
@@ -227,7 +233,7 @@ export function TouchpointCapture({
       photoFile: pendingPhoto,
       near: newCompany ? nearRef.current : null,
     };
-    const was = { kind, kindTouched, counts };
+    const was = { kind, kindTouched, counts, replaces: replacesRef.current, editAccount: editAccount.current };
     // A client already chosen: what he typed is now what is on file.
     if (accountIdHint) onFile.current = { ...onFile.current, ...stringsOf(note.counts) };
     setSaving(true);
@@ -248,6 +254,8 @@ export function TouchpointCapture({
       setCounts(was.counts);
       setNewCompany(note.newCompany);
       setPendingPhoto(note.photoFile);
+      replacesRef.current = was.replaces;
+      editAccount.current = was.editAccount;
       setError("Couldn't save that note on the phone. Try again.");
       refocus();
     } finally {
@@ -266,6 +274,8 @@ export function TouchpointCapture({
     setNewCompany(it.newCompany);
     setPendingPhoto(it.photo ? new File([it.photo.bytes], it.photo.name || "photo.jpg", { type: it.photo.type }) : null);
     setError(null);
+    replacesRef.current = it.filed && it.touchpointId && it.activityId ? { touchpointId: it.touchpointId, activityId: it.activityId } : null;
+    editAccount.current = it.accountId ? { id: it.accountId, name: it.accountName } : null;
     refocus();
   }
 
@@ -310,7 +320,7 @@ export function TouchpointCapture({
         />
 
         <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-[#EDEBE3] pt-3">
-          <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Potential</span>
+          <span className="w-[78px] shrink-0 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Potential</span>
           <div className="flex gap-1">
             {VISIT_GRADES.map((t) => {
               const active = grade === t;
@@ -333,7 +343,7 @@ export function TouchpointCapture({
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-2">
-          <span className="text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Lead readiness</span>
+          <span className="w-[78px] shrink-0 text-[11px] uppercase tracking-[0.14em] text-[#8A928C]">Lead</span>
           <div className="flex gap-1">
             {READINESS_OPTIONS.map((opt) => {
               const active = readiness === opt.value;
@@ -567,7 +577,7 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
             )}
             {discardable(it) && (
               <div className="flex justify-end gap-1">
-                {!it.filed && running !== it.id && (
+                {(!it.filed || (it.hubspotRefused && it.touchpointId && it.activityId)) && running !== it.id && (
                   <button
                     type="button"
                     onClick={async () => {
