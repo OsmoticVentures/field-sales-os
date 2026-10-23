@@ -34,7 +34,7 @@ export type PlanAnchor = {
 };
 
 export type PlannerOptions = {
-  departTime: string; // "09:30", local wall clock
+  departTime: string; // "09:00", local wall clock
   dwellMinutes: number;
   lunchMinutes: number;
   /** ~10 stops a day at most (nutribiotic-route-planner rule 6). */
@@ -48,12 +48,13 @@ export type PlannerOptions = {
 };
 
 export const DEFAULT_PLANNER_OPTIONS: PlannerOptions = {
-  departTime: "09:30",
+  departTime: "09:00",
   dwellMinutes: 20,
   lunchMinutes: 30,
   maxStopsPerDay: 10,
   maxDriveLegMinutes: 180,
-  maxDayMinutes: 540,
+  /** 9 to 3: depart to the last stop's departure. */
+  maxDayMinutes: 360,
 };
 
 /** A leg's minutes, and whether that number came from the real road network

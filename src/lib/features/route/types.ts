@@ -24,10 +24,14 @@ export type MapDisplayPrefs = { showChains: boolean; showPractices: boolean; sho
 export type RouteEndpoint = { label: string; address: string; lat: number; lng: number };
 
 export type RouteSchedulePrefs = {
-  depart: string; // "09:30", local wall clock, no zone
+  depart: string; // "09:00", local wall clock, no zone
   dwellMinutes: number;
   lunchMinutes: number;
 };
+
+/** A field day leaves at 9 and aims to be done with its stops by 3. */
+export const DEFAULT_DEPART = "09:00";
+export const FINISH_BY_MINUTES = 15 * 60;
 
 /** Every day gets a Lunch stop, placed right after the first stop that ends
  *  between 11:30 and 2:30, unless it was taken off that day. */

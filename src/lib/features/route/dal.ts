@@ -14,6 +14,7 @@
 import "server-only";
 import { currentUser, myOwnerId } from "../../core/user";
 import { whileOwnedRowsUnchanged } from "../../shared/owned-fingerprint";
+import { DEFAULT_DEPART } from "./types";
 import type {
   CalendarEvent,
   CallEntry,
@@ -157,7 +158,7 @@ export async function getHomeEndpoint(): Promise<RouteEndpoint | null> {
 
 // --- Schedule prefs -----------------------------------------------------
 
-const DEFAULT_PREFS: RouteSchedulePrefs = { depart: "09:30", dwellMinutes: 20, lunchMinutes: 30 };
+const DEFAULT_PREFS: RouteSchedulePrefs = { depart: DEFAULT_DEPART, dwellMinutes: 20, lunchMinutes: 30 };
 
 function hhmm(t: string | null): string | null {
   if (!t) return null;

@@ -45,6 +45,7 @@ import { planningHorizonDates } from "../route/field-week";
 import { haversineMiles } from "../route/route-optimize";
 import { routeDriveShape } from "../route/drive";
 import { buildWeekPlan, scheduleDay } from "./plan";
+import { FINISH_BY_MINUTES } from "../route/types";
 import type { PlanWorkingStop } from "./plan";
 import {
   DEFAULT_PLANNER_OPTIONS,
@@ -119,6 +120,8 @@ export async function proposeWeek(daysCount: number = DEFAULT_HORIZON_DAYS): Pro
   const options: PlannerOptions = {
     ...DEFAULT_PLANNER_OPTIONS,
     departTime: prefs.depart,
+    // Done with stops by 3, whatever the day's own leave time.
+    maxDayMinutes: Math.max(60, FINISH_BY_MINUTES - toMinutes(prefs.depart)),
     dwellMinutes: prefs.dwellMinutes,
     lunchMinutes: prefs.lunchMinutes,
   };

@@ -26,7 +26,7 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, LUNCH_OFF, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, FINISH_BY_MINUTES, LUNCH_OFF, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -481,7 +481,18 @@ function RouteDay({
     return { label, address: "", lat: lastDone.lat, lng: lastDone.lng };
   }, [live, myLoc, stops, doneIds, start]);
 
-  const [depart, setDepart] = useState(nowHHMM);
+  // A field day leaves at the saved time (9); today never leaves in the past.
+  const departFor = (day: string) => {
+    if (day !== laTodayIso()) return data.prefs.depart;
+    const now = nowHHMM();
+    return now > data.prefs.depart ? now : data.prefs.depart;
+  };
+  const [depart, setDepart] = useState(() => departFor(activeDay));
+  const [departDay, setDepartDay] = useState(activeDay);
+  if (departDay !== activeDay) {
+    setDepartDay(activeDay);
+    setDepart(departFor(activeDay));
+  }
   const [prefs, setPrefsLocal] = useState<RouteSchedulePrefs>({ ...data.prefs, depart });
   // Saved prefs or a new departure time reset the local prefs, during render.
   const [prefsFrom, setPrefsFrom] = useState({ prefs: data.prefs, depart });
@@ -1073,6 +1084,9 @@ function RouteDay({
                         )}
                         {closed && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">closed the rest of the day</span>
+                        )}
+                        {c?.kind !== "event" && schedule && ri !== undefined && (schedule.rows[ri]?.leave ?? 0) > FINISH_BY_MINUTES && (
+                          <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">past 3 PM</span>
                         )}
                         {missedAnchor && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">later than stated time</span>
