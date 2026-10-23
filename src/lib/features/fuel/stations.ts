@@ -1,6 +1,6 @@
 /**
  * Gas stations with a live regular-unleaded price, from Google Places
- * (New) Nearby Search. Ported unchanged from portfolio/src/app/gas/lib/fuel.ts.
+ * (New) Nearby Search. Ported unchanged from osmotic-ventures/site/src/app/(gas)/gas/lib/fuel.ts.
  */
 import "server-only";
 import type { Station } from "./score";

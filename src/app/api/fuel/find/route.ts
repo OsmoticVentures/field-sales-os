@@ -2,7 +2,7 @@
  * Price a fill-up along a real drive: real OSRM routing, live Places prices
  * sampled along the route already planned (not a radius around the rep), a
  * second OSRM table call for the true detour cost, top three by all-in cost.
- * Ported from portfolio/src/app/gas/actions.ts's findGas, converted from a
+ * Ported from osmotic-ventures/site/src/app/(gas)/gas/actions.ts's findGas, converted from a
  * Server Action to a route handler (per PORTING.md, m8f: this app's
  * static-export target hard-stops on any Server Action, no per-route
  * opt-out).

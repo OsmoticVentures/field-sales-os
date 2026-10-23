@@ -1,6 +1,6 @@
 /**
  * Ranks gas stations by all-in cost. Ported unchanged from
- * portfolio/src/app/gas/lib/score.ts.
+ * osmotic-ventures/site/src/app/(gas)/gas/lib/score.ts.
  */
 
 export type Station = {

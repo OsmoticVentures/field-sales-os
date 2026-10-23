@@ -4,7 +4,7 @@
  * Fuel. A tank gauge, a destination, then the top three stations on the way
  * by all-in cost: the real posted price plus the true OSRM detour, not a
  * radius search around where the rep is standing. Ported from
- * portfolio/src/app/gas/GasApp.tsx, minus the car-wash mode and the
+ * osmotic-ventures/site/src/app/(gas)/gas/GasApp.tsx, minus the car-wash mode and the
  * GasBuddy link (out of scope for this port, see PORTING.md m8f); the
  * routing and ranking math is unchanged, see lib/features/fuel/{osrm,score}.ts.
  *

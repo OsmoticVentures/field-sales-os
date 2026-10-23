@@ -1,7 +1,7 @@
 /**
  * Fuel. A tank gauge, a destination, then the cheapest stop on the way,
  * ranked by real posted price plus the true OSRM detour cost. Ported from
- * the standalone tool (portfolio/src/app/gas/page.tsx). See
+ * the standalone tool (osmotic-ventures/site/src/app/(gas)/gas/page.tsx). See
  * lib/features/fuel for the routing and ranking math, FuelClient.tsx for the
  * form.
  */

@@ -3,7 +3,7 @@
 The recipe every port after Expenses (m7) follows: Search Map, Route Planner,
 Visit Logger, Prospecting Agents, Reports, Fuel Routing. Read this whole file
 before touching code. Source app: `portfolio/src/app/nutribiotic` (and
-`portfolio/src/app/gas` for Fuel Routing). Never edit the source app; it keeps
+`osmotic-ventures/site/src/app/(gas)/gas` for Fuel Routing). Never edit the source app; it keeps
 running unchanged. Never touch another feature's folder.
 
 ## Folder layout
