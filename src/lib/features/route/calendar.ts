@@ -105,8 +105,12 @@ export function placeByTime(
   start: Pt | null,
   departMinutes: number,
   dwellMinutes: number,
+  /** A stop's stated time, when it has one: the clock waits for it, and a
+   *  later event never goes in ahead of it. */
+  timeOf: (e: RouteDraftEntry) => number | null = () => null,
 ): RouteDraftEntry[] {
   const out = [...order];
+  const placedAt = new Map<RouteDraftEntry, number>();
   for (const { entry, at } of [...timed].sort((a, b) => a.at - b.at)) {
     let t = departMinutes;
     let pos: Pt | null = start;
@@ -115,7 +119,9 @@ export function placeByTime(
       const p = pointOf(out[i]);
       if (!p) continue;
       if (pos) t += (haversineMiles(pos, p) / ROUGH_MPH) * 60;
-      if (t >= at) {
+      const fixed = placedAt.get(out[i]) ?? timeOf(out[i]);
+      if (fixed !== null) t = Math.max(t, fixed);
+      if (fixed !== null ? fixed > at : t >= at) {
         insertAt = i;
         break;
       }
@@ -124,6 +130,7 @@ export function placeByTime(
       pos = p;
     }
     out.splice(insertAt, 0, entry);
+    placedAt.set(entry, at);
   }
   return out;
 }

@@ -605,7 +605,7 @@ function RouteDay({
   useEffect(() => {
     if (activeDay < laTodayIso()) return;
     const next = reconcileCalendar(draft, stopTimes, calDay, dayEvents, (order, timed) =>
-      placeByTime(order, timed, pointOfEntry, start, minutesOfDay(prefs.depart), prefs.dwellMinutes),
+      placeByTime(order, timed, pointOfEntry, start, minutesOfDay(data.prefs.depart), prefs.dwellMinutes, timeOfEntry),
     );
     if (next) patchDraftAndTimes(activeDay, next.draft, next.times);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -674,6 +674,10 @@ function RouteDay({
     if (typeof e !== "string") return { lat: e.lat, lng: e.lng };
     const a = accountsById.get(e);
     return a ? { lat: a.lat, lng: a.lng } : null;
+  }
+  function timeOfEntry(e: RouteDraftEntry): number | null {
+    const at = stopTimes[typeof e === "string" ? e : e.id];
+    return at && /^\d{1,2}:\d{2}$/.test(at) ? minutesOfDay(at) : null;
   }
   function patchCalls(day: string, next: CallEntry[]) {
     setData({ ...data, calls: { ...data.calls, [day]: next } });
@@ -842,8 +846,9 @@ function RouteDay({
         timed.map((e) => ({ entry: e, at: minutesOfDay(stopTimes[e.id] ?? "00:00") })),
         pointOfEntry,
         start,
-        minutesOfDay(prefs.depart),
+        minutesOfDay(data.prefs.depart),
         prefs.dwellMinutes,
+        timeOfEntry,
       );
       patchDraft(activeDay, placed);
     } finally {
