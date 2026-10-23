@@ -50,6 +50,7 @@ import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
 import { draftFromVisit, type VisitOutbound } from "../outbound/from-visit";
 import { ai, aiConfigured, AiError, hashInput, isAiCap } from "../../core/ai/client";
+import { strictJsonSchema } from "../../core/ai/core";
 import { laDay, noteKey, once } from "../../core/once-server";
 import { currentUser } from "../../core/user";
 import { TouchpointSchema } from "./touchpoint-schema";
@@ -288,6 +289,15 @@ function returnVisitDirectiveRows(
   });
 }
 
+/** The extraction exactly as recordTouchpoint runs it, for a reader that is
+ *  not this server: the Mac reads a `cliente` note on Juan's Max plan with this
+ *  prompt and schema, then sends the parse back as `macParsed`. One prompt,
+ *  one schema, whichever model reads the note. */
+export async function extractionSpec(): Promise<{ system: string; schema: Record<string, unknown> }> {
+  const { cached, tail } = systemPrompt(new Date().toISOString(), await listAccountsForMatching());
+  return { system: `${cached}\n\n${tail}`, schema: strictJsonSchema(TouchpointSchema) };
+}
+
 export async function recordTouchpoint(
   rawText: string,
   accountIdHint?: string | null,
@@ -297,6 +307,10 @@ export async function recordTouchpoint(
     /** The parse from a first attempt that stopped to ask for the account:
      *  filing it with the picked account needs no second model call. */
     parsed?: ParsedTouchpoint | null;
+    /** A fresh read of this note made elsewhere against extractionSpec(), in
+     *  the model's raw shape: validated by the schema here, then used in place
+     *  of this server's own model call. */
+    macParsed?: unknown;
     /** When it happened, if the caller stated a time. Default: now. */
     occurredAt?: string | null;
     /** false: write the OS only. The Mac's `cliente` door files HubSpot itself
@@ -312,6 +326,11 @@ export async function recordTouchpoint(
 
   if (opts.parsed && accountIdHint && isParsedTouchpoint(opts.parsed)) {
     return continueTouchpoint(text, opts.parsed, candidates, accountIdHint, opts);
+  }
+  if (opts.macParsed !== undefined) {
+    const read = TouchpointSchema.safeParse(opts.macParsed);
+    if (!read.success) return { ok: false, error: "That read of the note does not fit the schema. Nothing filed." };
+    return continueTouchpoint(text, read.data as ParsedTouchpoint, candidates, accountIdHint, opts);
   }
   if (!aiConfigured()) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
 

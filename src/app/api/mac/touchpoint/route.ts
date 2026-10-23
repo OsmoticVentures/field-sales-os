@@ -3,6 +3,10 @@
  * `cliente` capture. Same recordTouchpoint as the Visit screen, so the parse,
  * the account match and the contact rule are identical whichever door was used.
  *
+ * The note is normally read on the Mac, on Juan's Max plan, against
+ * api/mac/extract-spec, and arrives as `mac_parsed`; without one, this
+ * server reads it on the metered key.
+ *
  * It writes the OS only. clients.py files HubSpot itself after its dry-run
  * review, so autoFileHubspot is off here. A note whose store is not clear
  * answers 409 with nothing written, the parse and the closest accounts; the
@@ -26,13 +30,14 @@ export async function POST(req: Request) {
   const accountIdHint = (body?.account_id as string | undefined) || null;
   const occurredAt = (body?.occurred_at as string | undefined) || null;
   const parsed = (body?.parsed as ParsedTouchpoint | undefined) ?? null;
+  const macParsed = (body?.mac_parsed as unknown) ?? undefined;
 
   // A new touch moves the priority score; the next read recomputes it.
   invalidatePriorityBook();
 
   let result;
   try {
-    result = await recordTouchpoint(text, accountIdHint, { occurredAt, parsed, autoFileHubspot: false });
+    result = await recordTouchpoint(text, accountIdHint, { occurredAt, parsed, macParsed, autoFileHubspot: false });
   } catch (err) {
     if (isAiCap(err)) return Response.json({ ok: false, error: err.message }, { status: AI_CAP_STATUS });
     throw err;
