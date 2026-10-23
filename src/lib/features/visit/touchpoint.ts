@@ -297,6 +297,11 @@ export async function recordTouchpoint(
     /** The parse from a first attempt that stopped to ask for the account:
      *  filing it with the picked account needs no second model call. */
     parsed?: ParsedTouchpoint | null;
+    /** When it happened, if the caller stated a time. Default: now. */
+    occurredAt?: string | null;
+    /** false: write the OS only. The Mac's `cliente` door files HubSpot itself
+     *  after its own dry-run review (bridges/nutribiotic/clients.py). */
+    autoFileHubspot?: boolean;
   } = {},
 ): Promise<RecordTouchpointResult> {
   const text = rawText.trim();
@@ -338,7 +343,12 @@ async function continueTouchpoint(
   parsed: ParsedTouchpoint,
   candidates: AccountCandidate[],
   accountIdHint: string | null | undefined,
-  opts: { kindOverride?: "meeting" | "call" | "email" | "field_note"; forceNewAccount?: boolean },
+  opts: {
+    kindOverride?: "meeting" | "call" | "email" | "field_note";
+    forceNewAccount?: boolean;
+    occurredAt?: string | null;
+    autoFileHubspot?: boolean;
+  },
 ): Promise<RecordTouchpointResult> {
   if (opts.kindOverride) {
     parsed.activity.kind = opts.kindOverride === "email" ? "email_out" : opts.kindOverride;
@@ -424,6 +434,8 @@ async function continueTouchpoint(
     parsed,
     rawText: text,
     accountMatchConfidence: accountIdHint ? "high" : parsed.account_confidence,
+    occurredAt: opts.occurredAt ?? null,
+    autoFileHubspot: opts.autoFileHubspot ?? true,
   });
 }
 
@@ -433,6 +445,8 @@ type FinishInput = {
   parsed: ParsedTouchpoint;
   rawText: string;
   accountMatchConfidence: string | null;
+  occurredAt: string | null;
+  autoFileHubspot: boolean;
 };
 
 /**
@@ -447,7 +461,7 @@ async function finishTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
   const actor = await currentUser().then((u) => u.id).catch(() => "unknown");
   const key = `touchpoint:${hashInput(actor, input.accountId, noteKey(input.rawText), laDay())}`;
   const { result, replayed } = await once(key, () => fileTouchpoint(input));
-  if (replayed && result.activityId && !result.hubspotFiled && !isNeverFiledKind(input.parsed.activity.kind)) {
+  if (replayed && input.autoFileHubspot && result.activityId && !result.hubspotFiled && !isNeverFiledKind(input.parsed.activity.kind)) {
     return { ...result, ...(await autoFileEngagement(result.activityId)) };
   }
   return result;
@@ -462,7 +476,7 @@ async function fileTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
   const earlier = await findFiledTouchpoint(accountId, input.rawText).catch(() => null);
   if (earlier?.activity_id) {
     const [hubspot, outbound] = await Promise.all([
-      isNeverFiledKind(parsed.activity.kind)
+      !input.autoFileHubspot || isNeverFiledKind(parsed.activity.kind)
         ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
         : autoFileEngagement(earlier.activity_id),
       draftFromVisit(visitNote(earlier.id, accountId, input.rawText, parsed)),
@@ -489,6 +503,7 @@ async function fileTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
     direction: parsed.activity.direction,
     outcome: parsed.activity.outcome,
     detail: parsed.activity.detail,
+    ...(input.occurredAt ? { at: input.occurredAt } : {}),
   });
 
   let accountFacts: AccountFactsReport | null = null;
@@ -533,7 +548,7 @@ async function fileTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
   // The email the visit left owing is decided and drafted beside HubSpot,
   // not after it, so the note files no slower than the slower of the two.
   const [hubspot, outbound] = await Promise.all([
-    isNeverFiledKind(parsed.activity.kind)
+    !input.autoFileHubspot || isNeverFiledKind(parsed.activity.kind)
       ? ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: null } satisfies HubspotFilingReport)
       : autoFileEngagement(activity.id),
     draftFromVisit(visitNote(tp.id, accountId, input.rawText, parsed)),
