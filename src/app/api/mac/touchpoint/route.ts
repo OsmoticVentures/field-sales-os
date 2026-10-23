@@ -3,35 +3,36 @@
  * `cliente` capture. Same recordTouchpoint as the Visit screen, so the parse,
  * the account match and the contact rule are identical whichever door was used.
  *
- * Bearer-gated (NB_SESSION_SECRET): no browser session, the Mac is the only
- * caller, and with no cookie the request acts as the default rep (Juan).
- *
  * It writes the OS only. clients.py files HubSpot itself after its dry-run
  * review, so autoFileHubspot is off here. A note whose store is not clear
- * answers 409 with nothing written; the caller asks and resends with
- * account_id.
+ * answers 409 with nothing written, the parse and the closest accounts; the
+ * caller asks and resends with account_id and that parse, so the pick costs
+ * no second model call.
  */
-import { recordTouchpoint } from "../../../../lib/features/visit/touchpoint";
+import { macAuthorized } from "../../../../lib/core/mac-auth";
+import { recordTouchpoint, type ParsedTouchpoint } from "../../../../lib/features/visit/touchpoint";
+import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
 import { AI_CAP_STATUS, isAiCap } from "../../../../lib/core/ai/client";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const expected = process.env.NB_SESSION_SECRET;
-  if (!expected || req.headers.get("authorization") !== `Bearer ${expected}`) {
-    return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
-  }
+  if (!macAuthorized(req)) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
   const body = await req.json().catch(() => null);
   const text = (body?.text as string | undefined)?.trim();
   if (!text) return Response.json({ ok: false, error: "text is required." }, { status: 400 });
   const accountIdHint = (body?.account_id as string | undefined) || null;
   const occurredAt = (body?.occurred_at as string | undefined) || null;
+  const parsed = (body?.parsed as ParsedTouchpoint | undefined) ?? null;
+
+  // A new touch moves the priority score; the next read recomputes it.
+  invalidatePriorityBook();
 
   let result;
   try {
-    result = await recordTouchpoint(text, accountIdHint, { occurredAt, autoFileHubspot: false });
+    result = await recordTouchpoint(text, accountIdHint, { occurredAt, parsed, autoFileHubspot: false });
   } catch (err) {
     if (isAiCap(err)) return Response.json({ ok: false, error: err.message }, { status: AI_CAP_STATUS });
     throw err;
@@ -39,15 +40,15 @@ export async function POST(req: Request) {
   if (!result.ok) return Response.json({ ok: false, error: result.error }, { status: 422 });
   if (result.needsAccount) {
     const guess = result.businessNameGuess ? `"${result.businessNameGuess}"` : "the store";
-    const match = result.matchAccountName ? ` Closest account: ${result.matchAccountName} (${result.matchAccountId}).` : "";
     return Response.json(
       {
         ok: false,
         needs_account: true,
-        error: `Not filed: couldn't tell which account ${guess} is.${match} Resend with account_id.`,
+        error: `Not filed: couldn't tell which account ${guess} is.`,
         business_name_guess: result.businessNameGuess,
-        match_account_id: result.matchAccountId,
-        match_account_name: result.matchAccountName,
+        match: result.matchAccountId ? { id: result.matchAccountId, name: result.matchAccountName } : null,
+        candidates: result.candidates,
+        parsed: result.parsed,
       },
       { status: 409 },
     );
