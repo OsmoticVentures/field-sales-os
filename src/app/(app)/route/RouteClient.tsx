@@ -26,8 +26,10 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, LUNCH_OFF, lunchDue } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, LUNCH_OFF, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
+import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
+  CalendarEvent,
   CallEntry,
   CustomStop,
   DriveLeg,
@@ -58,6 +60,8 @@ type StatePayload = {
   calls: Record<string, CallEntry[]>;
   done: Record<string, string[]>;
   times: Record<string, Record<string, string>>;
+  /** Google Calendar by day, from the Mac. */
+  calendar?: Record<string, CalendarEvent[]>;
   /** The saved route's fingerprint, compared by the sync below. */
   version?: string;
   /** Stops a visit or meeting was logged for that day, marked done by it. */
@@ -199,6 +203,8 @@ function buildSchedule(
   lunchOff: boolean,
   /** The whole day, done stops too: a Lunch already eaten still counts. */
   dayStops: RouteStopView[] = stops,
+  /** Calendar time with no place: no stop is put inside it. */
+  holds: CalendarHold[] = [],
 ): Schedule {
   const price = (leg: DriveLeg | undefined, atMinutes: number): DriveLeg | null => {
     if (!leg) return null;
@@ -241,7 +247,17 @@ function buildSchedule(
       else if (push.state === "closed_today") closedToday.add(s.id);
     }
     const kind = s.type === "custom" ? s.custom.kind : null;
-    const stay = kind === "lunch" ? prefs.lunchMinutes : kind === "hotel" ? 0 : prefs.dwellMinutes;
+    const stay =
+      s.type === "custom" && typeof s.custom.minutes === "number"
+        ? s.custom.minutes
+        : kind === "lunch"
+          ? prefs.lunchMinutes
+          : kind === "hotel"
+            ? 0
+            : prefs.dwellMinutes;
+    if (kind !== "event") {
+      for (const h of holds) if (t < h.end && t + stay > h.start) t = h.end;
+    }
     rows.push({ arrive: t, leave: t + stay, stay });
     t += stay;
     if (!lunch && !lunchStop && prefs.lunchMinutes > 0 && lunchDue(t)) {
@@ -335,6 +351,7 @@ export function RouteClient() {
             calls: j.calls ?? prev.calls,
             done: j.done ?? prev.done,
             times: j.times ?? prev.times,
+            calendar: j.calendar ?? prev.calendar,
             startByDay: j.startByDay ?? prev.startByDay,
             endByDay: j.endByDay ?? prev.endByDay,
             version: j.version,
@@ -409,8 +426,10 @@ function RouteDay({
   const draft = data.draft[activeDay] ?? [];
   const calls = data.calls[activeDay] ?? [];
   const doneIds = useMemo(() => new Set(data.done[activeDay] ?? []), [data.done, activeDay]);
-  const stopTimes = data.times[activeDay] ?? {};
+  const stopTimes = useMemo(() => data.times[activeDay] ?? {}, [data.times, activeDay]);
   const lunchOff = stopTimes[LUNCH_OFF] === "off";
+  const dayEvents = useMemo(() => data.calendar?.[activeDay] ?? [], [data.calendar, activeDay]);
+  const calDay = useMemo(() => calendarDay(dayEvents, stopTimes), [dayEvents, stopTimes]);
 
   // Area ids read as their names ("hollywood-pasadena" is Hollywood - Pasadena).
   const [areaLabels, setAreaLabels] = useState(() => areaLabelMap(peekJson<AreasPayload>("/api/route/map")));
@@ -575,10 +594,22 @@ function RouteDay({
   const schedule = useMemo(
     () =>
       legs && routed.length > 0
-        ? buildSchedule(routed, legs, routeStart !== null, end !== null, prefs, activeDay, stopTimes, lunchOff, stops)
+        ? buildSchedule(routed, legs, routeStart !== null, end !== null, prefs, activeDay, stopTimes, lunchOff, stops, calDay.holds)
         : null,
-    [legs, routed, routeStart, end, prefs, activeDay, stopTimes, lunchOff, stops],
+    [legs, routed, routeStart, end, prefs, activeDay, stopTimes, lunchOff, stops, calDay.holds],
   );
+
+  // The calendar's stops follow the calendar: an event with a place goes in
+  // at its time, a moved one moves, a deleted one leaves. Past days stay as
+  // they were driven.
+  useEffect(() => {
+    if (activeDay < laTodayIso()) return;
+    const next = reconcileCalendar(draft, stopTimes, calDay, dayEvents, (order, timed) =>
+      placeByTime(order, timed, pointOfEntry, start, minutesOfDay(prefs.depart), prefs.dwellMinutes),
+    );
+    if (next) patchDraftAndTimes(activeDay, next.draft, next.times);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calDay, activeDay, draft]);
 
   // The day's Lunch stop goes in on its own, right after the stop it falls
   // behind, at that stop's spot and named for its area until a place is
@@ -632,6 +663,17 @@ function RouteDay({
   function patchDraft(day: string, entries: RouteDraftEntry[]) {
     setData({ ...data, draft: { ...data.draft, [day]: entries } });
     postJson("/api/route/draft", { day, entries }).catch(() => {});
+  }
+  /** One state update for both, so neither overwrites the other on screen. */
+  function patchDraftAndTimes(day: string, entries: RouteDraftEntry[], times: Record<string, string>) {
+    setData((prev) => ({ ...prev, draft: { ...prev.draft, [day]: entries }, times: { ...prev.times, [day]: times } }));
+    postJson("/api/route/draft", { day, entries }).catch(() => {});
+    postJson("/api/route/stop-times", { day, times }).catch(() => {});
+  }
+  function pointOfEntry(e: RouteDraftEntry): { lat: number; lng: number } | null {
+    if (typeof e !== "string") return { lat: e.lat, lng: e.lng };
+    const a = accountsById.get(e);
+    return a ? { lat: a.lat, lng: a.lng } : null;
   }
   function patchCalls(day: string, next: CallEntry[]) {
     setData({ ...data, calls: { ...data.calls, [day]: next } });
@@ -689,6 +731,13 @@ function RouteDay({
 
   function removeStop(id: string) {
     const gone = draft.find((e) => typeof e !== "string" && e.id === id);
+    if (gone && typeof gone !== "string" && gone.calendarId) {
+      // Off this day's route; the event itself stays on the calendar.
+      const times = { ...stopTimes, [calendarChoiceKey(gone.calendarId)]: "off" };
+      delete times[id];
+      patchDraftAndTimes(activeDay, draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id)), times);
+      return;
+    }
     if (gone && typeof gone !== "string" && gone.kind === "lunch") patchTimes(activeDay, { ...stopTimes, [LUNCH_OFF]: "off" });
     patchDraft(
       activeDay,
@@ -778,7 +827,25 @@ function RouteDay({
       const points = [...(start ? [start] : []), ...stops, ...(end ? [end] : [])];
       const matrix = await costMatrix(points);
       const order = optimizedStopOrder(matrix, stops.length, start !== null, end !== null);
-      reorder(order.map((i) => stops[i].id));
+      const ids = order.map((i) => stops[i].id);
+      // A calendar stop keeps its time: the rest are ordered, then it goes
+      // back in where its time falls.
+      const byId = new Map(draft.map((e) => [typeof e === "string" ? e : e.id, e]));
+      const timed = draft.filter((e): e is CustomStop => typeof e !== "string" && !!e.calendarId);
+      if (timed.length === 0) {
+        reorder(ids);
+        return;
+      }
+      const rest = ids.map((id) => byId.get(id)!).filter((e) => e && (typeof e === "string" || !e.calendarId));
+      const placed = placeByTime(
+        rest,
+        timed.map((e) => ({ entry: e, at: minutesOfDay(stopTimes[e.id] ?? "00:00") })),
+        pointOfEntry,
+        start,
+        minutesOfDay(prefs.depart),
+        prefs.dwellMinutes,
+      );
+      patchDraft(activeDay, placed);
     } finally {
       setBusy(false);
     }
@@ -861,6 +928,46 @@ function RouteDay({
               >
                 <Ico name="close" size={14} />
               </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {calDay.listed.length > 0 && (
+        <ul className="divide-y divide-[#EEECE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
+          {calDay.listed.map(({ event: e, action, held }) => (
+            <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ${
+                  held ? "bg-[#14201B] text-white" : "bg-[#F6EEDD] text-[#7A5A1E]"
+                }`}
+              >
+                <Ico name="clock" size={13} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="shrink-0 text-[13px] font-semibold tabular-nums text-[#14201B]">
+                    {e.allDay || !e.start ? "All day" : `${clock(minutesOfDay(e.start))}${e.end ? ` to ${clock(minutesOfDay(e.end))}` : ""}`}
+                  </span>
+                  <span className="truncate text-[14px] font-medium">{e.title}</span>
+                </div>
+                {e.location && <div className="mt-0.5 truncate text-[12.5px] text-[#5B6560]">{e.address ?? e.location}</div>}
+              </div>
+              {action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const key = calendarChoiceKey(e.id);
+                    const next = { ...stopTimes };
+                    if (action === "add") delete next[key];
+                    else next[key] = action;
+                    patchTimes(activeDay, next);
+                  }}
+                  className={`${ghostBtn} min-h-11 shrink-0 px-3 text-[13px] font-medium text-[#3D4A44]`}
+                >
+                  {action === "add" ? "Add to route" : action === "hold" ? "Hold time" : "Free time"}
+                </button>
+              )}
             </li>
           ))}
         </ul>
@@ -1047,6 +1154,11 @@ function RouteDay({
                           ) : (
                             <span className="text-[#A9AFA9]">no phone on file</span>
                           )}
+                        </div>
+                      )}
+                      {c && c.kind === "event" && stopTimes[s.id] && (
+                        <div className="mt-0.5 text-[12.5px] tabular-nums text-[#5B6560]">
+                          {clock(minutesOfDay(stopTimes[s.id]))} to {clock(minutesOfDay(stopTimes[s.id]) + (c.minutes ?? 0))}
                         </div>
                       )}
                       {c && c.kind === "hotel" && (

@@ -246,11 +246,16 @@ export async function GET(request: Request) {
 
     let t = dayStarted ? nowMin : future ? departMin : Math.max(departMin, nowMin);
     let pos = startPos;
+    // A calendar event's stop stays as long as the event runs.
+    const eventMinutes = new Map(
+      draft.flatMap((e) => (typeof e !== "string" && typeof e.minutes === "number" ? [[e.id, e.minutes] as const] : [])),
+    );
     // Lunch is a block on the day unless a Lunch stop is on it (RouteClient).
     let lunchTaken = stops.some((s) => s.kind === "lunch") || state.times[day]?.[LUNCH_OFF] === "off";
     for (const s of remaining) {
       t += leg(pos, s, t);
-      const dwell = s.kind === "lunch" ? prefs.lunchMinutes : s.kind === "hotel" ? 0 : prefs.dwellMinutes;
+      const dwell =
+        eventMinutes.get(s.id) ?? (s.kind === "lunch" ? prefs.lunchMinutes : s.kind === "hotel" ? 0 : prefs.dwellMinutes);
       t += dwell;
       if (!lunchTaken && lunchDue(t)) {
         t += prefs.lunchMinutes;

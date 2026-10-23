@@ -38,13 +38,42 @@ export const LUNCH_UNTIL_MINUTES = 14 * 60 + 30;
 export const LUNCH_OFF = "lunch";
 export const lunchDue = (leaveMinutes: number) => leaveMinutes >= LUNCH_FROM_MINUTES && leaveMinutes <= LUNCH_UNTIL_MINUTES;
 
-export type CustomStopKind = "lunch" | "hotel" | "stop";
+export type CustomStopKind = "lunch" | "hotel" | "stop" | "event";
 
 export const CUSTOM_STOP_LABEL: Record<CustomStopKind, string> = {
   lunch: "Lunch",
   hotel: "Hotel",
   stop: "Stop",
+  event: "Calendar",
 };
+
+/** One Google Calendar event on a day, as calendar_to_route.py writes it to
+ *  nb_ui_prefs.route_calendar. Times are LA wall clock; an all-day event has
+ *  none. lat/lng only when its location resolved to a real place. */
+export type CalendarEvent = {
+  id: string;
+  title: string;
+  allDay: boolean;
+  start?: string;
+  end?: string;
+  location?: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+};
+
+/** A day's calendar events start inside this window to bend the route; the
+ *  rest are listed only. */
+export const CALENDAR_DAY_FROM = 7 * 60;
+export const CALENDAR_DAY_UNTIL = 19 * 60;
+/** A placeless event this long or shorter holds its time by default; a longer
+ *  one reads as a planning block ("valley clients 2 to 5") and is listed only. */
+export const CALENDAR_HOLD_MAX_MINUTES = 120;
+/** The stop id a calendar event takes on the route, and the stop-times key
+ *  that records Juan's choice for it ("off" = taken off the route, "hold" /
+ *  "free" = a placeless event's time held or not). */
+export const calendarStopId = (eventId: string) => `custom:cal:${eventId}`;
+export const calendarChoiceKey = (eventId: string) => `cal:${eventId}`;
 
 export type CustomStop = {
   /** Always prefixed "custom:", which is what tells the two apart in a draft. */
@@ -59,6 +88,9 @@ export type CustomStop = {
   pending?: boolean;
   area?: string | null;
   phone?: string | null;
+  /** A calendar event's stop: the event it came from and how long it runs. */
+  calendarId?: string;
+  minutes?: number;
 };
 
 /** One position in the route: an account id, or a stop that carries itself. */

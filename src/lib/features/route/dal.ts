@@ -15,6 +15,7 @@ import "server-only";
 import { currentUser, myOwnerId } from "../../core/user";
 import { whileOwnedRowsUnchanged } from "../../shared/owned-fingerprint";
 import type {
+  CalendarEvent,
   CallEntry,
   CustomStop,
   CustomStopKind,
@@ -188,7 +189,7 @@ export async function saveRouteSchedulePrefs(p: RouteSchedulePrefs): Promise<voi
 
 // --- Route draft, calls, done, stop times -------------------------------
 
-const CUSTOM_KINDS: CustomStopKind[] = ["lunch", "hotel", "stop"];
+const CUSTOM_KINDS: CustomStopKind[] = ["lunch", "hotel", "stop", "event"];
 
 function asDraftEntry(x: unknown): RouteDraftEntry | null {
   if (typeof x === "string") return x;
@@ -209,6 +210,8 @@ function asDraftEntry(x: unknown): RouteDraftEntry | null {
     ...(o.pending === true ? { pending: true } : {}),
     ...(typeof o.area === "string" ? { area: o.area } : {}),
     ...(typeof o.phone === "string" ? { phone: o.phone } : {}),
+    ...(typeof o.calendarId === "string" ? { calendarId: o.calendarId } : {}),
+    ...(typeof o.minutes === "number" && Number.isFinite(o.minutes) ? { minutes: o.minutes } : {}),
   };
 }
 
@@ -252,26 +255,46 @@ function asTimesByDay(stored: unknown): Record<string, Record<string, string>> {
   return out;
 }
 
+function asCalendarByDay(stored: unknown): Record<string, CalendarEvent[]> {
+  if (!stored || typeof stored !== "object") return {};
+  const out: Record<string, CalendarEvent[]> = {};
+  for (const [day, events] of Object.entries(stored as Record<string, unknown>)) {
+    if (!Array.isArray(events)) continue;
+    out[day] = events.filter(
+      (e): e is CalendarEvent => !!e && typeof e === "object" && typeof e.id === "string" && typeof e.title === "string",
+    );
+  }
+  return out;
+}
+
 export type RouteState = {
   draft: Record<string, RouteDraftEntry[]>;
   calls: Record<string, CallEntry[]>;
   done: Record<string, string[]>;
   times: Record<string, Record<string, string>>;
+  /** Google Calendar by day, written by the Mac (calendar_to_route.py). */
+  calendar: Record<string, CalendarEvent[]>;
   /** The row's updated_at, read with the route itself: the fingerprint a
    *  second device compares against to know the route moved. */
   version: string;
 };
 
 export async function getRouteStateByDay(): Promise<RouteState> {
-  const row = await prefsSelect<{ route_draft: unknown; route_calls: unknown; route_done: unknown; route_stop_times: unknown; updated_at: string }>(
-    "route_draft,route_calls,route_done,route_stop_times,updated_at",
-  );
-  if (!row) return { draft: {}, calls: {}, done: {}, times: {}, version: "" };
+  const row = await prefsSelect<{
+    route_draft: unknown;
+    route_calls: unknown;
+    route_done: unknown;
+    route_stop_times: unknown;
+    route_calendar: unknown;
+    updated_at: string;
+  }>("route_draft,route_calls,route_done,route_stop_times,route_calendar,updated_at");
+  if (!row) return { draft: {}, calls: {}, done: {}, times: {}, calendar: {}, version: "" };
   return {
     draft: asDraftByDay(row.route_draft),
     calls: asCallsByDay(row.route_calls),
     done: asDoneByDay(row.route_done),
     times: asTimesByDay(row.route_stop_times),
+    calendar: asCalendarByDay(row.route_calendar),
     version: row.updated_at ?? "",
   };
 }

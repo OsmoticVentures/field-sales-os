@@ -34,6 +34,7 @@ export async function GET(req: Request) {
         calls: state.calls,
         done: state.done,
         times: state.times,
+        calendar: state.calendar,
         startByDay: endpoints.start,
         endByDay: endpoints.end,
       },
