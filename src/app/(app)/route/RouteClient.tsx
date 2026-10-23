@@ -286,12 +286,14 @@ const iconBtn = `${ghostBtn} inline-flex items-center justify-center gap-1.5 px-
 const sqBtn = `${ghostBtn} inline-flex min-w-11 items-center justify-center px-0 py-0`;
 
 export function RouteClient() {
-  // Last visit's route paints at once; the fresh read replaces it. Only
-  // the day stays put if the rep already picked one.
-  const [data, setData] = useState<StatePayload | null>(() => peekJson<StatePayload>("/api/route/state") ?? null);
+  // Last visit's route paints right after mount; the fresh read replaces it.
+  // It is not read during the first render: the phone copy may be ready by
+  // the time this hydrates, and the server page has none, so the two would
+  // disagree. Only the day stays put if the rep already picked one.
+  const [data, setData] = useState<StatePayload | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activeDay, setActiveDay] = useState<string | null>(() => data?.activeDay ?? null);
+  const [activeDay, setActiveDay] = useState<string | null>(null);
 
   useEffect(() => {
     // Everything the screen will ask for, started together rather than as
@@ -303,6 +305,12 @@ export function RouteClient() {
     if (key) void loadGoogleMaps(key).catch(() => {});
 
     let live = true;
+    void Promise.resolve().then(() => {
+      const kept = peekJson<StatePayload>("/api/route/state");
+      if (!live || !kept) return;
+      setData((d) => d ?? kept);
+      setActiveDay((d) => d ?? kept.activeDay ?? null);
+    });
     getJson<StatePayload>("/api/route/state")
       .then((j) => {
         if (!live) return;
@@ -434,9 +442,12 @@ function RouteDay({
   const calDay = useMemo(() => calendarDay(dayEvents, stopTimes), [dayEvents, stopTimes]);
 
   // Area ids read as their names ("hollywood-pasadena" is Hollywood - Pasadena).
-  const [areaLabels, setAreaLabels] = useState(() => areaLabelMap(peekJson<AreasPayload>("/api/route/map")));
+  const [areaLabels, setAreaLabels] = useState(() => areaLabelMap(undefined));
   useEffect(() => {
     let live = true;
+    void Promise.resolve().then(() => {
+      if (live) setAreaLabels(areaLabelMap(peekJson<AreasPayload>("/api/route/map")));
+    });
     getJson<AreasPayload>("/api/route/map")
       .then((j) => live && setAreaLabels(areaLabelMap(j)))
       .catch(() => {});
