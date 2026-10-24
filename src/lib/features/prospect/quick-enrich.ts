@@ -42,6 +42,8 @@ import {
   type BusinessHours,
 } from "../../shared/web-page";
 import { captureError } from "@/lib/core/errors";
+import { angleField } from "./angle";
+import { isLiterature } from "./purchases";
 
 export type QuickEnrichResult = {
   ok: boolean;
@@ -138,24 +140,21 @@ async function readWebsite(rawUrl: string, deadline: number): Promise<SiteRead> 
   return { text: text || null, ldHours, url: finalUrl, problem };
 }
 
+/** Product names only. Every number, date and count is the card's (angle.ts):
+ *  handing the model "$188 lifetime" is how an Angle came to contradict a
+ *  card reading $6,916. */
 function buildPurchaseDigest(orders: PurchaseOrder[], lines: PurchaseLine[]): string {
-  if (orders.length === 0) return "Purchase history: no orders on file.";
-  const totalRevenue = orders.reduce((sum, o) => sum + o.revenue_cents, 0) / 100;
-  const lastOrder = orders[0];
+  if (orders.length === 0) return "Products bought: none itemized.";
   const byProduct = new Map<string, { qty: number; revenue: number }>();
   for (const line of lines) {
-    if (!line.product_name) continue;
+    if (!line.product_name || isLiterature(line)) continue;
     const cur = byProduct.get(line.product_name) ?? { qty: 0, revenue: 0 };
     cur.qty += line.qty ?? 0;
     cur.revenue += line.line_revenue_cents / 100;
     byProduct.set(line.product_name, cur);
   }
   const topProducts = [...byProduct.entries()].sort((a, b) => b[1].revenue - a[1].revenue).slice(0, 8);
-  const productText = topProducts.map(([name, v]) => `${name} ($${v.revenue.toFixed(0)} lifetime)`).join("; ");
-  return (
-    `Purchase history: ${orders.length} orders on file, $${totalRevenue.toFixed(0)} lifetime revenue, ` +
-    `last order ${exactDate(lastOrder.ordered_at.slice(0, 10))}. Products bought: ${productText || "none itemized"}.`
-  );
+  return `Products bought, most first: ${topProducts.map(([name]) => name).join("; ") || "none itemized"}.`;
 }
 
 function buildMeetingDigest(activities: Activity[]): string {
@@ -202,7 +201,7 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
   }
 
   const evidence = [
-    `Account: ${account.name} (${account.channel}, ${account.lifecycle}), ${[account.city, account.state].filter(Boolean).join(", ") || "city unknown"}.`,
+    `Account: ${account.name} (${account.channel}), ${[account.city, account.state].filter(Boolean).join(", ") || "city unknown"}.`,
     buildMeetingDigest(activities),
     buildPurchaseDigest(purchases.orders, purchases.lines),
     place
@@ -235,7 +234,10 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
         "future_state/impact) must each name something concrete a rep does not already see elsewhere on this screen. A sentence " +
         "whose only content is a business-status flag or a bare zero-orders fact is exactly the kind of generic filler to avoid. " +
         "If the evidence (beyond a meeting) gives you nothing more specific than that, return null, never that generic sentence. " +
-        "If you name a date in any field, write it the way a rep would say it out loud (e.g. 'Feb 16, 2026'), never as digits-and-dashes.",
+        "The screen already shows lifetime value, last purchase, due purchase, lead status and the products bought with counts, " +
+        "so never state a dollar amount, an order or unit count, an order or reorder date, how long since an order, whether the " +
+        "account is active/dormant/lapsed, or that it has no orders. " +
+        "If you name a meeting date, write it the way a rep would say it out loud (e.g. 'Feb 16, 2026'), never as digits-and-dashes.",
       messages: [{ role: "user", content: evidence }],
       schema: EnrichSchema,
       deadline,
@@ -269,9 +271,10 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
         : hoursSource === "places"
           ? "prospect_quick_enrich: google_places"
           : null,
-    current_state: toolOut?.current_state ?? null,
-    future_state: toolOut?.future_state ?? null,
-    impact: toolOut?.impact ?? null,
+    current_state: angleField(toolOut?.current_state),
+    future_state: angleField(toolOut?.future_state),
+    impact: angleField(toolOut?.impact),
+    inputs_at: activities[0]?.at ?? null,
     gap_summary_found_by: "prospect_quick_enrich: website + google_places + purchase history",
   });
 
@@ -279,9 +282,9 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
     ok: true,
     businessHours,
     hoursSource,
-    currentState: report.gap_summary ? (toolOut?.current_state ?? null) : account.current_state,
-    futureState: report.gap_summary ? (toolOut?.future_state ?? null) : account.future_state,
-    impact: report.gap_summary ? (toolOut?.impact ?? null) : account.impact,
+    currentState: angleField(report.gap_summary ? toolOut?.current_state : account.current_state),
+    futureState: angleField(report.gap_summary ? toolOut?.future_state : account.future_state),
+    impact: angleField(report.gap_summary ? toolOut?.impact : account.impact),
     wroteHours: report.business_hours?.status === "filled" || report.business_hours?.status === "updated",
     wroteSummary: report.gap_summary?.status === "filled",
     skippedReason: capReason

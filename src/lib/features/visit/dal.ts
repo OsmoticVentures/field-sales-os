@@ -19,6 +19,7 @@
 import "server-only";
 import { DEFAULT_USER, currentUser, myOwnerId } from "../../core/user";
 import type { Columns, NbHubspotSyncLogInsert } from "../../db/types";
+import { looksLikeTestFiling, TEST_FILING_ERROR } from "./test-filing";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -426,6 +427,7 @@ export type NewActivity = {
 export type Activity = { id: number; account_id: string; kind: string };
 
 export async function insertActivity(input: NewActivity): Promise<Activity> {
+  if (looksLikeTestFiling(input.detail)) throw new Error(TEST_FILING_ERROR);
   const [row] = await mutate<Activity>("nb_activities", "POST", { ...input, actor: (await currentUser()).id, origin: "manual" });
   return row;
 }

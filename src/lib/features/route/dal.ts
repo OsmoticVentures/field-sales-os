@@ -432,8 +432,8 @@ export async function listVisitedAccountIds(day: string): Promise<Set<string>> {
   const from = new Date(Date.UTC(y, m - 1, d)).toISOString();
   const to = new Date(Date.UTC(y, m - 1, d + 2)).toISOString();
   const rows = await raw<{ account_id: string | null; at: string | null }>(
-    "nb_activities",
-    `select=account_id,at&kind=in.(visit,meeting)&at=gte.${from}&at=lt.${to}&limit=500`,
+    "nb_v_activities_effective",
+    `select=account_id,at&effective_kind=in.(visit,meeting)&retracted=is.false&at=gte.${from}&at=lt.${to}&limit=500`,
   );
   const out = new Set<string>();
   for (const r of rows) {
@@ -457,8 +457,8 @@ export async function listLoggedStopIds(ids: string[], day: string): Promise<str
   const from = new Date(Date.UTC(y, m - 1, d)).toISOString();
   const to = new Date(Date.UTC(y, m - 1, d + 2)).toISOString();
   const rows = await raw<{ account_id: string | null; at: string | null }>(
-    "nb_activities",
-    `select=account_id,at&kind=in.(visit,meeting)&account_id=in.(${ids.join(",")})&at=gte.${from}&at=lt.${to}&limit=200`,
+    "nb_v_activities_effective",
+    `select=account_id,at&effective_kind=in.(visit,meeting)&retracted=is.false&account_id=in.(${ids.join(",")})&at=gte.${from}&at=lt.${to}&limit=200`,
   );
   const out = new Set<string>();
   for (const r of rows) {

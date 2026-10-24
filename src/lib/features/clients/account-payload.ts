@@ -196,11 +196,13 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
     ),
     // Internal rows (corrections, geocode and import notes) never happened
     // with the client. A null direction is a real touch, so not neq alone.
+    // A retracted capture (a test filing, a re-say) never happened at all.
     sbGetAllFor<ClientActivity & { account_id: string }>(
-      "nb_activities",
+      "nb_v_activities_effective",
       {
-        select: "id,account_id,at,kind,direction,outcome,detail",
+        select: "id,account_id,at,kind:effective_kind,direction,outcome,detail",
         or: "(direction.is.null,direction.neq.internal)",
+        retracted: "is.false",
         order: "account_id.asc,at.desc,id.desc",
       },
       ids,
@@ -213,7 +215,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
     sbGetAllFor<PurchaseLine & { account_id: string }>(
       "nb_order_lines",
       {
-        select: "account_id,order_id,product_name,qty,line_revenue_cents",
+        select: "account_id,order_id,product_name,qty,line_revenue_cents,general_category",
         order: "account_id.asc,order_id.asc,product_name.asc,qty.asc,line_revenue_cents.asc",
       },
       ids,

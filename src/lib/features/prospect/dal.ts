@@ -18,6 +18,8 @@
  * hand, no activity id" case the source app already supports.
  */
 import "server-only";
+import type { PurchaseLine, PurchaseOrder } from "./purchases";
+import { statesCardFact } from "./angle";
 import { DEFAULT_USER, currentUser, myOwnerId } from "../../core/user";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
@@ -216,17 +218,19 @@ export type Activity = { id: number; account_id: string; at: string; kind: strin
 
 /** Calls and meetings only, most recent first: the enrichment pipeline's own
  *  system notes (a geocode pass, e.g.) are filtered out so this never reads
- *  as if something happened with the client that didn't. */
+ *  as if something happened with the client that didn't. Read through the
+ *  effective view: a retracted capture (a test filing, a re-say) is gone, and
+ *  a corrected one shows under its corrected kind. */
 export async function listActivities(accountId: string, limit = 30): Promise<Activity[]> {
   const rows = await sbGet<Activity>(
-    "nb_activities",
-    new URLSearchParams({ select: "id,account_id,at,kind,detail,origin", account_id: `eq.${accountId}`, order: "at.desc", limit: String(limit) }),
+    "nb_v_activities_effective",
+    new URLSearchParams({ select: "id,account_id,at,kind:effective_kind,detail,origin", account_id: `eq.${accountId}`, retracted: "is.false", order: "at.desc", limit: String(limit) }),
   );
   return rows.filter((a) => a.origin !== "enriched" && (a.kind === "call" || a.kind === "meeting"));
 }
 
-export type PurchaseOrder = { id: string; ordered_at: string; revenue_cents: number };
-export type PurchaseLine = { order_id: string; product_name: string | null; qty: number | null; line_revenue_cents: number };
+export type { PurchaseOrder, PurchaseLine, PurchaseSummary, PurchaseSummaryItem } from "./purchases";
+export { summarizePurchases } from "./purchases";
 
 export async function listPurchases(accountId: string): Promise<{ orders: PurchaseOrder[]; lines: PurchaseLine[] }> {
   const [orders, lines] = await Promise.all([
@@ -236,34 +240,12 @@ export async function listPurchases(accountId: string): Promise<{ orders: Purcha
     ),
     sbGet<PurchaseLine>(
       "nb_order_lines",
-      new URLSearchParams({ select: "order_id,product_name,qty,line_revenue_cents", account_id: `eq.${accountId}` }),
+      new URLSearchParams({ select: "order_id,product_name,qty,line_revenue_cents,general_category", account_id: `eq.${accountId}` }),
     ),
   ]);
   if (orders.length === 0) return { orders: [], lines: [] };
   const orderIds = new Set(orders.map((o) => o.id));
   return { orders, lines: lines.filter((l) => orderIds.has(l.order_id)) };
-}
-
-export type PurchaseSummaryItem = { name: string; qty: number; revenueCents: number; last3Qty: number; last: string | null };
-export type PurchaseSummary = { orderCount: number; topItems: PurchaseSummaryItem[]; smallItems: PurchaseSummaryItem[] };
-
-export function summarizePurchases(orders: PurchaseOrder[], lines: PurchaseLine[]): PurchaseSummary | null {
-  if (orders.length === 0) return null;
-  const last3OrderIds = new Set(orders.slice(0, 3).map((o) => o.id));
-  const orderedAt = new Map(orders.map((o) => [o.id, o.ordered_at]));
-  const totals = new Map<string, PurchaseSummaryItem>();
-  for (const l of lines) {
-    const name = l.product_name ?? "Item";
-    const cur = totals.get(name) ?? { name, qty: 0, revenueCents: 0, last3Qty: 0, last: null };
-    cur.qty += l.qty ?? 0;
-    cur.revenueCents += l.line_revenue_cents;
-    if (last3OrderIds.has(l.order_id)) cur.last3Qty += l.qty ?? 0;
-    const at = orderedAt.get(l.order_id) ?? null;
-    if (at && (!cur.last || at > cur.last)) cur.last = at;
-    totals.set(name, cur);
-  }
-  const items = [...totals.values()].filter((t) => t.qty !== 0).sort((a, b) => b.qty - a.qty);
-  return { orderCount: orders.length, topItems: items.slice(0, 5), smallItems: items.slice(5) };
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +655,8 @@ export type QuickEnrichPatch = {
   future_state: string | null;
   impact: string | null;
   gap_summary_found_by: string | null;
+  /** The newest call/meeting the Angle was written from. */
+  inputs_at: string | null;
 };
 
 export type QuickEnrichReport = {
@@ -680,9 +664,11 @@ export type QuickEnrichReport = {
   gap_summary: { status: "filled" } | null;
 };
 
-/** Same discipline as the source app: a stronger hours tier already on file
- *  is never demoted by a weaker one, and an existing gap summary is never
- *  overwritten, only filled where all three fields are still blank. */
+/** A stronger hours tier already on file is never demoted by a weaker one.
+ *  The Angle is written where it is blank, where it restates a card fact
+ *  (angle.ts), or where a call or meeting has landed since it was written:
+ *  blank-fill only is how an Angle from September kept describing a clinic
+ *  after Juan found a private house in October. */
 export async function applyQuickEnrichment(accountId: string, patch: QuickEnrichPatch): Promise<QuickEnrichReport> {
   const report: QuickEnrichReport = { business_hours: null, gap_summary: null };
   const row = await getAccount(accountId);
@@ -704,11 +690,16 @@ export async function applyQuickEnrichment(accountId: string, patch: QuickEnrich
     }
   }
 
-  if (!row.current_state && !row.future_state && !row.impact && (patch.current_state || patch.future_state || patch.impact)) {
+  const gs = (row.enrichment_status?.gap_summary ?? {}) as { at?: string; inputs_at?: string };
+  const blank = !row.current_state && !row.future_state && !row.impact;
+  const restatesCard = [row.current_state, row.future_state, row.impact].some(statesCardFact);
+  const stale = !!patch.inputs_at && patch.inputs_at > (gs.inputs_at ?? gs.at ?? "");
+  if ((blank || restatesCard || stale) && (patch.current_state || patch.future_state || patch.impact)) {
     dbPatch.current_state = patch.current_state;
     dbPatch.future_state = patch.future_state;
     dbPatch.impact = patch.impact;
-    status.gap_summary = { source_tier: "prospect_quick_enrich", found_by: patch.gap_summary_found_by ?? "prospect_quick_enrich", at: new Date().toISOString() };
+    const at = new Date().toISOString();
+    status.gap_summary = { source_tier: "prospect_quick_enrich", found_by: patch.gap_summary_found_by ?? "prospect_quick_enrich", at, inputs_at: patch.inputs_at ?? at };
     report.gap_summary = { status: "filled" };
   }
 

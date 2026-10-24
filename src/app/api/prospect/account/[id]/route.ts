@@ -11,6 +11,7 @@
  */
 import { hasAccess } from "../../../../../lib/core/devices";
 import { getAccount, listActivities, listContacts, listPurchases, panelContact, summarizePurchases } from "../../../../../lib/features/prospect/dal";
+import { angleField } from "../../../../../lib/features/prospect/angle";
 
 export const runtime = "nodejs";
 
@@ -46,9 +47,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       potentialJuan: account.potential_juan,
       readiness: account.readiness,
       quirks: account.quirks,
-      currentState: account.current_state,
-      futureState: account.future_state,
-      impact: account.impact,
+      currentState: angleField(account.current_state),
+      futureState: angleField(account.future_state),
+      impact: angleField(account.impact),
       lastOrderAt: account.last_order_at,
       lifetimeRevenue: account.lifetime_revenue,
       trailingRevenue: account.trailing_12m_revenue,

@@ -19,8 +19,9 @@ import {
   realLifecycle,
   withinTrailing12mo,
 } from "../../../../lib/features/clients/ui";
-import type { PurchaseLine, PurchaseOrder } from "../../../../lib/features/prospect/dal";
+import { orderWindowLabel, summarizePurchases, type PurchaseLine, type PurchaseOrder } from "../../../../lib/features/prospect/purchases";
 import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/prospect/format";
+import { angleField } from "../../../../lib/features/prospect/angle";
 import { dayLabel, workingDayIso } from "../../../../lib/features/route/field-week";
 import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 import { WarmthPicker } from "../../../../lib/features/clients/WarmthPicker";
@@ -482,33 +483,23 @@ function DraftOutreachButton({ accountId }: { accountId: string }) {
 }
 
 function Purchases({ orders, lines }: { orders: PurchaseOrder[]; lines: PurchaseLine[] }) {
-  const orderedAt = new Map(orders.map((o) => [o.id, o.ordered_at]));
-  const totals = new Map<string, { qty: number; revenueCents: number; last: string | null }>();
-  for (const l of lines) {
-    const name = l.product_name ?? "Item";
-    const prev = totals.get(name) ?? { qty: 0, revenueCents: 0, last: null };
-    const at = orderedAt.get(l.order_id) ?? null;
-    totals.set(name, {
-      qty: prev.qty + (l.qty ?? 0),
-      revenueCents: prev.revenueCents + l.line_revenue_cents,
-      last: at && (!prev.last || at > prev.last) ? at : prev.last,
-    });
-  }
-  const items = [...totals.entries()].filter(([, t]) => t.qty !== 0).sort((a, b) => b[1].qty - a[1].qty);
+  const summary = summarizePurchases(orders, lines);
+  if (!summary) return null;
+  const items = [...summary.topItems, ...summary.smallItems];
 
   return (
     <Card>
       <div className={`mb-3 flex items-baseline justify-between gap-3 ${eyebrowCls}`}>
         <span>Purchases</span>
         <span className="normal-case tracking-normal">
-          {orders.length} order{orders.length === 1 ? "" : "s"}
+          {orderWindowLabel(summary)}
         </span>
       </div>
       <ul className="flex flex-col divide-y divide-[#EDEBE3]">
-        {items.map(([name, t]) => (
-          <li key={name} className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]">
+        {items.map((t) => (
+          <li key={t.name} className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]">
             <span className="flex min-w-0 items-baseline gap-1.5">
-              <span className="min-w-0 truncate">{name}</span>
+              <span className="min-w-0 truncate">{t.name}</span>
               {withinTrailing12mo(t.last) && (
                 <span className="shrink-0 rounded-full bg-[#B3452C] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wide text-white uppercase">
                   Recent
@@ -544,7 +535,8 @@ export function AccountView({
 }) {
   const me = useMe();
   const onPhone = useOnPhone();
-  const hasSummary = a.current_state || a.future_state || a.impact;
+  const angle = { now: angleField(a.current_state), opening: angleField(a.future_state), impact: angleField(a.impact) };
+  const hasSummary = angle.now || angle.opening || angle.impact;
   const channels = [
     a.email && { href: outlookCompose(a.email, onPhone), label: a.email, icon: "mail" },
     a.instagram_url && { href: a.instagram_url, label: "Instagram", icon: "external" },
@@ -676,9 +668,9 @@ export function AccountView({
               <dl className="flex flex-col gap-3 text-[14px]">
                 {(
                   [
-                    ["Now", a.current_state],
-                    ["Opening", a.future_state],
-                    ["Impact", a.impact],
+                    ["Now", angle.now],
+                    ["Opening", angle.opening],
+                    ["Impact", angle.impact],
                   ] as const
                 ).map(([label, val]) =>
                   val ? (

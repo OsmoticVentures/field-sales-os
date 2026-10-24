@@ -248,11 +248,14 @@ export type ClientActivity = {
   detail: string | null;
 };
 
-/** Internal rows (corrections, geocode and import notes) never happened with the client. */
+/** Internal rows (corrections, geocode and import notes) never happened with
+ *  the client, and a retracted capture (a test filing, a re-say) never
+ *  happened at all. */
 export async function listClientActivities(accountId: string): Promise<ClientActivity[]> {
-  const rows = await sbGet<ClientActivity>("nb_activities", {
-    select: "id,at,kind,direction,outcome,detail",
+  const rows = await sbGet<ClientActivity>("nb_v_activities_effective", {
+    select: "id,at,kind:effective_kind,direction,outcome,detail",
     account_id: `eq.${accountId}`,
+    retracted: "is.false",
     order: "at.desc",
     limit: "60",
   });

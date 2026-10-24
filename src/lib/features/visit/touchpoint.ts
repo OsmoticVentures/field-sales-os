@@ -55,6 +55,7 @@ import { laDay, noteKey, once } from "../../core/once-server";
 import { currentUser } from "../../core/user";
 import { TouchpointSchema } from "./touchpoint-schema";
 import { readOnMac } from "./mac-reader";
+import { looksLikeTestFiling, TEST_FILING_ERROR } from "./test-filing";
 
 export type HubspotFilingReport = {
   hubspotFiled: boolean;
@@ -324,6 +325,7 @@ export async function recordTouchpoint(
 ): Promise<RecordTouchpointResult> {
   const text = rawText.trim();
   if (!text) return { ok: false, error: "Nothing to record." };
+  if (looksLikeTestFiling(text)) return { ok: false, error: TEST_FILING_ERROR };
 
   const candidates = await listAccountsForMatching();
   if (candidates.length === 0) return { ok: false, error: "No accounts to match against yet." };
