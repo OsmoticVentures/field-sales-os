@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { sees, useMe } from "../../../lib/core/me";
 import { Ico } from "../../../lib/core/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
@@ -15,7 +15,6 @@ import { TouchpointCapture } from "../../../lib/features/visit/ui";
  */
 export function VisitClient() {
   const params = useSearchParams();
-  const router = useRouter();
   const me = useMe();
   // Both or neither: a client he cannot see on screen is never filed to.
   const name = params.get("name")?.trim() || null;
@@ -39,7 +38,8 @@ export function VisitClient() {
             <button
               type="button"
               aria-label="Clear client"
-              onClick={() => router.replace("/visit")}
+              // Clears in place: the query is the only state, so no round trip.
+              onClick={() => window.history.replaceState(null, "", window.location.pathname)}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.95]"
             >
               <Ico name="close" size={14} />
