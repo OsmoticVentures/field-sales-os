@@ -20,6 +20,7 @@ import {
   CALENDAR_DAY_FROM,
   CALENDAR_DAY_UNTIL,
   CALENDAR_HOLD_MAX_MINUTES,
+  calendarBaseKey,
   calendarChoiceKey,
   calendarStopId,
   type CalendarEvent,
@@ -100,7 +101,7 @@ type Pt = { lat: number; lng: number };
 
 export function placeByTime(
   order: RouteDraftEntry[],
-  timed: { entry: CustomStop; at: number }[],
+  timed: { entry: RouteDraftEntry; at: number }[],
   pointOf: (e: RouteDraftEntry) => Pt | null,
   start: Pt | null,
   departMinutes: number,
@@ -157,8 +158,10 @@ export function reconcileCalendar(
     }
     const w = want.get(e.id);
     // Gone from the calendar, or moved to another time: out, and a moved
-    // one goes back in where its new time falls.
-    if (!w || (times[e.id] && times[e.id] !== startOf.get(e.id))) {
+    // one goes back in where its new time falls. A time the rep set on the
+    // route stands while the calendar still says what it said then.
+    const base = times[calendarBaseKey(e.calendarId)] ?? times[e.id];
+    if (!w || (base && base !== startOf.get(e.id))) {
       changed = true;
       continue;
     }
@@ -177,13 +180,22 @@ export function reconcileCalendar(
 
   const nextTimes = { ...times };
   for (const id of Object.keys(nextTimes)) {
-    if (id.startsWith("custom:cal:") && !want.has(id)) {
+    const gone =
+      (id.startsWith("custom:cal:") && !want.has(id)) ||
+      (id.startsWith("calbase:") && !want.has(`custom:cal:${id.slice("calbase:".length)}`));
+    if (gone) {
       delete nextTimes[id];
       changed = true;
     }
   }
   for (const s of day.stops) {
     const at = startOf.get(s.id);
+    const baseKey = calendarBaseKey(s.calendarId!);
+    if (baseKey in nextTimes) {
+      if (nextTimes[baseKey] === at) continue;
+      delete nextTimes[baseKey];
+      changed = true;
+    }
     if (at && nextTimes[s.id] !== at) {
       nextTimes[s.id] = at;
       changed = true;

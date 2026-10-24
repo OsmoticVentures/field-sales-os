@@ -81,6 +81,10 @@ export const CALENDAR_HOLD_MAX_MINUTES = 120;
  *  "free" = a placeless event's time held or not). */
 export const calendarStopId = (eventId: string) => `custom:cal:${eventId}`;
 export const calendarChoiceKey = (eventId: string) => `cal:${eventId}`;
+/** The calendar start an event had when the rep set its time on the route.
+ *  While the calendar still says that, the rep's time stands; once the event
+ *  moves on the calendar, the calendar wins again. */
+export const calendarBaseKey = (eventId: string) => `calbase:${eventId}`;
 
 export type CustomStop = {
   /** Always prefixed "custom:", which is what tells the two apart in a draft. */

@@ -26,7 +26,7 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, calendarBaseKey, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -763,6 +763,40 @@ function RouteDay({
       draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id)),
     );
   }
+  /** A stop's locked time, set or changed on its card: the stop goes where
+   *  that time falls in the day and the clock holds it. Clearing it unlocks
+   *  the stop, except a calendar event, whose time is the calendar's. */
+  function setLockedTime(id: string, hhmm: string | null) {
+    const entry = draft.find((e) => (typeof e === "string" ? e === id : e.id === id));
+    if (!entry) return;
+    const calId = typeof entry !== "string" ? entry.calendarId : undefined;
+    if (!hhmm && calId) return;
+    if ((stopTimes[id] ?? null) === hhmm) return;
+    const times = { ...stopTimes };
+    if (calId) {
+      const base = calendarBaseKey(calId);
+      const calStart = dayEvents.find((e) => e.id === calId)?.start;
+      if (calStart && hhmm === calStart) delete times[base];
+      else if (calStart) times[base] = calStart;
+    }
+    if (hhmm) times[id] = hhmm;
+    else delete times[id];
+    if (!hhmm) {
+      patchTimes(activeDay, times);
+      return;
+    }
+    const rest = draft.filter((e) => e !== entry);
+    const placed = placeByTime(
+      rest,
+      [{ entry, at: minutesOfDay(hhmm) }],
+      pointOfEntry,
+      start,
+      minutesOfDay(stopTimes[DEPART_KEY] ?? data.prefs.depart),
+      prefs.dwellMinutes,
+      timeOfEntry,
+    );
+    patchDraftAndTimes(activeDay, placed, times);
+  }
   function patchCustom(id: string, next: Partial<CustomStop>) {
     patchDraft(
       activeDay,
@@ -953,46 +987,6 @@ function RouteDay({
         </ul>
       )}
 
-      {calDay.listed.length > 0 && (
-        <ul className="divide-y divide-[#EEECE3] overflow-hidden rounded-lg border border-[#E2DFD5] bg-white">
-          {calDay.listed.map(({ event: e, action, held }) => (
-            <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-              <span
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] ${
-                  held ? "bg-[#14201B] text-white" : "bg-[#F6EEDD] text-[#7A5A1E]"
-                }`}
-              >
-                <Ico name="clock" size={13} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="shrink-0 text-[13px] font-semibold tabular-nums text-[#14201B]">
-                    {e.allDay || !e.start ? "All day" : `${clock(minutesOfDay(e.start))}${e.end ? ` to ${clock(minutesOfDay(e.end))}` : ""}`}
-                  </span>
-                  <span className="truncate text-[14px] font-medium">{e.title}</span>
-                </div>
-                {e.location && <div className="mt-0.5 truncate text-[12.5px] text-[#5B6560]">{e.address ?? e.location}</div>}
-              </div>
-              {action && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const key = calendarChoiceKey(e.id);
-                    const next = { ...stopTimes };
-                    if (action === "add") delete next[key];
-                    else next[key] = action;
-                    patchTimes(activeDay, next);
-                  }}
-                  className={`${ghostBtn} min-h-11 shrink-0 px-3 text-[13px] font-medium text-[#3D4A44]`}
-                >
-                  {action === "add" ? "Add to route" : action === "hold" ? "Hold time" : "Free time"}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-
       <AddStop
         accounts={data.accounts}
         inRoute={inRoute}
@@ -1049,6 +1043,7 @@ function RouteDay({
               const missedAnchor = schedule?.missedAnchors.has(s.id);
               const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
               const dropAtEnd = drag && drag.dropIndex === stops.length && i === stops.length - 1;
+              const lockedAt = /^\d{1,2}:\d{2}$/.test(stopTimes[s.id] ?? "") ? stopTimes[s.id] : null;
               return (
                 <li
                   key={s.id}
@@ -1083,7 +1078,7 @@ function RouteDay({
                             {CUSTOM_STOP_LABEL[c.kind]}
                           </span>
                         )}
-                        {schedule && ri !== undefined && schedule.rows[ri] && (
+                        {schedule && ri !== undefined && schedule.rows[ri] && (!lockedAt || missedAnchor) && (
                           <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.rows[ri].arrive)}</span>
                         )}
                         {closed && (
@@ -1179,23 +1174,13 @@ function RouteDay({
                           )}
                         </div>
                       )}
-                      {c && c.kind === "event" && stopTimes[s.id] && (
-                        <div className="mt-0.5 text-[12.5px] tabular-nums text-[#5B6560]">
-                          {clock(minutesOfDay(stopTimes[s.id]))} to {clock(minutesOfDay(stopTimes[s.id]) + (c.minutes ?? 0))}
-                        </div>
-                      )}
-                      {c && (c.kind === "hotel" || c.kind === "lunch") && (
+                      {c && !lockedAt && (c.kind === "hotel" || c.kind === "lunch") && (
                         <label className="mt-1 flex items-center gap-1.5 text-[12.5px] text-[#5B6560]">
                           At
                           <input
                             type="time"
-                            value={stopTimes[s.id] ?? ""}
-                            onChange={(e) => {
-                              const next = { ...stopTimes };
-                              if (e.target.value) next[s.id] = e.target.value;
-                              else delete next[s.id];
-                              patchTimes(activeDay, next);
-                            }}
+                            defaultValue=""
+                            onBlur={(e) => e.target.value && setLockedTime(s.id, e.target.value)}
                             className={inputCls}
                             style={{ width: "8rem" }}
                           />
@@ -1221,6 +1206,14 @@ function RouteDay({
                           </div>
                         ))}
                     </div>
+                    {lockedAt && (
+                      <LockedTime
+                        value={lockedAt}
+                        label={title}
+                        clearable={!c?.calendarId}
+                        onSave={(v) => setLockedTime(s.id, v)}
+                      />
+                    )}
                   </div>
                   {confirmingDone.has(s.id) ? (
                     <div className="max-w-xs">
@@ -1362,6 +1355,71 @@ function RouteDay({
         onAddToDay={(a) => addEntry(a.id, a.lat, a.lng)}
       />
     </div>
+  );
+}
+
+/** A locked stop's time, top right of its card. A tap turns it into the
+ *  time field; leaving the field saves, Escape keeps the old time. */
+function LockedTime({
+  value,
+  label,
+  clearable,
+  onSave,
+}: {
+  value: string;
+  label: string;
+  clearable: boolean;
+  onSave: (next: string | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const cancelled = useRef(false);
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          cancelled.current = false;
+          setDraft(value);
+          setEditing(true);
+        }}
+        aria-label={`Change the time for ${label}, now ${clock(minutesOfDay(value))}`}
+        className="-mr-1 -mt-1 inline-flex min-h-11 shrink-0 items-center rounded-md px-2 text-[17px] font-bold tabular-nums text-[#14201B] underline decoration-[#C9C5B8] decoration-dotted underline-offset-4 transition-transform active:scale-[0.97] motion-reduce:transition-none"
+      >
+        {clock(minutesOfDay(value))}
+      </button>
+    );
+  }
+  return (
+    <input
+      type="time"
+      autoFocus
+      value={draft}
+      aria-label={`Time for ${label}`}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => {
+        try {
+          e.currentTarget.showPicker?.();
+        } catch {
+          // a browser that will not open the picker from focus still has the field
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          cancelled.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={() => {
+        setEditing(false);
+        if (cancelled.current) return;
+        if (draft) onSave(draft);
+        else if (clearable) onSave(null);
+      }}
+      className={`${inputCls} shrink-0 text-[15px] font-semibold tabular-nums`}
+      style={{ width: "7.5rem" }}
+    />
   );
 }
 
