@@ -1358,8 +1358,9 @@ function RouteDay({
   );
 }
 
-/** A locked stop's time, top right of its card. A tap turns it into the
- *  time field; leaving the field saves, Escape keeps the old time. */
+/** A locked stop's time, top right of its card. The time field sits over
+ *  the clock, so a tap opens the phone's time picker; closing it saves,
+ *  Escape keeps the old time. */
 function LockedTime({
   value,
   label,
@@ -1371,55 +1372,49 @@ function LockedTime({
   clearable: boolean;
   onSave: (next: string | null) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const cancelled = useRef(false);
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          cancelled.current = false;
-          setDraft(value);
-          setEditing(true);
-        }}
-        aria-label={`Change the time for ${label}, now ${clock(minutesOfDay(value))}`}
-        className="-mr-1 -mt-1 inline-flex min-h-11 shrink-0 items-center rounded-md px-2 text-[17px] font-bold tabular-nums text-[#14201B] underline decoration-[#C9C5B8] decoration-dotted underline-offset-4 transition-transform active:scale-[0.97] motion-reduce:transition-none"
-      >
-        {clock(minutesOfDay(value))}
-      </button>
-    );
+  const [from, setFrom] = useState(value);
+  if (from !== value) {
+    setFrom(value);
+    setDraft(value);
   }
+  const shown = draft || value;
   return (
-    <input
-      type="time"
-      autoFocus
-      value={draft}
-      aria-label={`Time for ${label}`}
-      onChange={(e) => setDraft(e.target.value)}
-      onFocus={(e) => {
-        try {
-          e.currentTarget.showPicker?.();
-        } catch {
-          // a browser that will not open the picker from focus still has the field
-        }
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
-        if (e.key === "Escape") {
-          cancelled.current = true;
-          e.currentTarget.blur();
-        }
-      }}
-      onBlur={() => {
-        setEditing(false);
-        if (cancelled.current) return;
-        if (draft) onSave(draft);
-        else if (clearable) onSave(null);
-      }}
-      className={`${inputCls} shrink-0 text-[15px] font-semibold tabular-nums`}
-      style={{ width: "7.5rem" }}
-    />
+    <label className="relative -mr-1 -mt-1 inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2 transition-transform active:scale-[0.97] motion-reduce:transition-none">
+      <span
+        aria-hidden
+        className="text-[17px] font-bold tabular-nums text-[#14201B] underline decoration-[#C9C5B8] decoration-dotted underline-offset-4"
+      >
+        {clock(minutesOfDay(shown))}
+      </span>
+      <input
+        type="time"
+        value={draft}
+        aria-label={`Time for ${label}`}
+        onChange={(e) => setDraft(e.target.value)}
+        onClick={(e) => {
+          try {
+            e.currentTarget.showPicker?.();
+          } catch {
+            // the field still takes typed input where the picker will not open
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(value);
+            e.currentTarget.blur();
+          }
+        }}
+        onBlur={() => {
+          if (draft === value) return;
+          if (draft) onSave(draft);
+          else if (clearable) onSave(null);
+          else setDraft(value);
+        }}
+        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+      />
+    </label>
   );
 }
 
