@@ -534,17 +534,22 @@ export function AccountDrawer({ id }: { id: string }) {
                 {name}
               </h2>
             )}
-            <button
-              ref={viewRow}
-              type="button"
-              onClick={() => setFull(true)}
-              className={`-ml-2 mt-3 flex min-h-11 w-fit items-center gap-1.5 rounded-xl px-2 text-[17px] text-[#F7F6F1]/60 transition-[transform,color] active:scale-[0.97] active:text-[#F7F6F1] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#F7F6F1]/60 ${
-                failText ? "mb-2" : "mb-7"
-              }`}
-            >
-              View account
-              <Ico name="chevron-right" size={16} />
-            </button>
+            <div className={`mt-6 grid grid-cols-2 gap-3 ${failText ? "mb-2" : "mb-3"}`}>
+              <button ref={viewRow} type="button" onClick={() => setFull(true)} className={tileCls}>
+                <span className={tileIcon}>
+                  <Ico name="book" size={24} />
+                </span>
+                View account
+              </button>
+              {sees(me, "prospect") && (
+                <LeaveLink href={`/prospect?account=${id}`} leave={leave} className={tileCls}>
+                  <span className={tileIcon}>
+                    <Ico name="phone-arrow" size={24} />
+                  </span>
+                  Open in SDR
+                </LeaveLink>
+              )}
+            </div>
             {failText && <p className="mb-7 text-[15px] text-[#E58A82]">{failText}</p>}
             {tiles.length > 0 && <div className="grid grid-cols-2 gap-3">{tiles}</div>}
           </div>

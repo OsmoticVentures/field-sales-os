@@ -60,6 +60,9 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
     };
   });
 
+  const focusP = focusAccountId ? priority.byId.get(focusAccountId) : undefined;
+  const focusPriority = focusP ? { score: focusP.score, reason: focusP.reason, band: focusP.band } : null;
+
   const todayIso = todayStartLA().slice(0, 10);
   const orderedAreas = sortAreasByProspects(areas, priority.areaProspects).map((a) => ({
     id: a.id,
@@ -88,6 +91,9 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
         focusAccountId={focusAccountId}
         focusAccountName={focusAccountId ? (cards[focusAccountId]?.name ?? null) : null}
         focusAccountPhone={focusAccountId ? (cards[focusAccountId]?.phone ?? null) : null}
+        focusAccountArea={focusAccountId ? (cards[focusAccountId]?.area ?? null) : null}
+        focusAccountHours={focusAccountId ? (cards[focusAccountId]?.businessHours ?? null) : null}
+        focusAccountPriority={focusPriority}
         topRanked={topRanked}
       />
     </>

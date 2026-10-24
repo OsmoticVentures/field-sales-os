@@ -394,7 +394,8 @@ export async function getAccountCallCards(ids: string[]): Promise<Record<string,
   if (ids.length === 0) return {};
   const rows = await sbGet<{ id: string; name: string; phone: string | null; area: string | null; business_hours: Record<string, string[][]> | null }>(
     "nb_accounts",
-    new URLSearchParams({ select: "id,name,phone,area,business_hours", id: `in.(${ids.join(",")})` }),
+    // The signed-in rep's book only: a card opened by id (?account=) never shows another rep's client.
+    new URLSearchParams({ select: "id,name,phone,area,business_hours", id: `in.(${ids.join(",")})`, hubspot_owner_id: `eq.${await myOwnerId()}` }),
   );
   return Object.fromEntries(
     rows.map((a) => [a.id, { name: a.name, phone: a.phone, area: a.area, businessHours: a.business_hours }]),

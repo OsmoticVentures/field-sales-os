@@ -1062,6 +1062,7 @@ function focusTarget(
   focusAccountId: string | null | undefined,
   focusAccountName: string | null | undefined,
   focusAccountPhone: string | null | undefined,
+  focus: FocusRecord = {},
 ): ScheduleItem | null {
   if (!focusAccountId) return null;
   const existing = initialItems.find((it) => it.account_id === focusAccountId && it.status === "pending");
@@ -1079,17 +1080,24 @@ function focusTarget(
     rescheduled_at: null,
     displayName: focusAccountName,
     displayPhone: focusAccountPhone ?? null,
-    area: null,
-    businessHours: null,
-    priorityScore: null,
-    priorityReason: null,
-    priorityBand: null,
+    area: focus.area ?? null,
+    businessHours: focus.hours ?? null,
+    priorityScore: focus.priority?.score ?? null,
+    priorityReason: focus.priority?.reason ?? null,
+    priorityBand: focus.priority?.band ?? null,
   };
 }
 
+/** What the account record itself says about a focused, unscheduled card. */
+type FocusRecord = {
+  area?: string | null;
+  hours?: BusinessHours | null;
+  priority?: { score: number | null; reason: string | null; band: ScheduleItem["priorityBand"] } | null;
+};
+
 
 export function ProspectClient({
-  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, topRanked,
+  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority, topRanked,
 }: {
   initialItems: ScheduleItem[];
   todayIso: string;
@@ -1098,12 +1106,16 @@ export function ProspectClient({
   focusAccountId?: string | null;
   focusAccountName?: string | null;
   focusAccountPhone?: string | null;
+  focusAccountArea?: string | null;
+  focusAccountHours?: BusinessHours | null;
+  focusAccountPriority?: FocusRecord["priority"];
   topRanked?: RankedAccount[];
 }) {
+  const focusRecord: FocusRecord = { area: focusAccountArea, hours: focusAccountHours, priority: focusAccountPriority };
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<ScheduleItem | null>(() =>
-    focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone),
+    focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord),
   );
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -1118,7 +1130,7 @@ export function ProspectClient({
   const [focusedFor, setFocusedFor] = useState(focusAccountId);
   if (focusedFor !== focusAccountId) {
     setFocusedFor(focusAccountId);
-    const target = focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone);
+    const target = focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord);
     if (target) setActive(target);
   }
 
