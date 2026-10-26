@@ -673,7 +673,25 @@ function RouteDay({
     return haversineMatrix(points);
   }
 
-  function patchDraft(day: string, entries: RouteDraftEntry[]) {
+  /** A Lunch with no place picked yet sits wherever it falls: moved behind
+   *  another stop, it takes that stop's spot and area, so the route bends
+   *  there instead of back to where the Lunch first went in. */
+  function followLunch(entries: RouteDraftEntry[]): RouteDraftEntry[] {
+    return entries.map((e, i) => {
+      if (typeof e === "string" || e.kind !== "lunch" || !e.pending || i === 0) return e;
+      const prev = entries[i - 1];
+      const a = typeof prev === "string" ? accountsById.get(prev) : null;
+      if (typeof prev === "string" && !a) return e;
+      const lat = a ? a.lat : (prev as CustomStop).lat;
+      const lng = a ? a.lng : (prev as CustomStop).lng;
+      const area = a ? (a.area ?? a.city ?? null) : ((prev as CustomStop).area ?? null);
+      if (lat === e.lat && lng === e.lng) return e;
+      return { ...e, lat, lng, address: area ?? e.address, area: area ?? undefined };
+    });
+  }
+
+  function patchDraft(day: string, raw: RouteDraftEntry[]) {
+    const entries = followLunch(raw);
     setData({ ...data, draft: { ...data.draft, [day]: entries } });
     postJson("/api/route/draft", { day, entries }).catch(() => {});
   }
