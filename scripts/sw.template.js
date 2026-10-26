@@ -347,7 +347,7 @@ async function navigate(event, url) {
   const p = url.pathname;
   // The root only redirects; answering here saves the round trip on every
   // launch of the app.
-  if (p === BASE || p === `${BASE}/`) return Response.redirect(`${BASE}/visit${url.search}`, 302);
+  if (p === BASE || p === `${BASE}/`) return Response.redirect(`${BASE}/route${url.search}`, 302);
   if (p === `${BASE}/gate`) {
     try {
       return await network(event, url);

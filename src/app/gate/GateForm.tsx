@@ -17,7 +17,7 @@ import { primaryBtn } from "../../lib/core/ui";
  * this accepts only an absolute path inside this app, and excludes the gate
  * itself so a bounce cannot loop.
  */
-const HOME = "/visit";
+const HOME = "/route";
 
 function safeNext(search: string): string {
   const raw = new URLSearchParams(search).get("next");

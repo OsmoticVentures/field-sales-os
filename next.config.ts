@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   // handler, never a client component (see PORTING.md, added at m7).
 
   // The root answers at the edge, no function start, no page render.
-  // basePath-relative: this is /nb -> /nb/visit.
+  // basePath-relative: this is /nb -> /nb/route.
   // The service worker (OFFLINE.md) lives at /nb/sw.js and controls /nb
   // itself as well as everything under it, so the app's own launch URL is
   // answered from the phone. Never cached by the browser: an update must
@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
     ];
   },
   async redirects() {
-    return [{ source: "/", destination: "/visit", permanent: false }];
+    return [{ source: "/", destination: "/route", permanent: false }];
   },
 };
 
