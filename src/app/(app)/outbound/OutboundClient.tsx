@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { apiFetch } from "../../../lib/core/api";
 import { Card, Ico, SuccessNote, ghostBtn } from "../../../lib/core/ui";
+import { useUndoWindow } from "../../../lib/core/undo";
 import { daysAgo } from "../../../lib/features/prospect/format";
 import type { Draft } from "../../../lib/features/outbound/dal";
 import { OpenEmailButtons } from "../../../lib/features/outbound/open-email";
@@ -45,14 +46,25 @@ function BodyView({ body }: { body: string }) {
 
 function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
   const d = row.draft;
-  const [pending, setPending] = useState<"sent" | "dismissed" | null>(null);
+  const [held, setHeld] = useState(false);
   const [decided, setDecided] = useState<"sent" | "dismissed" | null>(null);
   const [note, setNote] = useState<{ title: string; detail?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function decide(decision: "sent" | "dismissed") {
-    setPending(decision);
+  const { arm, undo } = useUndoWindow();
+
+  /** Shows the result at once with Undo; the write goes out when the window
+   *  passes. A refusal puts the card back with the reason in red. */
+  function decide(decision: "sent" | "dismissed") {
     setError(null);
+    setDecided(decision);
+    setNote({ title: decision === "dismissed" ? "Dismissed" : `Marked sent${row.accountName ? `: ${row.accountName}` : ""}` });
+    setHeld(true);
+    arm(d.id, () => void commit(decision));
+  }
+
+  async function commit(decision: "sent" | "dismissed") {
+    setHeld(false);
     try {
       const res = await apiFetch("/api/outbound/decide", {
         method: "POST",
@@ -73,7 +85,6 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
       };
       if (!res.ok || !j.ok) throw new Error(j.error ?? "That did not go through.");
 
-      setDecided(decision);
       if (decision === "dismissed") {
         setNote({ title: "Dismissed" });
       } else if (j.result?.filed) {
@@ -86,16 +97,30 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
       }
       setTimeout(onGone, 900);
     } catch (e) {
+      setDecided(null);
+      setNote(null);
       setError(e instanceof Error ? e.message : "That did not go through. Try again.");
-    } finally {
-      setPending(null);
     }
   }
 
   if (decided) {
     return (
       <Card>
-        <SuccessNote title={note?.title ?? "Done"} detail={note?.detail} />
+        <SuccessNote
+          title={note?.title ?? "Done"}
+          detail={note?.detail}
+          onUndo={
+            held
+              ? () => {
+                  if (undo(d.id)) {
+                    setDecided(null);
+                    setNote(null);
+                    setHeld(false);
+                  }
+                }
+              : undefined
+          }
+        />
       </Card>
     );
   }
@@ -147,14 +172,13 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
         <button
           type="button"
           onClick={() => decide("sent")}
-          disabled={pending !== null}
           title="Marks this sent on your word, the OS cannot verify a send on any channel."
           className={`${ghostBtn} bg-white px-3 text-[13px] disabled:opacity-50`}
         >
-          {pending === "sent" ? "Marking sent" : "Mark sent"}
+          Mark sent
         </button>
-        <button type="button" onClick={() => decide("dismissed")} disabled={pending !== null} className={`${ghostBtn} bg-white px-3 text-[13px] disabled:opacity-50`}>
-          {pending === "dismissed" ? "Dismissing" : "Dismiss"}
+        <button type="button" onClick={() => decide("dismissed")} className={`${ghostBtn} bg-white px-3 text-[13px] disabled:opacity-50`}>
+          Dismiss
         </button>
         {error && <span className="text-[12px] text-[#8A2E2E]">{error}</span>}
       </div>

@@ -125,6 +125,8 @@ export function GateForm() {
         <input
           type="password"
           inputMode="numeric"
+          autoComplete="current-password"
+          name="pin"
           autoFocus
           value={pin}
           onChange={(e) => setPin(e.target.value)}

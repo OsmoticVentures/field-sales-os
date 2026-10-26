@@ -100,3 +100,78 @@ body {
     background: #14201b;
   }
 }
+
+/* UX details, set once for every screen (wiki: ux-details). */
+
+/* 16. Numbers keep one width, so a column of them lines up and a live one
+   does not jitter. Inherited from the body. */
+body {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 17. No one-word last line on a heading or a paragraph. */
+h1,
+h2,
+h3,
+h4 {
+  text-wrap: balance;
+}
+p,
+li,
+dd {
+  text-wrap: pretty;
+}
+
+/* 18. Continuous corners where the browser has them. */
+@supports (corner-shape: squircle) {
+  [class*="rounded"] {
+    corner-shape: squircle;
+  }
+}
+
+/* 13. A tap target is at least 44 by 44 points. The pad is invisible: the
+   button keeps its look and its hit area grows around it. Touch screens only. */
+@media (pointer: coarse) {
+  :where(button, [role="button"], summary):not(.absolute, .fixed, .sticky) {
+    position: relative;
+  }
+  :where(button, [role="button"], summary)::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* 9. Screen changes cross-fade with the platform's own transition. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
+/* 4. A key hint sits beside its action: small, quiet, system face. */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  min-width: 1.35rem;
+  justify-content: center;
+  padding: 0 0.35rem;
+  height: 1.35rem;
+  border: 1px solid #e2dfd5;
+  border-radius: 5px;
+  background: #faf9f5;
+  color: #5b6560;
+  font-size: 11px;
+  line-height: 1;
+}

@@ -198,15 +198,28 @@ export function Ico({ name, size = 16 }: { name: string; size?: number }) {
 export function SuccessNote({
   title,
   detail,
+  onUndo,
 }: {
   title: string;
   detail?: string | null;
+  /** When given, the note carries Undo; the caller holds its write until the
+   *  window passes (lib/core/undo.ts). */
+  onUndo?: () => void;
 }) {
   return (
     <div className="rounded-md border border-[#E2DFD5] bg-[#FAF9F5] px-3 py-2.5 text-[13px] leading-relaxed text-[#3D4A44]">
       <div className="flex items-center gap-1.5 font-medium text-[#2C6A46]">
         <Ico name="check" size={13} />
         {title}
+        {onUndo && (
+          <button
+            type="button"
+            onClick={onUndo}
+            className="relative -my-2 -mr-2 ml-auto min-h-11 min-w-11 rounded-md px-2 text-[13px] font-medium text-[#14201B] underline underline-offset-2 transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100"
+          >
+            Undo
+          </button>
+        )}
       </div>
       {detail && <div className="mt-1 text-[#5B6560]">{detail}</div>}
     </div>

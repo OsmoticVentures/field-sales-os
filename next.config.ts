@@ -6,6 +6,8 @@ import type { NextConfig } from "next";
 // matching rewrite in its own next.config.ts at m6 (not yet done).
 const nextConfig: NextConfig = {
   basePath: "/nb",
+  // Screen changes use the browser's View Transitions (ux-details row 9).
+  experimental: { viewTransition: true },
   // Keep the client bundle honest: nothing here should ship a server secret.
   // Every route that reads process.env.* for a token lives in a route
   // handler, never a client component (see PORTING.md, added at m7).

@@ -19,6 +19,7 @@ import Link from "next/link";
 import { Geolocation } from "@capacitor/geolocation";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
+import { useUndoWindow } from "@/lib/core/undo";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { AccountsMap } from "./AccountsMap";
@@ -513,6 +514,7 @@ function RouteDay({
   const pointCount = routed.length === 0 ? 0 : (routeStart ? 1 : 0) + routed.length + (end ? 1 : 0);
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">(() => (pointCount < 2 ? "ok" : "loading"));
   const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
+  const { arm: armDone, undo: undoDone } = useUndoWindow();
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
 
   const mapBoxRef = useRef<HTMLDivElement | null>(null);
@@ -832,7 +834,8 @@ function RouteDay({
     }
     setConfirmingDone((prev) => new Set(prev).add(id));
     const day = activeDay;
-    setTimeout(() => {
+    // The note carries Undo; the stop is marked when the window passes.
+    armDone(id, () => {
       setConfirmingDone((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -844,7 +847,15 @@ function RouteDay({
         postJson("/api/route/done", { day, done: nextDone }).catch(() => {});
         return { ...prev, done: { ...prev.done, [day]: nextDone } };
       });
-    }, 1000);
+    });
+  }
+  function undoMarkDone(id: string) {
+    if (!undoDone(id)) return;
+    setConfirmingDone((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   }
 
   /** Moves a stop from the active day to another day in one state update:
@@ -1235,7 +1246,7 @@ function RouteDay({
                   </div>
                   {confirmingDone.has(s.id) ? (
                     <div className="max-w-xs">
-                      <SuccessNote title="Marked done" />
+                      <SuccessNote title="Marked done" onUndo={() => undoMarkDone(s.id)} />
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-1.5">

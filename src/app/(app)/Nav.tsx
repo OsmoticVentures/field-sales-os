@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { warmJson } from "../../lib/core/api";
 import { Ico } from "../../lib/core/ui";
 import { sees, useMe } from "../../lib/core/me";
+import { jumpKey } from "./CommandMenu";
 
 /** Only the screens the signed-in rep has. */
 function useMine(items: NavItem[]): NavItem[] {
@@ -68,20 +69,22 @@ export function SidebarNav({ items: all }: { items: NavItem[] }) {
   const items = useMine(all);
   return (
     <nav className="flex flex-col gap-0.5">
-      {items.map((n) => {
+      {items.map((n, i) => {
         const active = isActive(pathname, n.href);
+        const key = jumpKey(i);
         return (
           <Link
             key={n.href}
             href={n.href}
             onPointerDown={warm(n.href)}
             aria-current={active ? "page" : undefined}
-            className={`flex min-h-11 items-center gap-2.5 rounded-md px-2.5 py-2 text-[15px] transition-colors ${
+            className={`group flex min-h-11 items-center gap-2.5 rounded-md px-2.5 py-2 text-[15px] transition-colors ${
               active ? "bg-[#ECEAE1] font-medium text-[#14201B]" : "text-[#3D4A44] hover:bg-[#ECEAE1] hover:text-[#14201B]"
             }`}
           >
             <Ico name={n.icon} />
             {n.label}
+            {key && <span className="kbd ml-auto opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">G {key}</span>}
           </Link>
         );
       })}
@@ -156,6 +159,42 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
     if (!isActive(pathname, href)) setChosen(href);
   };
 
+  // Swipe-to-dismiss for the More card: it follows a finger pulled down and
+  // closes past 60px or on a flick. Reduced motion closes without the follow.
+  const card = useRef<HTMLDivElement>(null);
+  const pull = useRef<{ id: number; y0: number; t0: number; dy: number; on: boolean } | null>(null);
+  const onPullDown = (e: React.PointerEvent) => {
+    pull.current = { id: e.pointerId, y0: e.clientY, t0: e.timeStamp, dy: 0, on: false };
+  };
+  const onPullMove = (e: React.PointerEvent) => {
+    const p = pull.current;
+    if (!p || p.id !== e.pointerId) return;
+    const dy = e.clientY - p.y0;
+    if (!p.on) {
+      if (dy < 8) return;
+      p.on = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    p.dy = Math.max(0, dy);
+    if (card.current && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      card.current.style.transition = "none";
+      card.current.style.transform = `translate3d(0,${p.dy}px,0)`;
+      card.current.style.opacity = String(Math.max(0.3, 1 - p.dy / 240));
+    }
+  };
+  const onPullUp = (e: React.PointerEvent) => {
+    const p = pull.current;
+    pull.current = null;
+    if (!p || !p.on || p.id !== e.pointerId) return;
+    const v = (p.dy / Math.max(1, e.timeStamp - p.t0)) * 1000;
+    if (card.current) {
+      card.current.style.transition = "";
+      card.current.style.transform = "";
+      card.current.style.opacity = "";
+    }
+    if (e.type !== "pointercancel" && (p.dy > 60 || v > 600)) setMoreOpen(false);
+  };
+
   if (items.length < 2) return null;
 
   return (
@@ -168,12 +207,17 @@ export function TabBar({ items: all }: { items: NavItem[] }) {
         }`}
       />
       <div
+        ref={card}
+        onPointerDown={onPullDown}
+        onPointerMove={onPullMove}
+        onPointerUp={onPullUp}
+        onPointerCancel={onPullUp}
         role="dialog"
         aria-modal="true"
         aria-label="More screens"
         aria-hidden={!moreOpen}
         style={{ transitionTimingFunction: "cubic-bezier(.23,1,.32,1)" }}
-        className={`glass-bar fixed right-4 z-40 min-w-[236px] origin-bottom-right rounded-[22px] p-1.5 transition-[transform,opacity] duration-200 motion-reduce:transition-none md:hidden [bottom:calc(5.25rem+env(safe-area-inset-bottom))] ${
+        className={`glass-bar fixed right-4 z-40 min-w-[236px] touch-pan-x origin-bottom-right rounded-[22px] p-1.5 transition-[transform,opacity] duration-200 motion-reduce:transition-none md:hidden [bottom:calc(5.25rem+env(safe-area-inset-bottom))] ${
           moreOpen ? "translate-y-0 scale-100 opacity-100" : "pointer-events-none translate-y-2 scale-[0.94] opacity-0"
         }`}
       >

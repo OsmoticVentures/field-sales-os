@@ -25,6 +25,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
+import { useUndoWindow } from "../../../lib/core/undo";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
 import { FindContacts } from "../../../lib/features/enrich/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
@@ -257,7 +258,7 @@ function GlobalSearch({ todayIso, onView, onAdded }: { todayIso: string; onView:
   return (
     <div className="relative">
       <div className="relative">
-        <input value={query} onChange={(e) => search(e.target.value)} placeholder="Search your accounts and contacts" className={`${inputCls} pl-10`} />
+        <input value={query} onChange={(e) => search(e.target.value)} placeholder="Search your accounts and contacts" autoComplete="off" className={`${inputCls} pl-10`} />
         <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-[#8A928C]">
           <Ico name="search" size={15} />
         </div>
@@ -409,8 +410,8 @@ function AddToDayForm({ date, onAdded }: { date: string; onAdded: (item: Schedul
         </div>
       ) : (
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input value={prospectName} onChange={(e) => setProspectName(e.target.value)} placeholder="Business or contact name" className={inputCls} />
-          <input value={prospectPhone} onChange={(e) => setProspectPhone(e.target.value)} placeholder="Phone" className={`${inputCls} sm:w-40`} />
+          <input value={prospectName} onChange={(e) => setProspectName(e.target.value)} placeholder="Business or contact name" autoComplete="name" className={inputCls} />
+          <input value={prospectPhone} onChange={(e) => setProspectPhone(e.target.value)} placeholder="Phone" type="tel" inputMode="tel" autoComplete="tel" className={`${inputCls} sm:w-40`} />
         </div>
       )}
 
@@ -437,7 +438,7 @@ const PRIORITY_CHIP: Record<"low" | "mid" | "high", string> = {
 };
 
 function ScheduleRow({
-  item, active, onSelect, onDone, onReschedule, todayIso, statusError, showSuccess,
+  item, active, onSelect, onDone, onReschedule, todayIso, statusError, showSuccess, onUndo,
 }: {
   item: ScheduleItem;
   active: boolean;
@@ -447,6 +448,7 @@ function ScheduleRow({
   todayIso: string;
   statusError?: string;
   showSuccess?: boolean;
+  onUndo?: () => void;
 }) {
   const done = item.status === "done";
   const skipped = item.status === "skipped";
@@ -455,7 +457,7 @@ function ScheduleRow({
   if (showSuccess) {
     return (
       <li className={`rounded-md border p-2.5 ${active ? "border-[#14201B] bg-[#FAF9F5]" : "border-[#E2DFD5]"}`}>
-        <SuccessNote title="Done" />
+        <SuccessNote title="Done" onUndo={onUndo} />
       </li>
     );
   }
@@ -667,7 +669,7 @@ function PhoneEditable({ accountId, phone }: { accountId: string; phone: string 
   );
 }
 
-function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean }) {
+function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean; onUndo?: () => void }) {
   const [panel, setPanel] = useState<AccountPanelData | null>(null);
   const [loading, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1006,7 +1008,7 @@ function AccountPanel({ item, areas, onDone, showSuccess }: { item: ScheduleItem
       )}
 
       {showSuccess ? (
-        <SuccessNote title="Done" />
+        <SuccessNote title="Done" onUndo={onUndo} />
       ) : (
         item.status === "pending" &&
         !item.id.startsWith("unscheduled:") && (
@@ -1146,7 +1148,8 @@ export function ProspectClient({
   }
 
   const [statusErrors, setStatusErrors] = useState<Record<string, string>>({});
-  const [doneNotice, setDoneNotice] = useState<Record<string, boolean>>({});
+  const [doneNotice, setDoneNotice] = useState<Record<string, "held" | "sent">>({});
+  const { arm, undo } = useUndoWindow();
 
   function clearStatusError(id: string) {
     setStatusErrors((prev) => {
@@ -1157,12 +1160,26 @@ export function ProspectClient({
     });
   }
 
-  async function markDone(id: string) {
+  /** The note shows at once with Undo; the write goes out after the window. */
+  function markDone(id: string) {
     if (id.startsWith("unscheduled:") || doneNotice[id]) return;
-    const prevItem = items.find((it) => it.id === id);
-    if (!prevItem) return;
+    if (!items.some((it) => it.id === id)) return;
     clearStatusError(id);
-    setDoneNotice((prev) => ({ ...prev, [id]: true }));
+    setDoneNotice((prev) => ({ ...prev, [id]: "held" }));
+    arm(id, () => void commitDone(id));
+  }
+
+  function undoDone(id: string) {
+    if (!undo(id)) return;
+    setDoneNotice((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  async function commitDone(id: string) {
+    setDoneNotice((prev) => (prev[id] ? { ...prev, [id]: "sent" } : prev));
     try {
       const res = await apiFetch("/api/prospect/status", {
         method: "POST",
@@ -1171,7 +1188,7 @@ export function ProspectClient({
       });
       const j = await res.json();
       if (!j.ok) throw new Error();
-      // Success beat shows inline for a moment, then the row leaves the list.
+      // Success beat stays a moment, then the row leaves the list.
       setTimeout(() => {
         setItems((prev) => prev.filter((it) => it.id !== id));
         setDoneNotice((prev) => {
@@ -1180,7 +1197,7 @@ export function ProspectClient({
           return next;
         });
         setActive((cur) => (cur?.id === id ? null : cur));
-      }, 1000);
+      }, 900);
     } catch {
       setDoneNotice((prev) => {
         const next = { ...prev };
@@ -1306,7 +1323,8 @@ export function ProspectClient({
                       onReschedule={(date) => reschedule(it.id, date)}
                       todayIso={todayIso}
                       statusError={statusErrors[it.id]}
-                      showSuccess={doneNotice[it.id]}
+                      showSuccess={!!doneNotice[it.id]}
+                      onUndo={doneNotice[it.id] === "held" ? () => undoDone(it.id) : undefined}
                     />
                   ))}
                 </ul>
@@ -1320,7 +1338,7 @@ export function ProspectClient({
 
         <div ref={panelRef} className="order-3 min-w-0 scroll-mt-3 @min-[720px]:[grid-area:panel]">
           {active ? (
-            <AccountPanel item={active} areas={areas} onDone={() => markDone(active.id)} showSuccess={doneNotice[active.id]} />
+            <AccountPanel item={active} areas={areas} onDone={() => markDone(active.id)} showSuccess={!!doneNotice[active.id]} onUndo={doneNotice[active.id] === "held" ? () => undoDone(active.id) : undefined} />
           ) : (
             <div className="h-40 rounded-lg border border-dashed border-[#D8D4C8]" />
           )}
