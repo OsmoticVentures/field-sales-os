@@ -5,8 +5,12 @@
  * closes the row out, no filing. Ported from the NutriBiotic OS's
  * outbound-actions.ts decideDraft.
  *
- * A sent draft files the exact body Juan drafted (never a re-summary) as an
- * activity and into HubSpot the same way a Visit tab touchpoint auto-files
+ * An email files NOTHING here (Juan, 2026-10-27: "write what's actually
+ * real, not what I marked sent"). He edits in Outlook before sending, so the
+ * draft is not what went out; bridges/nutribiotic/pull_sent_emails.py reads
+ * his Sent folder and files the real message on the draft's account. Any
+ * other channel has no sent copy to read, so its drafted body is filed as an
+ * activity and into HubSpot the way a Visit tab touchpoint auto-files
  * (autoFileEngagement, touchpoint.ts). A filing failure never unwinds the
  * "sent" mark; the activity just stays unfiled.
  */
@@ -51,17 +55,20 @@ export async function POST(req: Request) {
       await setDraftStatus(body.id!, body.decision!);
 
       if (body.decision !== "sent") return null;
+      if (body.channel === "email") {
+        const names = body.accountId ? await getAccountNames([body.accountId]) : {};
+        return { filed: false, fromSent: true, accountName: body.accountId ? names[body.accountId] ?? null : null, hubspotFiled: false, hubspotNoteId: null, hubspotError: null };
+      }
       if (!body.accountId || typeof body.body !== "string") {
         return { filed: false, accountName: null, hubspotFiled: false, hubspotNoteId: null, hubspotError: null };
       }
 
-      const detail = body.channel === "email" ? `Emailed${body.subject ? ` "${body.subject}"` : ""}: ${body.body}` : body.body;
       const activity = await insertActivity({
         account_id: body.accountId,
         kind: "email_out",
         direction: "outbound",
         outcome: null,
-        detail,
+        detail: body.body,
       });
       const hubspot = await autoFileEngagement(activity.id, "outbound");
       const names = await getAccountNames([body.accountId]);

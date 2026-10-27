@@ -81,12 +81,14 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
       const j = (await res.json()) as {
         ok: boolean;
         error?: string;
-        result?: { filed: boolean; accountName: string | null; hubspotFiled: boolean; hubspotError: string | null } | null;
+        result?: { filed: boolean; fromSent?: boolean; accountName: string | null; hubspotFiled: boolean; hubspotError: string | null } | null;
       };
       if (!res.ok || !j.ok) throw new Error(j.error ?? "That did not go through.");
 
       if (decision === "dismissed") {
         setNote({ title: "Dismissed" });
+      } else if (j.result?.fromSent) {
+        setNote({ title: `Marked sent${j.result.accountName ? `: ${j.result.accountName}` : ""}` });
       } else if (j.result?.filed) {
         setNote({
           title: `Marked sent${j.result.accountName ? `: ${j.result.accountName}` : ""}`,

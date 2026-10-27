@@ -122,9 +122,16 @@ export async function reconcileContact(accountId: string, existing: Contact[], p
     nameKey(c.first_name) === pFirst &&
     (nameKey(c.last_name) === pLast || !nameKey(c.last_name) || !pLast);
 
+  // A phone is often the office's main line, on file for several people, so
+  // it only matches someone whose name does not contradict the note's (Diane
+  // at the front desk is not the doctor whose row carries the same number).
+  const nameFits = (c: Contact) =>
+    (!pFirst || !nameKey(c.first_name) || nameKey(c.first_name) === pFirst) &&
+    (!pLast || !nameKey(c.last_name) || nameKey(c.last_name) === pLast);
+
   const match =
     (pEmail && existing.find((c) => emailKey(c.email) === pEmail)) ||
-    (pPhone.length === 10 && existing.find((c) => digits(c.phone) === pPhone)) ||
+    (pPhone.length === 10 && existing.find((c) => digits(c.phone) === pPhone && nameFits(c))) ||
     (pFirst || pLast ? existing.find((c) => (pFirst ? sameName(c) : nameKey(c.last_name) === pLast && !nameKey(c.first_name))) : undefined);
 
   if (match) {
