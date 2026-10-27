@@ -70,6 +70,7 @@ export const TASKS = {
   expenses_classify: { tier: "standard", effort: "low", maxTokens: 3000, timeoutMs: 25_000 },
   mileage_odometer: { tier: "standard", effort: "low", maxTokens: 2000, timeoutMs: 25_000 },
   search_suggest_categories: { tier: "fast", effort: "low", maxTokens: 2000, timeoutMs: 15_000 },
+  prospect_intel_summary: { tier: "fast", effort: "low", maxTokens: 1500, timeoutMs: 15_000 },
 } as const satisfies Record<string, { tier: Tier; effort: Effort; maxTokens: number; timeoutMs: number }>;
 export type TaskName = keyof typeof TASKS;
 

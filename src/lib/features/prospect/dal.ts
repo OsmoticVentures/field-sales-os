@@ -43,7 +43,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000
   }
 }
 
-async function sbGet<T>(table: string, params: URLSearchParams): Promise<T[]> {
+export async function sbGet<T>(table: string, params: URLSearchParams): Promise<T[]> {
   if (!isConfigured()) return [];
   const res = await fetchWithTimeout(`${SB_URL}/rest/v1/${table}?${params}`, {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Accept: "application/json" },
@@ -53,7 +53,7 @@ async function sbGet<T>(table: string, params: URLSearchParams): Promise<T[]> {
   return (await res.json()) as T[];
 }
 
-async function sbWrite<T>(table: string, method: "POST" | "PATCH", body: unknown, params?: URLSearchParams): Promise<T[]> {
+export async function sbWrite<T>(table: string, method: "POST" | "PATCH", body: unknown, params?: URLSearchParams): Promise<T[]> {
   if (!isConfigured()) throw new Error(`Cannot write to "${table}": no data source configured.`);
   const qs = params ? `?${params}` : "";
   const res = await fetchWithTimeout(`${SB_URL}/rest/v1/${table}${qs}`, {
@@ -513,7 +513,7 @@ async function sbGetAll<T>(table: string, params: URLSearchParams): Promise<T[]>
 const IN_CHUNK = 300;
 
 /** sbGetAll scoped to `column` in `ids`, a chunk of ids per request, all at once. */
-async function sbGetAllIn<T>(table: string, params: URLSearchParams, column: string, ids: string[]): Promise<T[]> {
+export async function sbGetAllIn<T>(table: string, params: URLSearchParams, column: string, ids: string[]): Promise<T[]> {
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += IN_CHUNK) chunks.push(ids.slice(i, i + IN_CHUNK));
   const pages = await Promise.all(

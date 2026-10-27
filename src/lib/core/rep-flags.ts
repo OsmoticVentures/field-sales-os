@@ -37,6 +37,11 @@ export const REP_FLAGS: Record<string, RepFlag> = {
     asked: "juan for kyle 2026-10-07",
     on: ["kyle"],
   },
+  "prospect-intel": {
+    about: "Prospect opens on the intelligence dashboard, the ranked list sits in a column below it",
+    asked: "juan 2026-10-26",
+    on: ["juan"],
+  },
 };
 
 /** Is this switch on for this rep, by this file alone? An unknown name is
