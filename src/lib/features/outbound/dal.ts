@@ -85,6 +85,8 @@ export type Draft = {
   to_email: string | null;
   to_name: string | null;
   bcc_email: string | null;
+  /** "outlook-draft" once bridges/nutribiotic/order_watch.py saved it into his Outlook Drafts. */
+  provider_msg_id?: string | null;
   play_key: string | null;
   source_ask: string | null;
   status: string;

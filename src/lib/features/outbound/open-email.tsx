@@ -46,7 +46,13 @@ export function CopyBodyButton({ body }: { body: string }) {
   );
 }
 
-type EmailDraft = Pick<Draft, "to_email" | "subject" | "body_md" | "bcc_email">;
+type EmailDraft = Pick<Draft, "to_email" | "subject" | "body_md" | "bcc_email"> & { provider_msg_id?: string | null };
+
+/** A draft already saved in his Outlook Drafts, with its table and any Cc
+ *  (bridges/nutribiotic/order_watch.py, 2026-10-27), opens Drafts: a compose
+ *  link would open a second, bare copy. */
+const IN_OUTLOOK = "outlook-draft";
+const OWA_DRAFTS = "https://outlook.cloud.microsoft/mail/drafts";
 
 export function OpenEmailButtons({
   draft,
@@ -60,6 +66,13 @@ export function OpenEmailButtons({
 }) {
   const onPhone = useOnPhone();
   const tableBody = hasTable(draft.body_md);
+  if (draft.provider_msg_id === IN_OUTLOOK) {
+    return (
+      <a href={onPhone ? "ms-outlook://" : OWA_DRAFTS} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
+        Open in Outlook Drafts &rarr;
+      </a>
+    );
+  }
   const outlook = draft.to_email
     ? (onPhone ? outlookAppComposeLink : owaComposeLink)(draft.to_email, draft.subject, draft.body_md, draft.bcc_email, tableBody)
     : null;
