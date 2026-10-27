@@ -208,6 +208,46 @@ struct StopRow: View {
     }
 }
 
+struct EndRow: View {
+    let end: RouteEnd
+    let data: RouteData
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 7) {
+                Link(destination: deepLink("route", ["day": data.day])) {
+                    HStack(alignment: .top, spacing: 7) {
+                        Image(systemName: "mappin")
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(Pal.paper)
+                            .frame(width: 18, height: 18)
+                            .background(Pal.ink)
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 5) {
+                                Text(end.label).font(.system(size: 12.5, weight: .semibold)).foregroundColor(Pal.ink).lineLimit(1)
+                                Text("END").font(.system(size: 8.5, weight: .semibold)).foregroundColor(Pal.amber)
+                            }
+                            if let a = end.address, !a.isEmpty {
+                                Text(a).font(.system(size: 9.5)).foregroundColor(Pal.muted).lineLimit(1)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                }
+                if let m = end.straight_line_miles_from_prev {
+                    Text("\(String(format: "%.1f", m)) mi").font(.system(size: 9.5)).foregroundColor(Pal.faint)
+                }
+            }
+            HStack(spacing: 1) {
+                PillLink(label: "GO", url: deepLink("go", ["day": data.day, "stop": "end", "maps": end.maps_url, "state": data.day_state]), filled: true)
+                Spacer(minLength: 0)
+            }
+            .padding(.leading, 25)
+        }
+    }
+}
+
 struct RouteView: View {
     let entry: RouteEntry
 
@@ -224,6 +264,8 @@ struct RouteView: View {
     }
 
     func rows(_ data: RouteData) -> [Stop] { data.stops.filter { !$0.done } }
+    /// The end row takes one stop's room, so it always fits.
+    func maxStops(_ data: RouteData) -> Int { data.end == nil ? 4 : 3 }
 
     func content(_ data: RouteData) -> some View {
         let rows = rows(data)
@@ -251,19 +293,23 @@ struct RouteView: View {
                 Spacer()
             } else {
                 Spacer().frame(height: 8)
-                let shown = Array(rows.prefix(4))
+                let shown = Array(rows.prefix(maxStops(data)))
                 ForEach(Array(shown.enumerated()), id: \.element.id) { i, s in
                     if i > 0 {
                         Divider().overlay(Pal.rule).padding(.vertical, 2)
                     }
                     StopRow(stop: s, data: data, remaining: rows.count, showMiles: i > 0)
                 }
+                if let end = data.end {
+                    Divider().overlay(Pal.rule).padding(.vertical, 2)
+                    EndRow(end: end, data: data)
+                }
                 Spacer(minLength: 4)
             }
             HStack {
                 refresh(data)
                 Spacer()
-                if rows.count > 4 { Text("+\(rows.count - 4) more").font(.system(size: 9.5)).foregroundColor(Pal.faint) }
+                if rows.count > maxStops(data) { Text("+\(rows.count - maxStops(data)) more").font(.system(size: 9.5)).foregroundColor(Pal.faint) }
             }
         }
     }

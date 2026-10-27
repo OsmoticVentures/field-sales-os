@@ -122,7 +122,8 @@ enum DeepLink {
     static func resolveAndOpen(day: String, stop: String, vc: UIViewController) async {
         let data = await RouteAPI.fetch()
         await MainActor.run {
-            if let u = data?.stops.first(where: { $0.id == stop })?.mapsURL { openMaps(u, vc: vc) }
+            let maps = stop == "end" ? data?.end?.maps_url : data?.stops.first(where: { $0.id == stop })?.maps_url
+            if let u = maps.flatMap(mapsURL) { openMaps(u, vc: vc) }
             else if data == nil { alert(vc, "Route unavailable", "No connection. Tap Go again.") }
             else { alert(vc, "Stop not on the route", nil) }
         }

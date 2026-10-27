@@ -10,6 +10,7 @@
 import {
   getHomeEndpoint,
   getLastLocation,
+  getRouteEndpointsByDay,
   getRouteMileageByDay,
   getRouteSchedulePrefs,
   getRouteStateByDay,
@@ -91,13 +92,14 @@ export async function GET(request: Request) {
     return Response.json({ ok: false, error: "No data source configured." }, { status: 500 });
   }
 
-  const [state, accounts, prefs, mileageByDay, lastLocation, home] = await Promise.all([
+  const [state, accounts, prefs, mileageByDay, lastLocation, home, endpoints] = await Promise.all([
     getRouteStateByDay(),
     listOwnerAccounts(),
     getRouteSchedulePrefs(),
     getRouteMileageByDay(),
     getLastLocation(),
     getHomeEndpoint(),
+    getRouteEndpointsByDay(),
   ]);
   const byId = new Map(accounts.map((a) => [a.id, a]));
 
@@ -277,6 +279,22 @@ export async function GET(request: Request) {
     };
   }
 
+  /* Where the day ends: the end the route screen saved for this day (a
+     hotel, say), else home. A personal anchor, never an account. Miles run
+     from the last stop still to make. */
+  const endPoint = endpoints.end[day] ?? home;
+  const lastLeft = [...stops].reverse().find((s) => !s.done);
+  const end = endPoint
+    ? {
+        label: endPoint.label,
+        address: endPoint.address || null,
+        lat: endPoint.lat,
+        lng: endPoint.lng,
+        straight_line_miles_from_prev: lastLeft ? Number(haversineMiles(lastLeft, endPoint).toFixed(1)) : null,
+        maps_url: appleMapsUrl(endPoint),
+      }
+    : null;
+
   const accountStops = stops.filter((s) => s.type === "account");
   const allAccountStopsDone =
     (accountStops.length > 0 || visitedCount > 0) && accountStops.every((s) => s.done);
@@ -296,6 +314,7 @@ export async function GET(request: Request) {
       days,
       count: stops.length,
       stops,
+      end,
       calls,
       schedule,
       day_state: day_state as DayState,

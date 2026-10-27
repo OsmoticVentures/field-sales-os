@@ -18,12 +18,21 @@ struct Stop: Codable, Identifiable {
     let call_url: String?
 }
 
+/// Where the day ends (a hotel, or home). Not an account: no call, no done.
+struct RouteEnd: Codable {
+    let label: String
+    let address: String?
+    let straight_line_miles_from_prev: Double?
+    let maps_url: String
+}
+
 struct RouteData: Codable {
     let ok: Bool
     let generated_at: String
     let day: String
     let count: Int
     let stops: [Stop]
+    let end: RouteEnd?
     let day_state: String
     /// "Tomorrow" or a weekday once today has ended and the widget shows the next route.
     let heading: String?
