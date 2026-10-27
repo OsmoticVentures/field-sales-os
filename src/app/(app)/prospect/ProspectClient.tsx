@@ -21,7 +21,7 @@
 
 import { WarmthPicker } from "../../../lib/features/clients/WarmthPicker";
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
@@ -178,8 +178,17 @@ function RefreshIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+const noopSubscribe = () => () => {};
+
+/** False in the server HTML and during hydration, true once on the phone, so
+ *  anything read from the clock renders after mount and never mismatches. */
+function useMounted(): boolean {
+  return useSyncExternalStore(noopSubscribe, () => true, () => false);
+}
+
 function OpenBadge({ businessHours }: { businessHours: BusinessHours | null | undefined }) {
-  const status = hoursStatus(businessHours);
+  const mounted = useMounted();
+  const status = mounted ? hoursStatus(businessHours) : null;
   if (!status) return null;
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-medium ${status.open ? "bg-[#E3EFE6] text-[#3D6B4A]" : "bg-[#ECEAE1] text-[#8A928C]"}`}>
@@ -670,6 +679,7 @@ function PhoneEditable({ accountId, phone }: { accountId: string; phone: string 
 }
 
 function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean; onUndo?: () => void }) {
+  const mounted = useMounted();
   const [panel, setPanel] = useState<AccountPanelData | null>(null);
   const [loading, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -930,7 +940,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
               <div className="mt-3 flex flex-col gap-1 border-t border-[#E2DFD5] pt-3">
                 <span className="text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Hours</span>
                 {Object.entries(panel.businessHours).map(([day, ranges]) => {
-                  const isToday = day === laTodayKey();
+                  const isToday = mounted && day === laTodayKey();
                   return (
                     <div key={day} className={`flex items-baseline justify-between gap-3 text-[14px] ${isToday ? "font-medium" : ""}`}>
                       <span className={`capitalize ${isToday ? "text-[#14201B]" : "text-[#8A928C]"}`}>
