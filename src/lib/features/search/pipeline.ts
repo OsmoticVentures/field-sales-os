@@ -1415,9 +1415,12 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export async function landCandidates(
   candidates: Candidate[],
-  o: { category: string; calls_per_day?: number; start_date?: string | null; write?: boolean; owner: LandOwner },
+  o: { category: string; calls_per_day?: number; start_date?: string | null; write?: boolean; owner: LandOwner; sdr?: boolean },
   log: Log,
 ): Promise<Summary> {
+  // false when Search adds to a route: the prospects land, no calls queue,
+  // and a pick already in the book comes back with its id so it can join the day.
+  const withSdr = o.sdr !== false;
   const category = o.category;
   const callsPerDay = o.calls_per_day ?? 15;
   const summary = baseSummary("land");
@@ -1440,6 +1443,7 @@ export async function landCandidates(
   const rows: Json[] = [];
   const landed: Candidate[] = [];
   const skipped: { name: unknown; why: string }[] = [];
+  const existing: Candidate[] = [];
   const sorted = [...candidates].sort(
     (a, b) =>
       cmp(String(a.area || ""), String(b.area || "")) ||
@@ -1449,6 +1453,11 @@ export async function landCandidates(
   for (const c of sorted) {
     const [hit, why] = book.find(c, SOURCE, c.places_id);
     if (hit) {
+      if (!withSdr && typeof hit.id === "string") {
+        existing.push({ ...c, id: hit.id });
+        log(`  ${c.name}: already in the book (${why}), kept for the route`);
+        continue;
+      }
       skipped.push({ name: c.name ?? null, why: `already in the book (${why})` });
       log(`  skipping ${c.name}: already in the book (${why})`);
       continue;
@@ -1459,8 +1468,8 @@ export async function landCandidates(
   }
 
   if (!rows.length) {
-    summary.stages.land = { accounts: 0, sdr_calls: 0, skipped };
-    summary.candidates = [];
+    summary.stages.land = { accounts: 0, sdr_calls: 0, skipped, existing: existing.length };
+    summary.candidates = existing;
     summary.ok = true;
     summary.finished_at = nowIso();
     log("\nNothing left to land: every pick was already in the book.");
@@ -1469,18 +1478,18 @@ export async function landCandidates(
 
   const noteFor = (_r: Json, area: string) =>
     `New prospect from the '${category}' Places sweep (${area}). Never contacted. No HubSpot record until this call is logged.`;
-  const sdr = spreadSdrCalls(rows, callsPerDay, start, noteFor);
+  const sdr = withSdr ? spreadSdrCalls(rows, callsPerDay, start, noteFor) : [];
   const byArea: Record<string, number> = {};
   for (const r of rows) byArea[String(r.area)] = (byArea[String(r.area)] ?? 0) + 1;
 
-  summary.candidates = landed;
+  summary.candidates = [...landed, ...existing];
   const land: Json = {
     accounts: rows.length,
     sdr_calls: sdr.length,
     by_area: byArea,
-    first_sdr_day: start,
-    calls_per_day: callsPerDay,
+    ...(withSdr ? { first_sdr_day: start, calls_per_day: callsPerDay } : {}),
     skipped,
+    existing: existing.length,
   };
   summary.stages.land = land;
 
@@ -1497,12 +1506,14 @@ export async function landCandidates(
 
   await insertRows("nb_accounts", rows);
   log(`  inserted ${rows.length}/${rows.length} account(s)`);
-  await insertRows("nb_sdr_schedule", sdr);
-  log(`  inserted ${sdr.length} SDR call(s), ${start} onward`);
+  if (sdr.length) {
+    await insertRows("nb_sdr_schedule", sdr);
+    log(`  inserted ${sdr.length} SDR call(s), ${start} onward`);
+  }
   log(`\nDone. ${rows.length} prospect(s) in nb_accounts with hubspot_sync_eligible=false. Nothing reached HubSpot.`);
   summary.written = true;
   land.inserted_accounts = rows.length;
-  land.inserted_sdr = sdr.length;
+  if (withSdr) land.inserted_sdr = sdr.length;
   summary.ok = true;
   summary.finished_at = nowIso();
   return summary;
@@ -1584,6 +1595,7 @@ export async function stageRequest(stage: string, req: Json, log: Log): Promise<
         start_date: (req.start_date as string) || null,
         write: Boolean(req.write),
         owner: req._owner as LandOwner,
+        sdr: req.sdr !== false,
       },
       log,
     );

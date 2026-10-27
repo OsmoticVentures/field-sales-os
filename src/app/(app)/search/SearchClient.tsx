@@ -29,7 +29,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
-import { workingDayIso } from "../../../lib/features/route/field-week";
+import { dayLabel, planningHorizonDates, workingDayIso } from "../../../lib/features/route/field-week";
 import { rankMatches } from "../../../lib/features/search/search-match";
 import { AreaPicker, mapsUrl, type Pin } from "./AreaPicker";
 
@@ -686,6 +686,68 @@ export function SearchClient() {
     setBusy(null);
   }
 
+  /** Add to Route: a pick not in the book lands as a prospect (no call
+   *  queued), then every pick is appended to that day's route. */
+  async function runAddToRoute(day: string) {
+    if (!rows) return;
+    setBusy("land");
+    setFailure(null);
+    setActionNote(null);
+    setActionError(null);
+    let working = rows;
+    const toEnrich = working.filter((r) => selected.has(r.key) && !r.id && !r.enriched);
+    if (toEnrich.length > 0) {
+      const enrichReply = await post("enrich", { candidates: toEnrich });
+      if (!enrichReply) {
+        setBusy(null);
+        return;
+      }
+      const byKey = new Map((enrichReply.candidates ?? []).map((c) => [c.key, c]));
+      working = working.map((r) => byKey.get(r.key) ?? r);
+      setRows(working);
+      setEnrichMeta(enrichReply.stages ?? null);
+    }
+    const picked = working.filter((r) => selected.has(r.key));
+    const toLand = picked.filter((r) => !r.id);
+    const ids = new Map(picked.filter((r) => r.id).map((r) => [r.key, r.id!]));
+    if (toLand.length > 0) {
+      const reply = await post("land", {
+        category: query.trim(),
+        candidates: toLand,
+        write: true,
+        sdr: false,
+      });
+      if (!reply) {
+        setBusy(null);
+        return;
+      }
+      for (const c of reply.candidates ?? []) if (c.id) ids.set(c.key, c.id);
+      working = working.map((r) => (ids.has(r.key) ? { ...r, id: ids.get(r.key)! } : r));
+      setRows(working);
+    }
+    if (ids.size === 0) {
+      setActionError("None of them could be added to the route.");
+      setBusy(null);
+      return;
+    }
+    try {
+      const res = await apiFetch("/api/route/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ day, ids: [...ids.values()] }),
+      });
+      const json = (await res.json()) as { ok?: boolean; added?: number; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error || "add failed");
+      const { weekday, short } = dayLabel(day);
+      const n = json.added ?? ids.size;
+      setActionNote(`${n} stop${n === 1 ? "" : "s"} added to ${weekday} ${short}`);
+      setSelected(new Set());
+    } catch {
+      setActionError("Could not add them to the route. Nothing was saved to the day.");
+    }
+    setBusy(null);
+  }
+
   const firstVisits = groups?.find((g) => g.id === FIRST_VISITS_ID) ?? null;
   const firstVisitIds = useMemo(() => new Set((firstVisits?.members ?? []).map((m) => m.places_id)), [firstVisits]);
   const [visitNote, setVisitNote] = useState<{ key: string; text: string; error?: boolean } | null>(null);
@@ -1161,6 +1223,7 @@ export function SearchClient() {
           groups={groups ?? []}
           onGroup={runAddToGroup}
           onLand={runLand}
+          onRoute={runAddToRoute}
         />
       )}
 
@@ -1171,9 +1234,9 @@ export function SearchClient() {
 }
 
 /** The selection action bar. Rises into place with a spring-like ease rather
- *  than popping in, and clears the tab bar and its safe area. Two actions:
- *  Add to Group (pick a group) and Add to SDR (pick the first call day). Both
- *  read any un-read website first. */
+ *  than popping in, and clears the tab bar and its safe area. Three actions:
+ *  Add to Group (pick a group), Add to Route (pick a day on the route) and
+ *  Add to SDR (pick the first call day). All read any un-read website first. */
 function SelectionBar({
   count,
   unlandedCount,
@@ -1181,6 +1244,7 @@ function SelectionBar({
   groups,
   onGroup,
   onLand,
+  onRoute,
 }: {
   count: number;
   unlandedCount: number;
@@ -1188,9 +1252,11 @@ function SelectionBar({
   groups: SearchGroup[];
   onGroup: (groupId: string) => void;
   onLand: (startDate: string) => void;
+  onRoute: (day: string) => void;
 }) {
   const [risen, setRisen] = useState(false);
-  const [menu, setMenu] = useState<null | "group" | "sdr">(null);
+  const [menu, setMenu] = useState<null | "group" | "route" | "sdr">(null);
+  const routeDays = useMemo(() => planningHorizonDates(), []);
   const [day, setDay] = useState(() => defaultSdrDay());
   useEffect(() => {
     const id = requestAnimationFrame(() => setRisen(true));
@@ -1236,6 +1302,39 @@ function SelectionBar({
                   <span className="text-[11.5px] tabular-nums text-[#8A928C]">{g.members.length}</span>
                 </button>
               ))}
+            </div>
+          )}
+        </div>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setMenu(menu === "route" ? null : "route")}
+            disabled={busy !== null}
+            aria-expanded={menu === "route"}
+            className={secondaryBtn}
+          >
+            <Ico name="pin" size={13} />
+            {busy === "land" && menu === "route" ? "Adding..." : "Add to Route"}
+          </button>
+          {menu === "route" && (
+            <div className={`${pop} max-h-[60vh] overflow-auto`}>
+              {routeDays.map((d) => {
+                const { weekday, short } = dayLabel(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      setMenu(null);
+                      onRoute(d);
+                    }}
+                    className="flex min-h-11 items-center justify-between gap-3 rounded-md px-2 text-left text-[13px] text-[#14201B] hover:bg-[#F2F0E8]"
+                  >
+                    {weekday}
+                    <span className="text-[11.5px] tabular-nums text-[#8A928C]">{short}</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
