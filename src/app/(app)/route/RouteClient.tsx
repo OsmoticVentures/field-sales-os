@@ -18,7 +18,7 @@
 import Link from "next/link";
 import { Geolocation } from "@capacitor/geolocation";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import { apiFetch, getJson, peekJson, warmJson } from "@/lib/core/api";
+import { apiFetch, getJson, keepJson, peekJson, peekStoredJson, warmJson } from "@/lib/core/api";
 import { useUndoWindow } from "@/lib/core/undo";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
@@ -46,6 +46,7 @@ import { DayMoveMenu, RowIco } from "./RowControls";
 import { HUBSPOT_COMPANY_URL } from "@/lib/features/prospect/format";
 import type { Draft } from "@/lib/features/outbound/dal";
 import { OpenEmailButtons } from "@/lib/features/outbound/open-email";
+import { useAccountPanel } from "../account/[id]/useAccountPanel";
 
 type StatePayload = {
   ok: boolean;
@@ -286,13 +287,27 @@ const iconBtn = `${ghostBtn} inline-flex items-center justify-center gap-1.5 px-
 /** Square 44px icon-only row control. */
 const sqBtn = `${ghostBtn} inline-flex min-w-11 items-center justify-center px-0 py-0`;
 
+/** A kept copy of the route, read against today: the days and the open day
+ *  are worked out again, since the copy may be from yesterday. */
+function fromCopy(copy: StatePayload | undefined): StatePayload | null {
+  if (!copy?.ok) return null;
+  const days = planningHorizonDates();
+  return { ...copy, days, activeDay: defaultActiveDay(copy.draft, days) };
+}
+const STATE_PATH = "/api/route/state";
+
 export function RouteClient() {
-  // Last visit's route paints at once; the fresh read replaces it. Only
-  // the day stays put if the rep already picked one.
-  const [data, setData] = useState<StatePayload | null>(() => peekJson<StatePayload>("/api/route/state") ?? null);
+  // The route paints from what is on the phone (this visit's last read, else
+  // the copy kept on the device), then the fresh read replaces it. Only the
+  // day stays put if the rep already picked one.
+  const [data, setData] = useState<StatePayload | null>(() => fromCopy(peekJson<StatePayload>(STATE_PATH)));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeDay, setActiveDay] = useState<string | null>(() => data?.activeDay ?? null);
+  const shown = useRef(data !== null);
+  // Set once a server answer is on screen; only then is the screen's own
+  // state written back as the phone copy.
+  const fresh = useRef(false);
 
   useEffect(() => {
     // Everything the screen will ask for, started together rather than as
@@ -304,22 +319,52 @@ export function RouteClient() {
     if (key) void loadGoogleMaps(key).catch(() => {});
 
     let live = true;
-    getJson<StatePayload>("/api/route/state")
-      .then((j) => {
-        if (!live) return;
-        if (!j.ok) {
-          setLoadError("Couldn't load the route.");
-          return;
-        }
-        routeSync.version = j.version ?? "";
-        setData(j);
-        setActiveDay((d) => (d && j.days.includes(d) ? d : j.activeDay));
-      })
-      .catch(() => live && setLoadError("Couldn't load the route."));
+    // A cold open: the copy on the phone's disk paints the moment it is read.
+    if (!shown.current) {
+      void peekStoredJson<StatePayload>(STATE_PATH).then((copy) => {
+        const kept = fromCopy(copy);
+        if (!live || !kept || shown.current) return;
+        shown.current = true;
+        setData(kept);
+        setActiveDay((d) => d ?? kept.activeDay);
+      });
+    }
+    const read = () => {
+      const savesAtStart = routeSync.saves;
+      getJson<StatePayload>(STATE_PATH)
+        .then((j) => {
+          if (!live) return;
+          if (!j.ok) {
+            if (!shown.current) setLoadError("Couldn't load the route.");
+            return;
+          }
+          // The rep changed the route while this read was out: it may
+          // predate the change, so read again rather than paint it.
+          if (routeSync.saves !== savesAtStart || routeSync.inFlight > 0) {
+            setTimeout(() => live && read(), 400);
+            return;
+          }
+          routeSync.version = j.version ?? "";
+          shown.current = true;
+          fresh.current = true;
+          setData(j);
+          setActiveDay((d) => (d && j.days.includes(d) ? d : j.activeDay));
+        })
+        // No signal: a painted copy stays; with nothing to show, say so.
+        .catch(() => live && !shown.current && setLoadError("Couldn't load the route."));
+    };
+    read();
     return () => {
       live = false;
     };
   }, []);
+
+  // What the screen shows after the rep's own changes is the next open's copy.
+  useEffect(() => {
+    if (!data || !fresh.current) return;
+    const t = setTimeout(() => keepJson(STATE_PATH, data), 800);
+    return () => clearTimeout(t);
+  }, [data]);
 
   // The route another device changed shows up here: on resume, on focus,
   // and every 30 seconds while the screen is open. A tick where nothing
@@ -424,6 +469,7 @@ function RouteDay({
   setActiveDay: (d: string) => void;
 }) {
   const days = data.days;
+  const accountPanel = useAccountPanel();
   const accountsById = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts]);
 
   const draft = data.draft[activeDay] ?? [];
@@ -944,6 +990,7 @@ function RouteDay({
 
   return (
     <div className="flex flex-col gap-3">
+      {accountPanel.panel}
       <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto pb-1">
         {days.map((d) => {
           const { weekday, short } = dayLabel(d);
@@ -1095,6 +1142,7 @@ function RouteDay({
                           <Link
                             prefetch={false}
                             href={`/account/${a.id}`}
+                            onClick={(e) => accountPanel.open(e, a)}
                             className={`truncate text-[14.5px] font-medium underline-offset-2 hover:underline ${isDone ? "line-through text-[#8A928C]" : ""}`}
                           >
                             {title}

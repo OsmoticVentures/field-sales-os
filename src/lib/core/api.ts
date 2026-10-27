@@ -154,6 +154,39 @@ export function peekJson<T>(path: string): T | undefined {
   return undefined;
 }
 
+/** The phone copy of `path` once the disk has been read: what a screen paints
+ *  on a cold open, before the network answers. Memory first, as peekJson. */
+export function peekStoredJson<T>(path: string): Promise<T | undefined> {
+  return hydrated.then(() => peekJson<T>(path));
+}
+
+/**
+ * Rewrite the phone copy of `path` with what the screen now shows, after the
+ * rep changed it here, so the next cold open paints the change and not the
+ * last server answer (a stop marked done stays done). Disk only: the memory
+ * cache keeps holding server answers, so a fresh read is never skipped for it.
+ */
+export function keepJson(path: string, data: unknown): void {
+  if (typeof window === "undefined" || !(path in PHONE_COPY)) return;
+  const at = Date.now();
+  disk.set(path, { at, data });
+  void storePut("reads", path, { at, data });
+}
+
+/** Change the phone copy of `path` in place, for an event that happened away
+ *  from its screen (a visit filed while the rep is on another tab). */
+export function patchJson<T>(path: string, fn: (data: T) => T | undefined): void {
+  if (typeof window === "undefined" || !(path in PHONE_COPY)) return;
+  void hydrated.then(() => {
+    const copy = disk.get(path);
+    if (!copy) return;
+    const next = fn(copy.data as T);
+    if (next === undefined) return;
+    disk.set(path, { at: copy.at, data: next });
+    void storePut("reads", path, { at: copy.at, data: next });
+  });
+}
+
 /** Start reading `path` now, ignore the result. */
 export function warmJson(path: string): void {
   if (typeof window === "undefined") return;

@@ -150,12 +150,23 @@ function DraftTile({ accountId, leave }: { accountId: string; leave: (href: stri
   );
 }
 
-export function AccountDrawer({ id }: { id: string }) {
+/** What the screen that opened the panel already knows about the client, so
+ *  the name and tiles paint with the tap; the phone's copy replaces it. */
+export type AccountSeed = {
+  id: string;
+  name: string;
+  phone?: string | null;
+  website?: string | null;
+  email?: string | null;
+  hubspot_company_id?: string | null;
+};
+
+export function AccountDrawer({ id, seed }: { id: string; seed?: AccountSeed }) {
   const router = useRouter();
   const me = useMe();
   const onPhone = useOnPhone();
   const { payload, fail } = useAccountPayload(id);
-  const a = payload?.account;
+  const a: AccountSeed | undefined = payload?.account ?? (seed?.id === id ? seed : undefined);
 
   const reduced = useSyncExternalStore(subscribeReduced, reducedMotion, () => false);
   const [full, setFull] = useState(false);
@@ -496,7 +507,7 @@ export function AccountDrawer({ id }: { id: string }) {
   }
   if (a && sees(me, "outbound")) tiles.push(<DraftTile key="draft" accountId={a.id} leave={leave} />);
 
-  const failText = fail === "missing" ? "Client not found." : fail === "offline" ? "No connection." : null;
+  const failText = payload || seed?.id === id ? null : fail === "missing" ? "Client not found." : fail === "offline" ? "No connection." : null;
 
   return (
     <>
