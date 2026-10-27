@@ -227,6 +227,36 @@ zero rows different in `nb_v_fit_metrics` (768), `nb_v_account_potential`
 `nb_v_pipeline_stale` (0). The real apply ran the same check inside its
 transaction and would have aborted on any difference.
 
+### 6. Route paints from the phone; a stop's panel opens on the tap (2026-10-27)
+
+Measured on the deployed build, phone width (390 px), Slow 4G (150 ms RTT,
+1.6 Mbps down, 750 kbps up) and 4x CPU, Juan's session, 7 stops on the day.
+Route list = first stop row visible; panel = tap to the client's name in it.
+
+| Measure | Before | After |
+|---|---|---|
+| Route, reopened (worker and phone copy in place) | 1,734 to 1,798 ms | 294 to 424 ms |
+| Stop panel, first tap | 925 ms | 107 to 155 ms |
+| Stop panel, later taps | 209 to 243 ms | 77 to 167 ms |
+| Route, first open ever on a device | 3,786 ms | 4,123 to 4,298 ms (network bound, nothing kept yet) |
+
+What changed:
+
+- A cold open painted nothing until `/api/route/state` (536 KB, about 1.2 s
+  even on fast Wi-Fi) answered: the kept copy was read from disk only after
+  the first render and never painted for a read with no hold. The screen
+  now paints the kept copy as soon as the disk is read, then the fresh read
+  replaces it. Days and the open day are worked out again from today.
+- The kept copy follows the rep's own edits, and a visit filed from any
+  screen marks today's stop done in it (`outbox-runner.tsx`), so a done stop
+  never paints as pending. A fresh read that left before a save is read
+  again rather than painted.
+- The stop panel waited on the server's answer for the intercepted
+  `@modal` route. The tap now pushes `/account/<id>` itself and draws the
+  drawer from the stop's own fields (`useAccountPanel.tsx`), then the
+  phone's copy of the book. The drawer's code preloads when idle; not
+  `React.lazy`, whose suspended first render React reveals ~300 ms late.
+
 ## Looked at, left as is
 
 - **Splitting the map and other big client pieces into lazy chunks.** The
