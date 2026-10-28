@@ -90,6 +90,12 @@ func clock12(_ hhmm: String?) -> String? {
     return "\((h + 11) % 12 + 1):\(String(format: "%02d", p[1])) \(h < 12 ? "AM" : "PM")"
 }
 
+private let months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+func usd(_ n: Double) -> String {
+    n >= 10000 ? "$\(Int((n / 1000).rounded()))k" : "$" + NumberFormatter.localizedString(from: NSNumber(value: Int(n.rounded())), number: .decimal)
+}
+
 func driveText(_ m: Int?) -> String? {
     guard let m, m > 0 else { return nil }
     return m < 60 ? "\(m) min drive" : "\(m / 60)h \(String(format: "%02d", m % 60))m drive"
@@ -102,6 +108,19 @@ extension Stop {
         return sub.isEmpty ? nil : sub
     }
     var isCustom: Bool { type == "custom" }
+    /// Last order, 12-month and lifetime buying, only what the book holds.
+    var moneyLine: String? {
+        guard type == "account" else { return nil }
+        var bits: [String] = []
+        if let d = last_order_at {
+            let p = d.split(separator: "-")
+            if p.count >= 2, let m = Int(p[1]), m >= 1, m <= 12 { bits.append("Last order \(months[m - 1]) \(p[0])") }
+        }
+        if let r = trailing_12m_revenue, r > 0 { bits.append("12m \(usd(r))") }
+        if let l = lifetime_revenue, l > 0 { bits.append("Lifetime \(usd(l))") }
+        if bits.isEmpty && last_order_at == nil { return "Never ordered" }
+        return bits.isEmpty ? nil : bits.joined(separator: " · ")
+    }
     /// The clock to show: the stated time when there is one, else the ETA.
     var when: String? { clock12(locked_at ?? eta) }
 }
@@ -171,6 +190,9 @@ struct NextStop: View {
                             .foregroundColor(Pal.ink)
                             .lineLimit(compact ? 1 : 2)
                         timeLine
+                        if let money = stop.moneyLine {
+                            Text(money).font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.ink.opacity(0.8)).lineLimit(1)
+                        }
                         if !compact, let place = stop.place {
                             Text(place).font(.system(size: 12)).foregroundColor(Pal.muted).lineLimit(1)
                         }
@@ -301,7 +323,7 @@ struct RouteView: View {
     func content(_ data: RouteData) -> some View {
         let rows = rows(data)
         let miles = rows.dropFirst().reduce(0.0) { $0 + ($1.straight_line_miles_from_prev ?? 0) }
-        let later = Array(rows.dropFirst().prefix(large ? 4 : 0))
+        let later = Array(rows.dropFirst().prefix(large ? 3 : 0))
         return VStack(alignment: .leading, spacing: 0) {
             header(data, rows: rows.count, miles: miles)
             if rows.isEmpty {
@@ -329,17 +351,32 @@ struct RouteView: View {
         }
     }
 
-    /// Calm header: the day, what is left. Tapping it refreshes.
+    /// The day, what is left, and the update control with the time of the copy shown.
     func header(_ data: RouteData, rows: Int, miles: Double) -> some View {
-        Button(intent: RefreshIntent()) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(data.heading ?? "Today").font(.system(size: 13, weight: .semibold)).foregroundColor(Pal.ink)
-                Spacer()
-                if rows > 0 {
-                    Text("\(rows) stop\(rows == 1 ? "" : "s") left" + (miles >= 1 ? " · \(Int(miles.rounded())) mi" : ""))
-                        .font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.muted)
-                }
+        HStack(alignment: .center, spacing: 6) {
+            Text(data.heading ?? "Today").font(.system(size: 13, weight: .semibold)).foregroundColor(Pal.ink)
+            if rows > 0 {
+                Text("\(rows) left" + (miles >= 1 ? " · \(Int(miles.rounded())) mi" : ""))
+                    .font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.muted).lineLimit(1)
             }
+            Spacer(minLength: 4)
+            refresh(data)
+        }
+    }
+
+    func refresh(_ data: RouteData?) -> some View {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let at = data.flatMap { f.date(from: $0.generated_at) } ?? entry.date
+        return Button(intent: RefreshIntent()) {
+            HStack(spacing: 4) {
+                Text(at.formatted(date: .omitted, time: .shortened)).font(.system(size: 11.5)).monospacedDigit()
+                Image(systemName: "arrow.clockwise").font(.system(size: 10.5, weight: .semibold))
+            }
+            .foregroundColor(Pal.ink)
+            .padding(.horizontal, 9).frame(minHeight: 26)
+            .background(Pal.control)
+            .clipShape(Capsule())
         }.buttonStyle(.plain)
     }
 
