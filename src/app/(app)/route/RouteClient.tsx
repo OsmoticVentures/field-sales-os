@@ -709,6 +709,33 @@ function RouteDay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lunchAfter, activeDay]);
 
+  // A stop with a stated time that the order now makes late (a stop added or
+  // moved ahead of it) goes back in where its time falls, so the day bends
+  // around it instead of naming it late. Settles: placed once, the same rest
+  // places it the same way again, so it never writes twice.
+  const lateKey = schedule ? [...schedule.missedAnchors].sort().join("|") : "";
+  useEffect(() => {
+    if (!lateKey || activeDay < laTodayIso()) return;
+    const late = new Set(lateKey.split("|"));
+    const idOf = (e: RouteDraftEntry) => (typeof e === "string" ? e : e.id);
+    const now = activeDay === laTodayIso() ? minutesOfDay(nowHHMM()) : 0;
+    const timed = draft
+      .filter((e) => late.has(idOf(e)) && !doneIds.has(idOf(e)) && stopTimes[idOf(e)])
+      .map((e) => ({ entry: e, at: minutesOfDay(stopTimes[idOf(e)]) }))
+      .filter((x) => x.at > now);
+    if (timed.length === 0) return;
+    const moving = new Set(timed.map((x) => idOf(x.entry)));
+    const head = live ? draft.filter((e) => doneIds.has(idOf(e))) : [];
+    const rest = draft.filter((e) => !moving.has(idOf(e)) && !head.includes(e));
+    const next = [
+      ...head,
+      ...placeByTime(rest, timed, pointOfEntry, routeStart, minutesOfDay(prefs.depart), prefs.dwellMinutes, timeOfEntry),
+    ];
+    if (next.length === draft.length && next.every((e, i) => e === draft[i])) return;
+    patchDraft(activeDay, next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lateKey, activeDay]);
+
   const shownLegs = schedule?.priced ?? legs;
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {

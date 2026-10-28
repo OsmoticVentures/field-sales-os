@@ -2,7 +2,7 @@ import { PhoneSync } from "../../lib/core/phone-sync-mount";
 import { ScrollKeeper } from "../../lib/core/scroll-keeper";
 import { UnsentStatus } from "../../lib/core/unsent";
 import { ScreenTransition } from "../../lib/core/view-transition";
-import { CommandButton, CommandKeys } from "./CommandMenu";
+import { CommandKeys } from "./CommandMenu";
 import { SidebarNav, TabBar, type NavItem } from "./Nav";
 
 /**
@@ -44,7 +44,6 @@ export default function AppLayout({ children, modal }: { children: React.ReactNo
               <div className="text-[18px] leading-none font-semibold tracking-tight">ClientOS</div>
             </div>
             <SidebarNav items={NAV} />
-            <CommandButton />
           </aside>
 
           {/* pb clears the mobile tab bar below md, once it exists; matches

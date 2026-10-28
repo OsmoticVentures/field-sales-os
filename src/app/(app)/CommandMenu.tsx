@@ -50,31 +50,11 @@ export function CommandKeys({ items }: { items: NavItem[] }) {
         if (i >= 0) router.push(mine[i].href);
       }
     };
-    const onOpen = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    window.addEventListener("nb:command-menu", onOpen);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("nb:command-menu", onOpen);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [mine, router]);
 
   return open ? <Menu screens={mine} onClose={() => setOpen(false)} /> : null;
-}
-
-/** The sidebar's way in for a pointer. */
-export function CommandButton() {
-  return (
-    <button
-      type="button"
-      onClick={() => window.dispatchEvent(new Event("nb:command-menu"))}
-      className="mt-4 flex min-h-11 w-full items-center gap-2.5 rounded-md border border-[#E2DFD5] px-2.5 text-[14px] text-[#5B6560] transition-colors hover:bg-[#ECEAE1] hover:text-[#14201B]"
-    >
-      <Ico name="search" />
-      Jump to
-      <span className="kbd ml-auto">⌘K</span>
-    </button>
-  );
 }
 
 function Menu({ screens, onClose }: { screens: NavItem[]; onClose: () => void }) {
