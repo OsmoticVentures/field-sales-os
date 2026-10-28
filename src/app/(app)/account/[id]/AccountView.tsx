@@ -2,14 +2,14 @@
 
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useOnPhone } from "@/lib/features/outbound/use-on-phone";
 import { apiFetch } from "../../../../lib/core/api";
 import { patchAccount, refreshAccount } from "../../../../lib/core/phone-sync";
 import { Card, Ico, SuccessNote, eyebrowCls } from "../../../../lib/core/ui";
 import type { ClientAccount, ClientActivity, ClientContact } from "../../../../lib/features/clients/dal";
 import {
-  OpenBadge,
+  OpenBadge as ClockOpenBadge,
   PhoneDisplay,
   TierChip,
   absoluteUrl,
@@ -27,6 +27,15 @@ import type { RouteDraftEntry } from "../../../../lib/features/route/types";
 import { WarmthPicker } from "../../../../lib/features/clients/WarmthPicker";
 import { CountSlots, countsOf, type CountField } from "../../../../lib/features/clients/CountSlots";
 import { sees, useMe } from "../../../../lib/core/me";
+
+const noopSubscribe = () => () => {};
+
+/** The open/closed badge reads the clock, so it renders only once on the phone;
+ *  the server HTML and hydration pass show nothing and never mismatch. */
+function OpenBadge(props: Parameters<typeof ClockOpenBadge>[0]) {
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  return mounted ? <ClockOpenBadge {...props} /> : null;
+}
 
 const POTENTIAL_LETTERS = ["A", "B", "C", "D", "E"] as const;
 
