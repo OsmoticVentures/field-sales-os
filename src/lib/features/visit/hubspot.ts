@@ -19,6 +19,7 @@
  */
 import "server-only";
 import { payloadHash } from "./hubspot-hash";
+import { scopeVerdict, type ScopeVerdict } from "./hubspot-scope";
 import { logHubspotCall } from "./dal";
 import { myOwnerId } from "../../core/user";
 import { hubspotStageRefusal, hubspotWritesAllowedHere } from "../../core/stage";
@@ -168,22 +169,15 @@ export async function batchRead(
   return out;
 }
 
-export type ScopeVerdict = { allowed: string[]; dropped: Array<{ id: string; owner: string | null }> };
+export type { ScopeVerdict } from "./hubspot-scope";
 
 /** The live-portal owner-scope assertion. The Supabase read that produced
- *  the company id is the first assertion; this re-reads the live record. */
+ *  the company id is the first assertion; this re-reads the live record,
+ *  following a portal merge to its survivor (hubspot-scope.ts). */
 export async function assertOwnBook(companyIds: string[]): Promise<ScopeVerdict> {
   const OWNER_ID = await ownerId();
   const unique = Array.from(new Set(companyIds.filter(Boolean)));
-  if (unique.length === 0) return { allowed: [], dropped: [] };
-  const live = await batchRead("companies", unique, ["hubspot_owner_id"]);
-  const owners = new Map(live.map((r) => [r.id, r.properties?.hubspot_owner_id ?? null]));
-  const allowed: string[] = [];
-  const dropped: ScopeVerdict["dropped"] = [];
-  for (const id of unique) {
-    const owner = owners.get(id) ?? null;
-    if (owner === OWNER_ID) allowed.push(id);
-    else dropped.push({ id, owner });
-  }
-  return { allowed, dropped };
+  if (unique.length === 0) return { allowed: [], dropped: [], survivor: {} };
+  const live = await batchRead("companies", unique, ["hubspot_owner_id", "hs_merged_object_ids"]);
+  return scopeVerdict(unique, live, OWNER_ID);
 }

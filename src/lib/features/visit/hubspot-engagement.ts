@@ -503,15 +503,17 @@ export async function runEngagement(
 
   // A logged visit always reaches HubSpot: an account with no company gets
   // one here, duplicate-checked portal-wide (ensureCompanyFor).
-  const companyId = account.hubspot_company_id ?? (await ensureCompanyFor(account.id).catch((e: unknown) => {
+  const linkedId = account.hubspot_company_id ?? (await ensureCompanyFor(account.id).catch((e: unknown) => {
     throw new Blocked(e instanceof Error ? e.message : `Could not create a portal company for ${account.name}.`);
   }));
 
-  const scope = await assertOwnBook([companyId]);
-  if (!scope.allowed.includes(companyId)) {
-    const dropped = scope.dropped.find((d) => d.id === companyId);
-    throw new Blocked(`portal company ${companyId} (${account.name}) has hubspot_owner_id ${dropped?.owner ?? "(none)"}, not ${me.ownerName}'s ${me.ownerId}. DROPPED, nothing written.`);
+  const scope = await assertOwnBook([linkedId]);
+  if (!scope.allowed.includes(linkedId)) {
+    const dropped = scope.dropped.find((d) => d.id === linkedId);
+    throw new Blocked(`portal company ${linkedId} (${account.name}) has hubspot_owner_id ${dropped?.owner ?? "(none)"}, not ${me.ownerName}'s ${me.ownerId}. DROPPED, nothing written.`);
   }
+  // A company merged in the portal files to the record it was merged into.
+  const companyId = scope.survivor[linkedId] ?? linkedId;
 
   // ONE WRITER PER ACTIVITY (core/once.ts). The marker search below cannot
   // see a record HubSpot created a second ago (its search index lags), so two
