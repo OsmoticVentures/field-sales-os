@@ -85,6 +85,17 @@ export const calendarChoiceKey = (eventId: string) => `cal:${eventId}`;
  *  While the calendar still says that, the rep's time stands; once the event
  *  moves on the calendar, the calendar wins again. */
 export const calendarBaseKey = (eventId: string) => `calbase:${eventId}`;
+/** The stop-times key recording that an account stop came off the day's
+ *  drive to the same day's SDR list, so a stated time could be kept. Its
+ *  value is the SDR item's id ("" while the write is in flight), or "kept"
+ *  once the rep put the stop back, so it is never moved again that day. */
+export const sdrMovedKey = (stopId: string) => `sdr:${stopId}`;
+export const SDR_KEPT = "kept";
+/** Moved to SDR on this day's stop times (and not put back). */
+export const movedToSdr = (times: Record<string, string> | undefined, stopId: string) => {
+  const v = times?.[sdrMovedKey(stopId)];
+  return v !== undefined && v !== SDR_KEPT;
+};
 
 export type CustomStop = {
   /** Always prefixed "custom:", which is what tells the two apart in a draft. */

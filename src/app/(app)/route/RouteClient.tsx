@@ -27,7 +27,7 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, calendarBaseKey, calendarChoiceKey, lunchDue } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, movedToSdr, sdrMovedKey } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -168,6 +168,8 @@ function prettyPhone(value: string): string {
 function prettyUrl(value: string): string {
   return value.replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/$/, "");
 }
+/** A is the most potential; no tier reads as the least. */
+const tierRank = (t: RouteAccount["tier"]) => (t ? "ABCDEFG".indexOf(t) : 7);
 function absoluteUrl(value: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
@@ -527,8 +529,17 @@ function RouteDay({
   // left are routed from where the rep is (or the last stop made), so the
   // ETAs after it are the real ones, not the morning's plan.
   const live = activeDay === laTodayIso() && stops.some((s) => doneIds.has(s.id));
-  const routed = useMemo(() => (live ? stops.filter((s) => !doneIds.has(s.id)) : stops), [live, stops, doneIds]);
+  // A stop moved to SDR stays on the list, crossed off, but is not driven to.
+  const movedIds = useMemo(() => new Set(stops.filter((s) => movedToSdr(stopTimes, s.id)).map((s) => s.id)), [stops, stopTimes]);
+  const routed = useMemo(
+    () => stops.filter((s) => !movedIds.has(s.id) && !(live && doneIds.has(s.id))),
+    [live, stops, doneIds, movedIds],
+  );
   const routedIndex = useMemo(() => new Map(routed.map((s, i) => [s.id, i])), [routed]);
+  const stopNumber = useMemo(
+    () => new Map(stops.filter((s) => !movedIds.has(s.id)).map((s, i) => [s.id, i + 1])),
+    [stops, movedIds],
+  );
   const routeStart = useMemo<RouteEndpoint | null>(() => {
     if (!live) return start;
     if (myLoc) return myLoc;
@@ -709,13 +720,16 @@ function RouteDay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lunchAfter, activeDay]);
 
-  // A stop with a stated time that the order now makes late (a stop added or
-  // moved ahead of it) goes back in where its time falls, so the day bends
-  // around it instead of naming it late. Settles: placed once, the same rest
-  // places it the same way again, so it never writes twice.
+  // A stop with a stated time that the order makes late (a stop added or
+  // moved ahead of it) goes back in where its time falls. If it is still late
+  // in that order, the day cannot fit everything before it: the lowest
+  // potential account ahead of it comes off the drive onto the same day's SDR
+  // list, one per pass, until the stated time is kept. Settles: a placement
+  // the same rest places the same way is never written twice, and every pass
+  // that moves a stop leaves one fewer to move.
   const lateKey = schedule ? [...schedule.missedAnchors].sort().join("|") : "";
   useEffect(() => {
-    if (!lateKey || activeDay < laTodayIso()) return;
+    if (!lateKey || legState !== "ok" || activeDay < laTodayIso()) return;
     const late = new Set(lateKey.split("|"));
     const idOf = (e: RouteDraftEntry) => (typeof e === "string" ? e : e.id);
     const now = activeDay === laTodayIso() ? minutesOfDay(nowHHMM()) : 0;
@@ -724,17 +738,68 @@ function RouteDay({
       .map((e) => ({ entry: e, at: minutesOfDay(stopTimes[idOf(e)]) }))
       .filter((x) => x.at > now);
     if (timed.length === 0) return;
+
     const moving = new Set(timed.map((x) => idOf(x.entry)));
     const head = live ? draft.filter((e) => doneIds.has(idOf(e))) : [];
     const rest = draft.filter((e) => !moving.has(idOf(e)) && !head.includes(e));
+    const pointOfRouted = (e: RouteDraftEntry) => (movedIds.has(idOf(e)) ? null : pointOfEntry(e));
     const next = [
       ...head,
-      ...placeByTime(rest, timed, pointOfEntry, routeStart, minutesOfDay(prefs.depart), prefs.dwellMinutes, timeOfEntry),
+      ...placeByTime(rest, timed, pointOfRouted, routeStart, minutesOfDay(prefs.depart), prefs.dwellMinutes, timeOfEntry),
     ];
-    if (next.length === draft.length && next.every((e, i) => e === draft[i])) return;
-    patchDraft(activeDay, next);
+    if (next.length !== draft.length || next.some((e, i) => e !== draft[i])) {
+      patchDraft(activeDay, next);
+      return;
+    }
+
+    // Still late where it falls: the earliest late stop sets the cut.
+    const firstLate = Math.min(...timed.map((x) => routedIndex.get(idOf(x.entry)) ?? Infinity));
+    const candidates = routed.slice(0, Number.isFinite(firstLate) ? firstLate : 0).filter(
+      (r): r is Extract<RouteStopView, { type: "account" }> =>
+        r.type === "account" && !doneIds.has(r.id) && !timeOfEntry(r.id) && stopTimes[sdrMovedKey(r.id)] !== SDR_KEPT,
+    );
+    if (candidates.length === 0) return;
+    const pick = [...candidates].sort(
+      (x, y) =>
+        tierRank(y.account.tier) - tierRank(x.account.tier) ||
+        (x.account.trailing_12m_revenue ?? 0) - (y.account.trailing_12m_revenue ?? 0) ||
+        (x.account.lifetime_revenue ?? 0) - (y.account.lifetime_revenue ?? 0),
+    )[0];
+    moveToSdr(pick.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateKey, activeDay]);
+  }, [lateKey, legState, pathKey, activeDay]);
+
+  /** Off the day's drive and onto the same day's SDR list as a call. The
+   *  stop stays on the list, crossed off, until the rep puts it back. */
+  function moveToSdr(id: string) {
+    const day = activeDay;
+    const key = sdrMovedKey(id);
+    const setMark = (value: string) =>
+      setData((prev) => {
+        const times = { ...(prev.times[day] ?? {}), [key]: value };
+        postJson("/api/route/stop-times", { day, times }).catch(() => {});
+        return { ...prev, times: { ...prev.times, [day]: times } };
+      });
+    setMark("");
+    postJson<{ ok: boolean; result?: { id?: string } }>("/api/prospect/schedule", {
+      account_id: id,
+      kind: "call",
+      scheduled_date: day,
+      priority: "high",
+      notes: "Moved off the route to keep a stated time",
+    })
+      .then((res) => {
+        if (res.ok && res.result?.id) setMark(res.result.id);
+      })
+      .catch(() => {});
+  }
+  /** Back on the drive; its SDR call is skipped, and it is never moved again
+   *  that day. */
+  function keepOnRoute(id: string) {
+    const sdrId = stopTimes[sdrMovedKey(id)];
+    if (sdrId) postJson("/api/prospect/status", { id: sdrId, status: "skipped" }).catch(() => {});
+    patchTimes(activeDay, { ...stopTimes, [sdrMovedKey(id)]: SDR_KEPT });
+  }
 
   const shownLegs = schedule?.priced ?? legs;
 
@@ -981,13 +1046,15 @@ function RouteDay({
   }
 
   async function optimize() {
-    if (stops.length < 3) return;
+    const driven = stops.filter((s) => !movedIds.has(s.id));
+    if (driven.length < 3) return;
     setBusy(true);
     try {
-      const points = [...(start ? [start] : []), ...stops, ...(end ? [end] : [])];
+      const points = [...(start ? [start] : []), ...driven, ...(end ? [end] : [])];
       const matrix = await costMatrix(points);
-      const order = optimizedStopOrder(matrix, stops.length, start !== null, end !== null);
-      const ids = order.map((i) => stops[i].id);
+      const order = optimizedStopOrder(matrix, driven.length, start !== null, end !== null);
+      // Stops moved to SDR keep their crossed-off rows, at the end.
+      const ids = [...order.map((i) => driven[i].id), ...stops.filter((s) => movedIds.has(s.id)).map((s) => s.id)];
       // A calendar stop keeps its time: the rest are ordered, then it goes
       // back in where its time falls.
       const byId = new Map(draft.map((e) => [typeof e === "string" ? e : e.id, e]));
@@ -1056,7 +1123,7 @@ function RouteDay({
           days={days}
           activeDay={activeDay}
           draftByDay={data.draft}
-          stops={stops}
+          stops={stops.filter((s) => !movedIds.has(s.id))}
           start={routeStart}
           end={end}
           coords={coords}
@@ -1152,6 +1219,22 @@ function RouteDay({
               const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
               const dropAtEnd = drag && drag.dropIndex === stops.length && i === stops.length - 1;
               const lockedAt = /^\d{1,2}:\d{2}$/.test(stopTimes[s.id] ?? "") ? stopTimes[s.id] : null;
+              if (movedIds.has(s.id)) {
+                return (
+                  <li key={s.id} data-stop-id={s.id} className="flex items-center gap-3 px-4 py-3">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#ECEAE1] text-[#8A928C]">
+                      <Ico name="phone" size={13} />
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="truncate text-[14.5px] font-medium text-[#8A928C] line-through">{title}</span>
+                      <span className="rounded bg-[#E4EFE8] px-1.5 py-0.5 text-[10.5px] font-medium text-[#2C6A46]">Moved to SDR</span>
+                    </div>
+                    <button type="button" onClick={() => keepOnRoute(s.id)} className={iconBtn}>
+                      Keep on route
+                    </button>
+                  </li>
+                );
+              }
               return (
                 <li
                   key={s.id}
@@ -1166,7 +1249,7 @@ function RouteDay({
                         c ? "rounded-[4px] bg-[#A0762C]" : "rounded-full bg-[#14201B]"
                       }`}
                     >
-                      {isDone ? <Ico name="check" size={13} /> : i + 1}
+                      {isDone ? <Ico name="check" size={13} /> : (stopNumber.get(s.id) ?? i + 1)}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
