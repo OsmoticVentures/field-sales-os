@@ -1453,15 +1453,6 @@ function RouteDay({
                           className={sqBtn}
                         />
                       )}
-                      {a && (
-                        <Link
-                          href={{ pathname: "/visit", query: { account: a.id, name: a.name } }}
-                          className={iconBtn}
-                        >
-                          <Ico name="plus" size={13} />
-                          Log a visit
-                        </Link>
-                      )}
                       {!c?.pending && (
                         <a
                           href={appleMapsUrl({ address: c ? c.address : a ? fullAddress(a) : null, lat: s.lat, lng: s.lng })}
