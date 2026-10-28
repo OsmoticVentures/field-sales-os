@@ -43,7 +43,13 @@ import {
 export type { OutboxItem } from "./outbox-core";
 
 /** A note that just completed, kept on screen for its confirmation beat. */
-export type OutboxDone = { id: string; label: string; hubspot: OutboxItem["hubspot"]; outbound: OutboxItem["outbound"] };
+export type OutboxDone = {
+  id: string;
+  label: string;
+  accountId: string | null;
+  hubspot: OutboxItem["hubspot"];
+  outbound: OutboxItem["outbound"];
+};
 
 type State = { items: OutboxItem[]; done: OutboxDone[]; running: string | null };
 
@@ -170,7 +176,7 @@ function label(it: OutboxItem): string {
 
 function beat(it: OutboxItem) {
   const outbound = it.outbound ?? null;
-  state = { ...state, done: [...state.done, { id: it.id, label: label(it), hubspot: it.hubspot, outbound }] };
+  state = { ...state, done: [...state.done, { id: it.id, label: label(it), accountId: it.accountId ?? it.accountIdHint ?? null, hubspot: it.hubspot, outbound }] };
   emit();
   // An email that was owed and could not be written stays until he clears it.
   if (outbound?.status === "not_written") return;

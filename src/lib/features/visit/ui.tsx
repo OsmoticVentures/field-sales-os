@@ -26,12 +26,15 @@ import {
   runOutbox,
   takeBack,
   useOutbox,
+  type OutboxDone,
   type OutboxItem,
 } from "../../core/outbox";
+import { apiFetch } from "../../core/api";
+import { workingDayIso } from "../route/field-week";
 import { waitsForType, type AccountPick, type DoorCounts, type NeedsAccount } from "../../core/outbox-core";
 import { getAccountPayload, refreshAccount } from "../../core/phone-sync";
 import { BLANK_COUNTS, COUNT_SLOTS, CountSlots, countsOf, type CountValues } from "../clients/CountSlots";
-import { Ico, ghostBtn } from "../../core/ui";
+import { Ico, SuccessNote, ghostBtn } from "../../core/ui";
 import { ReadinessIcon } from "../clients/WarmthPicker";
 
 /** A small inline spinner for a button mid-write, in place of a "..." label. */
@@ -470,6 +473,105 @@ function standing(it: OutboxItem, running: boolean): { word: string; alert: bool
   return { word: "Filed", alert: false };
 }
 
+const SDR_IN = [
+  { label: "Tomorrow", days: 1 },
+  { label: "In 3 days", days: 3 },
+  { label: "In a week", days: 7 },
+] as const;
+
+/** n days after the working day, moved off a weekend onto Monday. */
+function callDay(days: number): string {
+  const [y, m, d] = workingDayIso().split("-").map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d + days, 12));
+  const dow = at.getUTCDay();
+  if (dow === 6) at.setUTCDate(at.getUTCDate() + 2);
+  if (dow === 0) at.setUTCDate(at.getUTCDate() + 1);
+  return at.toISOString().slice(0, 10);
+}
+const dayName = (iso: string) =>
+  new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+
+/** An email the note seemed to owe that could not be written: the reason,
+ *  and what to do instead, a call on SDR or the account to fix what is
+ *  missing. */
+function NotDrafted({ done, reason }: { done: OutboxDone; reason: string }) {
+  const [busy, setBusy] = useState<number | null>(null);
+  const [placed, setPlaced] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function toSdr(days: number) {
+    if (!done.accountId) return;
+    const date = callDay(days);
+    setBusy(days);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/prospect/schedule", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": `visit-sdr:${done.id}:${date}` },
+        body: JSON.stringify({ account_id: done.accountId, kind: "call", scheduled_date: date, priority: "mid" }),
+      });
+      const j = (await res.json()) as { ok: boolean; error?: string };
+      if (!j.ok) throw new Error(j.error ?? "Not scheduled. Try again.");
+      setPlaced(`Call on SDR, ${dayName(date)}`);
+      setTimeout(() => dismissDone(done.id), 1000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Not scheduled. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (placed) {
+    return (
+      <div className="pb-2">
+        <SuccessNote title={placed} />
+      </div>
+    );
+  }
+  return (
+    <div role="status" className="flex flex-col gap-2 pb-3">
+      <div className="flex items-start justify-between gap-3 text-[13px] leading-relaxed text-[#3D4A44]">
+        <span>{reason}</span>
+        <button
+          type="button"
+          aria-label="Clear"
+          onClick={() => dismissDone(done.id)}
+          className="-mt-2.5 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center text-[#8A928C] transition-transform active:scale-[0.95]"
+        >
+          <Ico name="close" size={13} />
+        </button>
+      </div>
+      {done.accountId && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 flex items-center gap-1.5 text-[13px] font-medium text-[#14201B]">
+            <Ico name="phone" size={13} />
+            Call on SDR
+          </span>
+          {SDR_IN.map((o) => (
+            <button
+              key={o.days}
+              type="button"
+              disabled={busy !== null}
+              onClick={() => toSdr(o.days)}
+              className={`${ghostBtn} inline-flex min-h-11 items-center gap-1.5 px-3 text-[13px] font-medium text-[#3D4A44] disabled:opacity-50`}
+            >
+              {busy === o.days && <Spinner light={false} />}
+              {o.label}
+            </button>
+          ))}
+          <Link
+            href={`/account/${done.accountId}`}
+            className="inline-flex min-h-11 items-center px-2 text-[13px] font-medium text-[#14201B] underline underline-offset-2"
+          >
+            Open account
+          </Link>
+        </div>
+      )}
+      {error && <p className="text-[13px] font-medium text-[#8A2E2E]">{error}</p>}
+    </div>
+  );
+}
+
 /** Stuck enough that letting it go is his call: parked, refused, or still
  *  failing after a few rounds. */
 const discardable = (it: OutboxItem) => Boolean(it.parked) || Boolean(it.hubspotRefused) || it.attempts >= 3;
@@ -512,19 +614,7 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
               <span className="underline underline-offset-2">Open</span>
             </Link>
           )}
-          {d.outbound?.status === "not_written" && (
-            <div role="alert" className="flex items-start justify-between gap-3 pb-2 text-[13px] leading-relaxed font-medium text-[#8A2E2E]">
-              <span>{d.outbound.reason}</span>
-              <button
-                type="button"
-                aria-label="Clear"
-                onClick={() => dismissDone(d.id)}
-                className="-mt-2.5 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center transition-transform active:scale-[0.95]"
-              >
-                <Ico name="close" size={13} />
-              </button>
-            </div>
-          )}
+          {d.outbound?.status === "not_written" && <NotDrafted done={d} reason={d.outbound.reason} />}
         </div>
       ))}
 
