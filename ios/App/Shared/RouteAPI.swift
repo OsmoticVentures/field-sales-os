@@ -14,8 +14,17 @@ struct Stop: Codable, Identifiable {
     let lifetime_revenue: Double?
     let straight_line_miles_from_prev: Double?
     let done: Bool
+    /// "HH:MM" stated on the route screen (a lunch, a calendar event).
+    let locked_at: String?
+    /// Rough arrival "HH:MM" for a stop still to make.
+    let eta: String?
+    let drive_minutes: Int?
     let maps_url: String
     let call_url: String?
+}
+
+struct RouteSchedule: Codable {
+    let finish_clock: String
 }
 
 /// Where the day ends (a hotel, or home). Not an account: no call, no done.
@@ -37,6 +46,7 @@ struct RouteData: Codable {
     /// "Tomorrow" or a weekday once today has ended and the widget shows the next route.
     let heading: String?
     let visited_count: Int?
+    let schedule: RouteSchedule?
 }
 
 enum RouteAPI {

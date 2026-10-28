@@ -20,7 +20,7 @@ import {
 } from "../../../lib/features/route/dal";
 import { defaultActiveDay, planningHorizonDates } from "../../../lib/features/route/field-week";
 import { likelyDriveMinutes } from "../../../lib/features/route/traffic";
-import { DEPART_KEY, LUNCH_OFF, lunchDue, type CustomStopKind, type RouteAccount, type Tier } from "../../../lib/features/route/types";
+import { DEPART_KEY, LUNCH_OFF, lunchDue, movedToSdr, type CustomStopKind, type RouteAccount, type Tier } from "../../../lib/features/route/types";
 import { hasAccess } from "../../../lib/core/devices";
 import { hasWidgetToken } from "../../../lib/features/route/widget-auth";
 
@@ -79,6 +79,13 @@ type Stop = {
   lifetime_revenue: number | null;
   straight_line_miles_from_prev: number | null;
   done: boolean;
+  /** The time stated for this stop on the route screen (a lunch at noon, a
+   *  calendar event), "HH:MM"; the clock waits for it. */
+  locked_at: string | null;
+  /** Rough arrival, "HH:MM", for a stop still to make. */
+  eta: string | null;
+  /** Rough drive to it from the stop before (or from where the rep is). */
+  drive_minutes: number | null;
   maps_url: string;
   call_url: string | null;
   account_url: string | null;
@@ -137,9 +144,13 @@ export async function GET(request: Request) {
     account_url: c.accountId ? `${origin()}/nb/route?focus=${c.accountId}` : null,
   }));
 
+  const dayTimes = state.times[day] ?? {};
+  const lockedOf = (id: string) => (/^\d{1,2}:\d{2}$/.test(dayTimes[id] ?? "") ? dayTimes[id] : null);
   const stops: Stop[] = [];
   for (const e of draft) {
     if (typeof e === "string" && visited.has(e)) continue;
+    // Moved to the day's SDR list so a stated time could be kept: off the drive.
+    if (movedToSdr(dayTimes, typeof e === "string" ? e : e.id)) continue;
     if (typeof e !== "string") {
       stops.push({
         n: stops.length + 1,
@@ -160,6 +171,9 @@ export async function GET(request: Request) {
         lifetime_revenue: null,
         straight_line_miles_from_prev: null,
         done: doneIds.has(e.id),
+        locked_at: lockedOf(e.id),
+        eta: null,
+        drive_minutes: null,
         maps_url: appleMapsUrl(e),
         call_url: null,
         account_url: null,
@@ -187,6 +201,9 @@ export async function GET(request: Request) {
       lifetime_revenue: a.lifetime_revenue,
       straight_line_miles_from_prev: null,
       done: doneIds.has(a.id),
+      locked_at: lockedOf(a.id),
+      eta: null,
+      drive_minutes: null,
       maps_url: appleMapsUrl({ address: [a.street, a.city, a.state].filter(Boolean).join(", "), lat: a.lat, lng: a.lng }),
       call_url: a.phone ? `tel:${a.phone.replace(/[^\d+]/g, "")}` : null,
       account_url: `${origin()}/nb/account/${a.id}`,
@@ -255,8 +272,19 @@ export async function GET(request: Request) {
     );
     // Lunch is a block on the day unless a Lunch stop is on it (RouteClient).
     let lunchTaken = stops.some((s) => s.kind === "lunch") || state.times[day]?.[LUNCH_OFF] === "off";
+    const clock = (mins: number) => {
+      const wrapped = ((Math.round(mins) % 1440) + 1440) % 1440;
+      return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
+    };
     for (const s of remaining) {
-      t += leg(pos, s, t);
+      const drive = leg(pos, s, t);
+      t += drive;
+      if (s.locked_at) {
+        const [lh, lm] = s.locked_at.split(":").map(Number);
+        t = Math.max(t, lh * 60 + lm);
+      }
+      s.drive_minutes = Math.round(drive);
+      s.eta = clock(t);
       const dwell =
         eventMinutes.get(s.id) ?? (s.kind === "lunch" ? prefs.lunchMinutes : s.kind === "hotel" ? 0 : prefs.dwellMinutes);
       t += dwell;
@@ -267,10 +295,6 @@ export async function GET(request: Request) {
       pos = s;
     }
     t += leg(pos, home, t);
-    const clock = (mins: number) => {
-      const wrapped = ((Math.round(mins) % 1440) + 1440) % 1440;
-      return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
-    };
     schedule = {
       depart: dayDepart,
       finish_clock: clock(t),

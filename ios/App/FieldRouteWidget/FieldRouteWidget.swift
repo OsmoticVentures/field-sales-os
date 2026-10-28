@@ -41,7 +41,7 @@ struct Provider: TimelineProvider {
     }
 }
 
-// MARK: palette (cream)
+// MARK: palette (ClientOS, src/lib/core/ui.tsx)
 
 extension Color {
     init(light: UInt, dark: UInt) {
@@ -54,40 +54,56 @@ extension UIColor {
     }
 }
 enum Pal {
-    static let paper = Color(light: 0xF6ECD2, dark: 0x1A1710)
-    static let ink = Color(light: 0x1F2A22, dark: 0xF2EDDD)
-    static let muted = Color(light: 0x6B6553, dark: 0xB3AC98)
-    static let faint = Color(light: 0x968E78, dark: 0x8A8470)
-    static let rule = Color(light: 0xE3D6B4, dark: 0x332E22)
-    static let green = Color(light: 0x2C6A46, dark: 0x63A57E)
+    static let paper = Color(light: 0xF7F6F1, dark: 0x121814)
+    static let card = Color(light: 0xFFFFFF, dark: 0x1C241F)
+    static let ink = Color(light: 0x14201B, dark: 0xEEF1EC)
+    static let muted = Color(light: 0x5B6560, dark: 0xA9B1AB)
+    static let faint = Color(light: 0x8A928C, dark: 0x7E8781)
+    static let rule = Color(light: 0xE2DFD5, dark: 0x2A332D)
+    static let green = Color(light: 0x2C6A46, dark: 0x4F9A6E)
     static let amber = Color(light: 0xA0762C, dark: 0xC9A24B)
-    static let pill = Color(light: 0xEBDDB9, dark: 0x2A261A)
-    static let pillGreen = Color(light: 0xDCE6CC, dark: 0x1F2A1F)
+    static let control = Color(light: 0xECEAE1, dark: 0x26302A)
 }
 
 // MARK: helpers
 
-private let months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+/// The book stores many names and streets in capitals ("CEDROS AVENUE
+/// NATURAL HEALTH"). Read in normal case; short consonant runs (LLC, CBD)
+/// and mixed-case names stay as written.
+func readable(_ s: String) -> String {
+    let letters = s.filter { $0.isLetter }
+    guard !letters.isEmpty, letters == letters.uppercased() else { return s }
+    return s.split(separator: " ", omittingEmptySubsequences: false).map { w -> String in
+        let word = String(w)
+        let vowels = word.lowercased().filter { "aeiouy".contains($0) }
+        if word.count <= 4 && vowels.isEmpty && word.count > 1 { return word }
+        return word.capitalized
+    }.joined(separator: " ")
+}
 
-func usd(_ n: Double) -> String {
-    n >= 10000 ? "$\(Int((n / 1000).rounded()))k" : "$" + NumberFormatter.localizedString(from: NSNumber(value: Int(n.rounded())), number: .decimal)
+/// "14:05" to "2:05 PM".
+func clock12(_ hhmm: String?) -> String? {
+    guard let hhmm else { return nil }
+    let p = hhmm.split(separator: ":").compactMap { Int($0) }
+    guard p.count == 2 else { return nil }
+    let h = p[0] % 24
+    return "\((h + 11) % 12 + 1):\(String(format: "%02d", p[1])) \(h < 12 ? "AM" : "PM")"
+}
+
+func driveText(_ m: Int?) -> String? {
+    guard let m, m > 0 else { return nil }
+    return m < 60 ? "\(m) min drive" : "\(m / 60)h \(String(format: "%02d", m % 60))m drive"
 }
 
 extension Stop {
-    var moneyLine: String {
-        var bits: [String] = []
-        if let d = last_order_at {
-            let p = d.split(separator: "-")
-            if p.count >= 2, let m = Int(p[1]), m >= 1, m <= 12 { bits.append("\(months[m - 1]) \(p[0])") } else { bits.append(d) }
-        } else { bits.append("never ordered") }
-        if let r = trailing_12m_revenue, r != 0 { bits.append("12m \(usd(r))") }
-        else if let l = lifetime_revenue, l != 0 { bits.append("life \(usd(l))") }
-        return bits.joined(separator: "  ·  ")
+    var title: String { readable(name) }
+    var place: String? {
+        let sub = [address, city].compactMap { $0 }.filter { !$0.isEmpty }.map(readable).joined(separator: ", ")
+        return sub.isEmpty ? nil : sub
     }
-    var tierLabel: String? {
-        if type == "custom" { return (kind ?? "stop").uppercased() }
-        return tier.map { "TIER \($0)" }
-    }
+    var isCustom: Bool { type == "custom" }
+    /// The clock to show: the stated time when there is one, else the ETA.
+    var when: String? { clock12(locked_at ?? eta) }
 }
 
 func deepLink(_ host: String, _ items: [String: String]) -> URL {
@@ -98,230 +114,251 @@ func deepLink(_ host: String, _ items: [String: String]) -> URL {
     return c.url!
 }
 
+// Every tap goes through the app: a widget hands any URL to its own app,
+// so the app is what opens the dialer and Maps, every time.
+func goURL(_ stop: Stop, _ data: RouteData) -> URL {
+    deepLink("go", ["day": data.day, "stop": stop.id, "maps": stop.maps_url, "state": data.day_state])
+}
+func callURL(_ stop: Stop) -> URL {
+    let tel = (stop.call_url ?? "").replacingOccurrences(of: "tel:", with: "")
+    return deepLink("call", stop.type == "account" ? ["account": stop.id, "tel": tel] : ["tel": tel])
+}
+
 // MARK: views
 
-struct PillLink: View {
-    let label: String
-    let url: URL
-    var filled = false
-    var body: some View {
-        Link(destination: url) {
-            Text(label)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundColor(filled ? .white : Pal.ink)
-                .padding(.horizontal, filled ? 12 : 8).padding(.vertical, 5)
-                .background(filled ? Pal.green : Pal.pill)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
-                // A near miss lands on the pill, not on the bare widget.
-                .padding(.vertical, 4).padding(.horizontal, 2)
-                .contentShape(Rectangle())
-        }
-    }
-}
-
-struct Chip: View {
+struct Badge: View {
     let stop: Stop
+    var size: CGFloat = 20
     var body: some View {
         Text("\(stop.n)")
-            .font(.system(size: 9.5, weight: .semibold))
+            .font(.system(size: size * 0.5, weight: .semibold))
+            .monospacedDigit()
             .foregroundColor(Pal.paper)
-            .frame(width: 18, height: 18)
-            .background(stop.type == "custom" ? Pal.amber : Pal.ink)
-            .clipShape(stop.type == "custom" ? AnyShape(RoundedRectangle(cornerRadius: 5)) : AnyShape(Circle()))
+            .frame(width: size, height: size)
+            .background(stop.isCustom ? Pal.amber : Pal.ink)
+            .clipShape(stop.isCustom ? AnyShape(RoundedRectangle(cornerRadius: size * 0.25)) : AnyShape(Circle()))
     }
 }
 
-struct StopRow: View {
+/// A secondary action: same height as GO, quiet fill.
+struct ActionIcon<Label: View>: View {
+    @ViewBuilder let label: () -> Label
+    var body: some View {
+        label()
+            .foregroundColor(Pal.ink)
+            .frame(width: 44, height: 36)
+            .background(Pal.control)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+/// The stop to drive to now: everything needed at a light, one primary act.
+struct NextStop: View {
     let stop: Stop
     let data: RouteData
     let remaining: Int
-    let showMiles: Bool
-
-    // Every tap goes through the app: a widget hands any URL to its own app,
-    // so the app is what opens the dialer and Maps, every time.
-    var callURL: URL {
-        let tel = (stop.call_url ?? "").replacingOccurrences(of: "tel:", with: "")
-        return deepLink("call", stop.type == "account" ? ["account": stop.id, "tel": tel] : ["tel": tel])
-    }
-    var goURL: URL {
-        deepLink("go", ["day": data.day, "stop": stop.id, "maps": stop.maps_url, "state": data.day_state])
-    }
+    var compact = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 7) {
-                Link(destination: deepLink("route", ["day": data.day, "stop": stop.id])) {
-                    HStack(alignment: .top, spacing: 7) {
-                Chip(stop: stop)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 5) {
-                        Text(stop.name).font(.system(size: 12.5, weight: .semibold)).foregroundColor(Pal.ink).lineLimit(1)
-                        if let t = stop.tierLabel {
-                            Text(t).font(.system(size: 8.5, weight: .semibold)).foregroundColor(stop.type == "custom" ? Pal.amber : Pal.green)
+        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+            Link(destination: stop.type == "account" ? deepLink("account", ["id": stop.id]) : deepLink("route", ["day": data.day, "stop": stop.id])) {
+                HStack(alignment: .top, spacing: 9) {
+                    Badge(stop: stop, size: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(stop.title)
+                            .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                            .tracking(-0.2)
+                            .foregroundColor(Pal.ink)
+                            .lineLimit(compact ? 1 : 2)
+                        timeLine
+                        if !compact, let place = stop.place {
+                            Text(place).font(.system(size: 12)).foregroundColor(Pal.muted).lineLimit(1)
                         }
                     }
-                    let sub = [stop.address, stop.city].compactMap { $0 }.joined(separator: ", ")
-                    if !sub.isEmpty { Text(sub).font(.system(size: 9.5)).foregroundColor(Pal.muted).lineLimit(1) }
-                    if stop.type == "account" { Text(stop.moneyLine).font(.system(size: 9.5)).foregroundColor(Pal.faint).lineLimit(1) }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                Link(destination: goURL(stop, data)) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.triangle.turn.up.right.diamond.fill").font(.system(size: 13, weight: .semibold))
+                        Text("Go").font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .background(Pal.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                if stop.call_url != nil {
+                    Link(destination: callURL(stop)) {
+                        ActionIcon { Image(systemName: "phone.fill").font(.system(size: 14, weight: .medium)) }
                     }
                 }
-                if showMiles, let m = stop.straight_line_miles_from_prev {
-                    Text("\(String(format: "%.1f", m)) mi").font(.system(size: 9.5)).foregroundColor(Pal.faint)
-                }
-            }
-            HStack(spacing: 1) {
-                PillLink(label: "GO", url: goURL, filled: true)
-                if stop.type == "account" || stop.call_url != nil {
-                    PillLink(label: stop.call_url == nil ? "No phone" : "Call", url: callURL)
-                }
                 if stop.type == "account" {
-                    PillLink(label: "Account", url: deepLink("account", ["id": stop.id]))
-                    PillLink(label: "SDR", url: deepLink("sdr", ["account": stop.id]))
+                    Link(destination: deepLink("sdr", ["account": stop.id])) {
+                        ActionIcon { Text("SDR").font(.system(size: 12, weight: .semibold)) }
+                    }
                 }
-                Spacer(minLength: 0)
                 doneControl
             }
-            .padding(.leading, 25)
         }
+    }
+
+    @ViewBuilder var timeLine: some View {
+        HStack(spacing: 4) {
+            if stop.locked_at != nil {
+                Image(systemName: "lock.fill").font(.system(size: 9, weight: .semibold)).foregroundColor(Pal.amber)
+            }
+            if let w = stop.when {
+                Text(w).font(.system(size: 13, weight: .semibold)).monospacedDigit()
+                    .foregroundColor(stop.locked_at != nil ? Pal.amber : Pal.green)
+            }
+            if let d = driveText(stop.drive_minutes) {
+                Text(d).font(.system(size: 12)).foregroundColor(Pal.muted)
+            }
+        }
+        .lineLimit(1)
     }
 
     @ViewBuilder var doneControl: some View {
-        let last = remaining == 1 && data.day_state != "ended" && data.day_state != "ahead"
-        Group {
-            if last {
-                Link(destination: deepLink("odo", ["kind": "end", "day": data.day, "done": stop.id])) { check }
-            } else {
-                Button(intent: MarkDoneIntent(stopId: stop.id, day: data.day)) { check }.buttonStyle(.plain)
-            }
+        let check = ActionIcon { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundColor(Pal.green) }
+        if remaining == 1 && data.day_state != "ended" && data.day_state != "ahead" {
+            Link(destination: deepLink("odo", ["kind": "end", "day": data.day, "done": stop.id])) { check }
+        } else {
+            Button(intent: MarkDoneIntent(stopId: stop.id, day: data.day)) { check }.buttonStyle(.plain)
         }
     }
+}
 
-    var check: some View {
-        Image(systemName: "checkmark")
-            .font(.system(size: 12, weight: .bold))
-            .foregroundColor(Pal.green)
-            .frame(width: 34, height: 24)
-            .background(Pal.pillGreen)
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+/// A later stop: one line, number, name, clock.
+struct LaterRow: View {
+    let stop: Stop
+    let data: RouteData
+    var body: some View {
+        Link(destination: deepLink("route", ["day": data.day, "stop": stop.id])) {
+            HStack(spacing: 9) {
+                Badge(stop: stop, size: 18)
+                Text(stop.title).font(.system(size: 13.5, weight: .medium)).foregroundColor(Pal.ink).lineLimit(1)
+                Spacer(minLength: 6)
+                if stop.locked_at != nil {
+                    Image(systemName: "lock.fill").font(.system(size: 8, weight: .semibold)).foregroundColor(Pal.amber)
+                }
+                if let w = stop.when {
+                    Text(w).font(.system(size: 12.5)).monospacedDigit()
+                        .foregroundColor(stop.locked_at != nil ? Pal.amber : Pal.muted)
+                }
+            }
+            .frame(minHeight: 26)
+        }
     }
 }
 
 struct EndRow: View {
     let end: RouteEnd
     let data: RouteData
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 7) {
-                Link(destination: deepLink("route", ["day": data.day])) {
-                    HStack(alignment: .top, spacing: 7) {
-                        Image(systemName: "mappin")
-                            .font(.system(size: 9.5, weight: .bold))
-                            .foregroundColor(Pal.paper)
-                            .frame(width: 18, height: 18)
-                            .background(Pal.ink)
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 5) {
-                                Text(end.label).font(.system(size: 12.5, weight: .semibold)).foregroundColor(Pal.ink).lineLimit(1)
-                                Text("END").font(.system(size: 8.5, weight: .semibold)).foregroundColor(Pal.amber)
-                            }
-                            if let a = end.address, !a.isEmpty {
-                                Text(a).font(.system(size: 9.5)).foregroundColor(Pal.muted).lineLimit(1)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                    }
-                }
-                if let m = end.straight_line_miles_from_prev {
-                    Text("\(String(format: "%.1f", m)) mi").font(.system(size: 9.5)).foregroundColor(Pal.faint)
+        Link(destination: deepLink("go", ["day": data.day, "stop": "end", "maps": end.maps_url, "state": data.day_state])) {
+            HStack(spacing: 9) {
+                Image(systemName: "house.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(Pal.paper)
+                    .frame(width: 18, height: 18)
+                    .background(Pal.ink)
+                    .clipShape(RoundedRectangle(cornerRadius: 4.5))
+                Text(readable(end.label)).font(.system(size: 13.5, weight: .medium)).foregroundColor(Pal.muted).lineLimit(1)
+                Spacer(minLength: 6)
+                if let back = clock12(data.schedule?.finish_clock) {
+                    Text("back \(back)").font(.system(size: 12.5)).monospacedDigit().foregroundColor(Pal.muted)
                 }
             }
-            HStack(spacing: 1) {
-                PillLink(label: "GO", url: deepLink("go", ["day": data.day, "stop": "end", "maps": end.maps_url, "state": data.day_state]), filled: true)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 25)
+            .frame(minHeight: 26)
         }
     }
 }
 
 struct RouteView: View {
     let entry: RouteEntry
+    @Environment(\.widgetFamily) var family
 
     var body: some View {
         if let data = entry.data {
             content(data)
         } else {
-            VStack(alignment: .leading) {
-                Text("Route unavailable").font(.system(size: 14, weight: .semibold)).foregroundColor(.red)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Route").font(.system(size: 13, weight: .semibold)).foregroundColor(Pal.ink)
                 Spacer()
-                refresh(nil)
+                Button(intent: RefreshIntent()) {
+                    Text("Route unavailable").font(.system(size: 14, weight: .medium)).foregroundColor(Pal.muted)
+                }.buttonStyle(.plain)
+                Spacer()
             }
         }
     }
 
+    var large: Bool { family == .systemLarge }
     func rows(_ data: RouteData) -> [Stop] { data.stops.filter { !$0.done } }
-    /// The end row takes one stop's room, so it always fits.
-    func maxStops(_ data: RouteData) -> Int { data.end == nil ? 4 : 3 }
 
     func content(_ data: RouteData) -> some View {
         let rows = rows(data)
         let miles = rows.dropFirst().reduce(0.0) { $0 + ($1.straight_line_miles_from_prev ?? 0) }
+        let later = Array(rows.dropFirst().prefix(large ? 4 : 0))
         return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text((data.heading ?? "Route").uppercased()).font(.system(size: 10, weight: .semibold)).foregroundColor(Pal.faint)
-                Spacer()
-                if !rows.isEmpty {
-                    Text("\(rows.count) stop\(rows.count == 1 ? "" : "s")" + (miles > 0 ? " · \(Int(miles.rounded())) mi" : ""))
-                        .font(.system(size: 10)).foregroundColor(Pal.faint)
-                }
-            }
+            header(data, rows: rows.count, miles: miles)
             if rows.isEmpty {
                 Spacer()
-                if data.day_state == "ready_to_end" {
-                    Link(destination: deepLink("odo", ["kind": "end", "day": data.day])) {
-                        Text("End odometer").font(.system(size: 17, weight: .semibold)).foregroundColor(Pal.ink)
-                    }
-                } else {
-                    Text(data.count > 0 || (data.visited_count ?? 0) > 0 ? "Done for the day" : "No stops")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(data.count > 0 || (data.visited_count ?? 0) > 0 ? Pal.green : Pal.ink)
-                }
+                emptyState(data)
                 Spacer()
             } else {
-                Spacer().frame(height: 8)
-                let shown = Array(rows.prefix(maxStops(data)))
-                ForEach(Array(shown.enumerated()), id: \.element.id) { i, s in
-                    if i > 0 {
-                        Divider().overlay(Pal.rule).padding(.vertical, 2)
+                Spacer().frame(height: large ? 12 : 8)
+                NextStop(stop: rows[0], data: data, remaining: rows.count, compact: !large)
+                if large {
+                    if !later.isEmpty || data.end != nil {
+                        Rectangle().fill(Pal.rule).frame(height: 1).padding(.top, 14).padding(.bottom, 6)
                     }
-                    StopRow(stop: s, data: data, remaining: rows.count, showMiles: i > 0)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(later) { s in LaterRow(stop: s, data: data) }
+                        if rows.count - 1 > later.count {
+                            Text("\(rows.count - 1 - later.count) more after these")
+                                .font(.system(size: 12)).foregroundColor(Pal.faint).padding(.leading, 27)
+                        }
+                        if let end = data.end { EndRow(end: end, data: data) }
+                    }
                 }
-                if let end = data.end {
-                    Divider().overlay(Pal.rule).padding(.vertical, 2)
-                    EndRow(end: end, data: data)
-                }
-                Spacer(minLength: 4)
-            }
-            HStack {
-                refresh(data)
-                Spacer()
-                if rows.count > maxStops(data) { Text("+\(rows.count - maxStops(data)) more").font(.system(size: 9.5)).foregroundColor(Pal.faint) }
+                Spacer(minLength: 0)
             }
         }
     }
 
-    func refresh(_ data: RouteData?) -> some View {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let at = data.flatMap { f.date(from: $0.generated_at) } ?? entry.date
-        return Button(intent: RefreshIntent()) {
-            Text("as of \(at.formatted(date: .omitted, time: .shortened)) · tap to update")
-                .font(.system(size: 9.5)).foregroundColor(Pal.faint)
+    /// Calm header: the day, what is left. Tapping it refreshes.
+    func header(_ data: RouteData, rows: Int, miles: Double) -> some View {
+        Button(intent: RefreshIntent()) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(data.heading ?? "Today").font(.system(size: 13, weight: .semibold)).foregroundColor(Pal.ink)
+                Spacer()
+                if rows > 0 {
+                    Text("\(rows) stop\(rows == 1 ? "" : "s") left" + (miles >= 1 ? " · \(Int(miles.rounded())) mi" : ""))
+                        .font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.muted)
+                }
+            }
         }.buttonStyle(.plain)
+    }
+
+    @ViewBuilder func emptyState(_ data: RouteData) -> some View {
+        if data.day_state == "ready_to_end" {
+            Link(destination: deepLink("odo", ["kind": "end", "day": data.day])) {
+                Text("End odometer")
+                    .font(.system(size: 15, weight: .semibold)).foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(Pal.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        } else {
+            let worked = data.count > 0 || (data.visited_count ?? 0) > 0
+            Text(worked ? "Done for the day" : "No stops")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(worked ? Pal.green : Pal.ink)
+                .frame(maxWidth: .infinity)
+        }
     }
 }
 
@@ -332,8 +369,8 @@ struct FieldRouteWidget: Widget {
                 .containerBackground(Pal.paper, for: .widget)
         }
         .configurationDisplayName("Field Route")
-        .description("Today's stops.")
-        .supportedFamilies([.systemLarge])
+        .description("The next stop and the rest of the day.")
+        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
 
