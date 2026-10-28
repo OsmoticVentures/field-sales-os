@@ -8,14 +8,13 @@ import { BASE_PATH } from "./api";
  * scripts/sw.template.js; OFFLINE.md says why) on whichever screen the app
  * opens to, and checks for a newer one when the app comes back to the front,
  * at most once a minute. A newer build that takes over reloads the screen
- * while it is out of sight or just back, never under a half-typed note, so
+ * while it is out of sight, or before he has touched it since it opened or
+ * came back, never under a half-typed note, so
  * an app left open on the phone runs today's build, not the one it launched
  * with. Production only: in dev it would serve stale chunks to a hot reload.
  * Renders nothing.
  */
 const CHECK_GAP_MS = 60 * 1000;
-/** Back in front this recently: nothing typed yet, a reload costs nothing. */
-const JUST_BACK_MS = 4000;
 
 /** Text in a box he has not sent: a reload would lose it. */
 function typing(): boolean {
@@ -27,7 +26,11 @@ export function ServiceWorkerRegister() {
     if (process.env.NODE_ENV !== "production") return;
     if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
     let lastCheck = Date.now();
-    let backAt = Date.now();
+    // Untouched since it opened or came back: a reload costs nothing.
+    let untouched = true;
+    const onTouch = () => {
+      untouched = false;
+    };
     let reg: ServiceWorkerRegistration | null = null;
     // The first worker ever taking control is not a new build.
     const hadController = Boolean(navigator.serviceWorker.controller);
@@ -35,7 +38,7 @@ export function ServiceWorkerRegister() {
 
     const reloadIfSafe = () => {
       if (!newBuild || typing()) return;
-      if (document.visibilityState === "hidden" || Date.now() - backAt < JUST_BACK_MS) window.location.reload();
+      if (document.visibilityState === "hidden" || untouched) window.location.reload();
     };
     const onController = () => {
       if (!hadController) return;
@@ -43,6 +46,8 @@ export function ServiceWorkerRegister() {
       reloadIfSafe();
     };
     navigator.serviceWorker.addEventListener("controllerchange", onController);
+    window.addEventListener("pointerdown", onTouch, true);
+    window.addEventListener("keydown", onTouch, true);
 
     navigator.serviceWorker
       .register(`${BASE_PATH}/sw.js`, { scope: BASE_PATH, updateViaCache: "none" })
@@ -65,7 +70,7 @@ export function ServiceWorkerRegister() {
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return reloadIfSafe();
-      backAt = Date.now();
+      untouched = true;
       reloadIfSafe();
       if (!reg) return;
       if (Date.now() - lastCheck < CHECK_GAP_MS) return;
@@ -76,6 +81,8 @@ export function ServiceWorkerRegister() {
     return () => {
       navigator.serviceWorker.removeEventListener("message", onMessage);
       navigator.serviceWorker.removeEventListener("controllerchange", onController);
+      window.removeEventListener("pointerdown", onTouch, true);
+      window.removeEventListener("keydown", onTouch, true);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
