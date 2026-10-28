@@ -43,7 +43,7 @@ import type {
 import { AddStop } from "./AddStop";
 import { ReturnSuggestions } from "./ReturnSuggestions";
 import { DayMoveMenu, RowIco } from "./RowControls";
-import { HUBSPOT_COMPANY_URL } from "@/lib/features/prospect/format";
+import { HUBSPOT_COMPANY_URL, lastTouchLabel } from "@/lib/features/prospect/format";
 import type { Draft } from "@/lib/features/outbound/dal";
 import { OpenEmailButtons } from "@/lib/features/outbound/open-email";
 import { useAccountPanel } from "../account/[id]/useAccountPanel";
@@ -191,7 +191,7 @@ type Schedule = {
  *  hours (a hard constraint) both only ever push the clock FORWARD, never
  *  rewind it, and a stop that cannot be reached open is named rather than
  *  scheduled anyway. */
-type AreasPayload = { ok: boolean; areas?: { id: string; label: string }[] };
+type AreasPayload = { ok: boolean; areas?: { id: string; label: string }[]; lastTouchById?: Record<string, string> };
 const areaLabelMap = (j: AreasPayload | null | undefined) => new Map((j?.areas ?? []).map((a) => [a.id, a.label]));
 
 function buildSchedule(
@@ -482,10 +482,15 @@ function RouteDay({
 
   // Area ids read as their names ("hollywood-pasadena" is Hollywood - Pasadena).
   const [areaLabels, setAreaLabels] = useState(() => areaLabelMap(peekJson<AreasPayload>("/api/route/map")));
+  const [lastTouchById, setLastTouchById] = useState<Record<string, string>>(() => peekJson<AreasPayload>("/api/route/map")?.lastTouchById ?? {});
   useEffect(() => {
     let live = true;
     getJson<AreasPayload>("/api/route/map")
-      .then((j) => live && setAreaLabels(areaLabelMap(j)))
+      .then((j) => {
+        if (!live) return;
+        setAreaLabels(areaLabelMap(j));
+        setLastTouchById(j.lastTouchById ?? {});
+      })
       .catch(() => {});
     return () => {
       live = false;
@@ -1197,6 +1202,11 @@ function RouteDay({
                             </span>
                           ) : (
                             <span className="text-[#A9AFA9]">never ordered</span>
+                          )}
+                          {lastTouchLabel(lastTouchById[a.id]) && (
+                            <span className="rounded-full bg-[#ECEAE1] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[#3D4A44]">
+                              {lastTouchLabel(lastTouchById[a.id])}
+                            </span>
                           )}
                           {a.trailing_12m_revenue !== null && (
                             <span>

@@ -52,7 +52,7 @@ import type {
 } from "@/lib/features/route/types";
 import type { SdrPriority, TerritoryArea } from "@/lib/features/prospect/dal";
 import { absoluteUrl, prettyPhone, prettyUrl, realChannel } from "@/lib/features/clients/ui";
-import { HUBSPOT_COMPANY_URL } from "@/lib/features/prospect/format";
+import { HUBSPOT_COMPANY_URL, lastTouchLabel } from "@/lib/features/prospect/format";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type G = any;
@@ -298,7 +298,13 @@ function AddToSdr({ accountId, days }: { accountId: string; days: string[] }) {
   );
 }
 
-type MapPayload = { ok: boolean; areas?: TerritoryArea[]; priorityById?: Record<string, AccountPriority>; displayPrefs?: MapDisplayPrefs };
+type MapPayload = {
+  ok: boolean;
+  areas?: TerritoryArea[];
+  priorityById?: Record<string, AccountPriority>;
+  lastTouchById?: Record<string, string>;
+  displayPrefs?: MapDisplayPrefs;
+};
 
 export function AccountsMap({
   accounts,
@@ -346,6 +352,7 @@ export function AccountsMap({
   const cached = peekJson<MapPayload>("/api/route/map");
   const [areas, setAreas] = useState<TerritoryArea[]>(cached?.areas ?? []);
   const [priorityById, setPriorityById] = useState<Record<string, AccountPriority>>(cached?.priorityById ?? {});
+  const [lastTouchById, setLastTouchById] = useState<Record<string, string>>(cached?.lastTouchById ?? {});
   const [displayPrefs, setDisplayPrefs] = useState<MapDisplayPrefs>(
     cached?.displayPrefs ?? { showChains: false, showPractices: false, showProspects: false },
   );
@@ -356,6 +363,7 @@ export function AccountsMap({
         if (!j.ok) return;
         setAreas(j.areas ?? []);
         setPriorityById(j.priorityById ?? {});
+        setLastTouchById(j.lastTouchById ?? {});
         if (j.displayPrefs) setDisplayPrefs(j.displayPrefs);
       })
       .catch(() => {});
@@ -898,6 +906,7 @@ export function AccountsMap({
         <AccountPinCard
           account={selected}
           priority={priorityById[selected.id]}
+          lastTouch={lastTouchById[selected.id]}
           area={selected.area ? areaById.get(selected.area) : undefined}
           days={days}
           scheduledDay={stopDayById.get(selected.id) ?? null}
@@ -976,6 +985,7 @@ function HideToggle({
 function AccountPinCard({
   account: a,
   priority,
+  lastTouch,
   area,
   days,
   scheduledDay,
@@ -984,6 +994,7 @@ function AccountPinCard({
 }: {
   account: RouteAccount;
   priority?: AccountPriority;
+  lastTouch?: string;
   area?: TerritoryArea;
   days: string[];
   scheduledDay: string | null;
@@ -992,6 +1003,7 @@ function AccountPinCard({
 }) {
   const lifetime = usd(a.lifetime_revenue);
   const orderAge = lastOrderAge(a.last_order_at);
+  const touch = lastTouchLabel(lastTouch);
   return (
     <div className="rounded-lg border border-[#E2DFD5] bg-white p-4">
       <div className="flex items-start justify-between gap-2">
@@ -1036,6 +1048,9 @@ function AccountPinCard({
               <span className="rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold tracking-wide text-white" style={{ background: LEAD_STAGE_COLOR[a.lead_stage] }}>
                 {LEAD_STAGE_LABEL[a.lead_stage]}
               </span>
+            )}
+            {touch && (
+              <span className="rounded-full bg-[#ECEAE1] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-[#3D4A44]">{touch}</span>
             )}
           </div>
         </div>

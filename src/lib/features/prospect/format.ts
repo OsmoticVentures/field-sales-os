@@ -27,6 +27,21 @@ export function daysAgo(iso: string | null): string {
   return `${Math.round(d / 365)}y ago`;
 }
 
+const LA_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Whole LA calendar days since a YYYY-MM-DD day, for the last-touch tag. */
+export function daysSinceDay(day: string, now: Date = new Date()): number {
+  const today = LA_DAY.format(now);
+  return Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / 86_400_000));
+}
+
+/** "touched today" / "last touch 12d", the tag on a pin card and a route stop. */
+export function lastTouchLabel(day: string | undefined): string | null {
+  if (!day) return null;
+  const d = daysSinceDay(day);
+  return d === 0 ? "touched today" : `last touch ${d}d`;
+}
+
 /** A bare day count for a parameter row ("53 days"), distinct from daysAgo's
  *  coarser bucketing. */
 export function exactDaysAgo(iso: string | null): string | null {

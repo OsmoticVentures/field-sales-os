@@ -465,6 +465,8 @@ export type PriorityBook = {
   byId: Map<string, PriorityResult>;
   ranked: { account: PriorityInput; result: PriorityResult }[];
   areaProspects: Map<string, number>;
+  /** LA day (YYYY-MM-DD) of the last visit, call or email, per account. */
+  lastTouch: Map<string, string>;
 };
 
 /**
@@ -527,7 +529,7 @@ export async function sbGetAllIn<T>(table: string, params: URLSearchParams, colu
 }
 
 async function readPriorityBook(): Promise<PriorityBook> {
-  const empty: PriorityBook = { byId: new Map(), ranked: [], areaProspects: new Map() };
+  const empty: PriorityBook = { byId: new Map(), ranked: [], areaProspects: new Map(), lastTouch: new Map() };
   if (!isConfigured()) return empty;
 
   const since = new Date(Date.now() - 121 * 86_400_000).toISOString().slice(0, 10);
@@ -631,7 +633,10 @@ async function readPriorityBook(): Promise<PriorityBook> {
     .filter((r) => !(r.result.corporate && !isBuying(r.account, signals)))
     .sort(byOriginThenPriority);
 
-  return { byId, ranked, areaProspects: areaProspectCounts(inputs, byId) };
+  const lastTouch = new Map<string, string>();
+  for (const [id, s] of signals) if (s.lastTouch) lastTouch.set(id, s.lastTouch);
+
+  return { byId, ranked, areaProspects: areaProspectCounts(inputs, byId), lastTouch };
 }
 
 /** Buying now, the action lists' test: ERP revenue in the window, an order

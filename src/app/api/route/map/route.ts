@@ -35,7 +35,9 @@ export async function GET() {
       if (r.score !== null) priorityById[id] = { score: r.score, reason: r.reason, band: r.band };
     }
 
-    return Response.json({ ok: true, areas, priorityById, displayPrefs }, { headers: { "cache-control": "no-store" } });
+    const lastTouchById = Object.fromEntries(priority.lastTouch);
+
+    return Response.json({ ok: true, areas, priorityById, lastTouchById, displayPrefs }, { headers: { "cache-control": "no-store" } });
   } catch (e) {
     captureError(e, "/api/route/map");
     return Response.json({ ok: false, error: e instanceof Error ? e.message : "Couldn't load the map." }, { status: 500 });
