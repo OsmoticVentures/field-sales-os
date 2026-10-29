@@ -49,10 +49,19 @@ export function CopyBodyButton({ body }: { body: string }) {
 type EmailDraft = Pick<Draft, "to_email" | "subject" | "body_md" | "bcc_email"> & { provider_msg_id?: string | null };
 
 /** A draft already saved in his Outlook Drafts, with its table and any Cc
- *  (bridges/nutribiotic/order_watch.py, 2026-10-27), opens Drafts: a compose
- *  link would open a second, bare copy. */
+ *  (bridges/nutribiotic/order_watch.py, 2026-10-27), opens that draft: a
+ *  compose link would open a second, bare copy. provider_msg_id carries its
+ *  Outlook item id ("outlook-draft:<id>", 2026-10-29). The Outlook app has no
+ *  link to a single message, so the phone opens it on the web too; a row saved
+ *  before the id was kept opens the Drafts folder. */
 const IN_OUTLOOK = "outlook-draft";
 const OWA_DRAFTS = "https://outlook.cloud.microsoft/mail/drafts";
+const OWA_DRAFT = "https://outlook.office.com/mail/deeplink/compose/";
+
+function outlookDraftHref(mark: string): string {
+  const id = mark.slice(IN_OUTLOOK.length + 1);
+  return id ? OWA_DRAFT + encodeURIComponent(id) : OWA_DRAFTS;
+}
 
 export function OpenEmailButtons({
   draft,
@@ -66,10 +75,10 @@ export function OpenEmailButtons({
 }) {
   const onPhone = useOnPhone();
   const tableBody = hasTable(draft.body_md);
-  if (draft.provider_msg_id === IN_OUTLOOK) {
+  if (draft.provider_msg_id?.startsWith(IN_OUTLOOK)) {
     return (
-      <a href={onPhone ? "ms-outlook://" : OWA_DRAFTS} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
-        Open in Outlook Drafts &rarr;
+      <a href={outlookDraftHref(draft.provider_msg_id)} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
+        {label}
       </a>
     );
   }
