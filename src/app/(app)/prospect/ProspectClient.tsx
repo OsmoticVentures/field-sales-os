@@ -19,7 +19,6 @@
  * "done by hand, no logged call" case the source app already supports.
  */
 
-import { RANKED_VIEW_EVENT } from "../../../lib/features/prospect/events";
 import { WarmthPicker } from "../../../lib/features/clients/WarmthPicker";
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
@@ -63,7 +62,7 @@ type ScheduleItem = {
 
 type AreaGroup = { id: string; label: string; color: string; prospects: number };
 
-export type RankedAccount = { id: string; name: string; area: string | null; score: number | null; reason: string; band: string };
+type RankedAccount = { id: string; name: string; area: string | null; score: number | null; reason: string; band: string };
 
 type AccountPanelData = {
   id: string;
@@ -320,7 +319,7 @@ function GlobalSearch({ todayIso, onView, onAdded }: { todayIso: string; onView:
 // Add to a day
 // ---------------------------------------------------------------------------
 
-function AddToDayForm({ date, onAdded, slimLabel }: { date: string; onAdded: (item: ScheduleItem) => void; slimLabel?: string }) {
+function AddToDayForm({ date, onAdded }: { date: string; onAdded: (item: ScheduleItem) => void }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"account" | "prospect">("account");
   const [query, setQuery] = useState("");
@@ -384,20 +383,6 @@ function AddToDayForm({ date, onAdded, slimLabel }: { date: string; onAdded: (it
     });
   }
 
-  /* An empty day in the intelligence layout: one slim row, its date on the
-     left and the add control on the right. */
-  if (slimLabel && !open) {
-    return (
-      <div className="flex min-h-11 items-center justify-between gap-3">
-        <span className="text-[12.5px] font-semibold tracking-[0.06em] text-[#8A928C] uppercase">{slimLabel}</span>
-        <button onClick={() => setOpen(true)} className="-mr-2 flex min-h-11 items-center gap-1.5 rounded-md px-3 text-[13.5px] font-medium text-[#5B6560] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100">
-          <Ico name="plus" size={13} />
-          Add
-        </button>
-      </div>
-    );
-  }
-
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-[#D8D4C8] text-[13.5px] font-medium text-[#8A928C] transition-colors hover:border-[#B8B3A4] hover:text-[#5B6560]">
@@ -409,7 +394,6 @@ function AddToDayForm({ date, onAdded, slimLabel }: { date: string; onAdded: (it
 
   return (
     <div className="rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3">
-      {slimLabel && <div className="mb-2 text-[12.5px] font-semibold tracking-[0.06em] text-[#5B6560] uppercase">{slimLabel}</div>}
       <div className="mb-2 flex gap-1.5">
         <button onClick={() => setMode("account")} className={`min-h-11 rounded-md px-2.5 py-2 text-[13px] font-medium ${mode === "account" ? "bg-[#14201B] text-[#F7F6F1]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>
           Existing account
@@ -1126,7 +1110,7 @@ type FocusRecord = {
 
 
 export function ProspectClient({
-  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority, topRanked, listensForRanked = false,
+  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority, topRanked,
 }: {
   initialItems: ScheduleItem[];
   todayIso: string;
@@ -1139,8 +1123,6 @@ export function ProspectClient({
   focusAccountHours?: BusinessHours | null;
   focusAccountPriority?: FocusRecord["priority"];
   topRanked?: RankedAccount[];
-  /** The dashboard's Ranked column opens its accounts here (RANKED_VIEW_EVENT). */
-  listensForRanked?: boolean;
 }) {
   const focusRecord: FocusRecord = { area: focusAccountArea, hours: focusAccountHours, priority: focusAccountPriority };
   const router = useRouter();
@@ -1315,17 +1297,6 @@ export function ProspectClient({
     router.replace(`?account=${r.id}`, { scroll: false });
   }
 
-  const viewRankedRef = useRef(viewRanked);
-  useEffect(() => {
-    viewRankedRef.current = viewRanked;
-  });
-  useEffect(() => {
-    if (!listensForRanked) return;
-    const on = (e: Event) => viewRankedRef.current((e as CustomEvent<RankedAccount>).detail);
-    window.addEventListener(RANKED_VIEW_EVENT, on);
-    return () => window.removeEventListener(RANKED_VIEW_EVENT, on);
-  }, [listensForRanked]);
-
   return (
     <div className="flex flex-col gap-4">
       <GlobalSearch todayIso={todayIso} onView={viewHit} onAdded={addItem} />
@@ -1348,13 +1319,6 @@ export function ProspectClient({
                 if (pd !== 0) return pd;
                 return (b.priorityScore ?? -1) - (a.priorityScore ?? -1);
               });
-            if (listensForRanked && dayItems.length === 0) {
-              return (
-                <div key={iso} className="rounded-lg border border-[#E2DFD5] bg-white px-3 py-0.5">
-                  <AddToDayForm date={iso} onAdded={addItem} slimLabel={dayLabel(iso, todayIso)} />
-                </div>
-              );
-            }
             return (
               <div key={iso} className="rounded-lg border border-[#E2DFD5] bg-white p-3">
                 <div className="mb-2 text-[12.5px] font-semibold tracking-[0.06em] text-[#5B6560] uppercase">{dayLabel(iso, todayIso)}</div>

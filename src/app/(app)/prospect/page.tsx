@@ -14,12 +14,9 @@
  * contacts (read-only here, the headhunter itself stays on the Mac
  * unchanged), opening hours, and the ranked opportunity list.
  */
-import { Suspense } from "react";
 import { PageHead } from "../../../lib/core/ui";
 import { requireAccess } from "../../../lib/core/devices";
-import { myFlag } from "../../../lib/core/user";
 import { ProspectClient } from "./ProspectClient";
-import { IntelBoard, IntelListSkeleton } from "./IntelBoard";
 import { getAccountCallCards, getPriorityBook, isConfigured, listAreas, listSdrSchedule, todayStartLA } from "../../../lib/features/prospect/dal";
 import { sortAreasByProspects } from "../../../lib/features/prospect/priority";
 
@@ -42,34 +39,6 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
     );
   }
 
-  /* The intelligence layout (rep-flags "prospect-intel"): one wrapper, so the
-     screen's view transition names a single element when the list streams in.
-     The page answers with the dashboard at once, painted on the phone from its own copy of
-     /api/prospect/intel, and the call list streams in under it once its
-     reads land. */
-  if (await myFlag("prospect-intel")) {
-    return (
-      <div>
-        <PageHead title="Prospect" />
-        <IntelBoard />
-        <Suspense fallback={<IntelListSkeleton />}>
-          <ProspectList focusAccountId={focusAccountId} intel />
-        </Suspense>
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <PageHead title="Prospect" />
-      <ProspectList focusAccountId={focusAccountId} />
-    </>
-  );
-}
-
-/** The call list: the week's queue, the account panel, and (outside the
- *  intelligence layout) the ranked list beside them. */
-async function ProspectList({ focusAccountId, intel = false }: { focusAccountId: string | null; intel?: boolean }) {
   const [schedule, priority, areas] = await Promise.all([listSdrSchedule(DAYS_AHEAD), getPriorityBook(), listAreas()]);
   const accountIds = [
     ...new Set([...schedule.map((r) => r.account_id).filter((id): id is string => !!id), ...(focusAccountId ? [focusAccountId] : [])]),
@@ -112,6 +81,8 @@ async function ProspectList({ focusAccountId, intel = false }: { focusAccountId:
   }));
 
   return (
+    <>
+      <PageHead title="Prospect" />
       <ProspectClient
         initialItems={items}
         todayIso={todayIso}
@@ -123,8 +94,8 @@ async function ProspectList({ focusAccountId, intel = false }: { focusAccountId:
         focusAccountArea={focusAccountId ? (cards[focusAccountId]?.area ?? null) : null}
         focusAccountHours={focusAccountId ? (cards[focusAccountId]?.businessHours ?? null) : null}
         focusAccountPriority={focusPriority}
-        topRanked={intel ? undefined : topRanked}
-        listensForRanked={intel}
+        topRanked={topRanked}
       />
+    </>
   );
 }

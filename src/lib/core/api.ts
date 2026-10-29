@@ -68,7 +68,6 @@ const PHONE_COPY: Record<string, { holdMs?: number }> = {
   "/api/route/state": {},
   "/api/route/returns": {},
   "/api/expenses/summary": {},
-  "/api/prospect/intel": {},
 };
 const PHONE_KEEP_MS = 7 * 24 * 60 * 60 * 1000; // a copy older than a week is not worth painting
 const WROTE_KEY = "__wroteAt";
