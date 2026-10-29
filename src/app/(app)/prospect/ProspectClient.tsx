@@ -29,7 +29,8 @@ import { useUndoWindow } from "../../../lib/core/undo";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
 import { FindContacts } from "../../../lib/features/enrich/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
-import { workingDayIso } from "../../../lib/features/route/field-week";
+import { dayLabel as routeDayLabel, workingDayIso } from "../../../lib/features/route/field-week";
+import { useAddToRoute } from "../../../lib/features/route/use-add-to-route";
 import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { orderWindowLabel } from "../../../lib/features/prospect/purchases";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
@@ -678,6 +679,53 @@ function PhoneEditable({ accountId, phone }: { accountId: string; phone: string 
   );
 }
 
+/** Add to route on the call card: a tap opens the planning horizon's days,
+ *  a pick appends this client to that day. Once on a day it names the day
+ *  and opens Route. */
+function AddToRouteButton({ accountId }: { accountId: string }) {
+  const { days, scheduledDay, busy, failed, add } = useAddToRoute(accountId);
+  const [open, setOpen] = useState(false);
+  if (scheduledDay) {
+    const { weekday, short } = routeDayLabel(scheduledDay);
+    return (
+      <Link href="/route" className={`${ghostBtn} inline-flex items-center gap-1.5 whitespace-nowrap`}>
+        <Ico name="check" size={13} />
+        On route {weekday} {short}
+      </Link>
+    );
+  }
+  return (
+    <div className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} disabled={busy} aria-expanded={open} className={`${ghostBtn} inline-flex items-center gap-1.5 whitespace-nowrap`}>
+        <Ico name="route" size={13} />
+        {busy ? "Adding" : "Add to route"}
+      </button>
+      {open && (
+        <div className="absolute top-full right-0 z-20 mt-2 flex max-h-[60vh] min-w-[200px] flex-col gap-1 overflow-auto rounded-lg border border-[#E2DFD5] bg-white p-2 shadow-[0_8px_24px_rgba(20,32,27,0.12)]">
+          {days.map((d) => {
+            const { weekday, short } = routeDayLabel(d);
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  void add(d);
+                }}
+                className="flex min-h-11 items-center justify-between gap-3 rounded-md px-2 text-left text-[13px] text-[#14201B] hover:bg-[#F2F0E8]"
+              >
+                {weekday}
+                <span className="text-[11.5px] tabular-nums text-[#8A928C]">{short}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {failed && <p className="absolute top-full right-0 mt-1 text-[12px] whitespace-nowrap text-[#8A2E2E]">Not saved. Try again.</p>}
+    </div>
+  );
+}
+
 function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean; onUndo?: () => void }) {
   const mounted = useMounted();
   const [panel, setPanel] = useState<AccountPanelData | null>(null);
@@ -817,6 +865,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                 Call {phone}
               </a>
             )}
+            {item.account_id && <AddToRouteButton accountId={item.account_id} />}
             {item.account_id && (
               <button type="button" onClick={handleEnrich} disabled={enriching} className={`${ghostBtn} whitespace-nowrap`}>
                 <RefreshIcon size={13} />

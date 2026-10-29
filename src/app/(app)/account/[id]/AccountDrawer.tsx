@@ -30,6 +30,8 @@ import { absoluteUrl, outlookCompose } from "../../../../lib/features/clients/ui
 import { useOnPhone } from "../../../../lib/features/outbound/use-on-phone";
 import { HUBSPOT_COMPANY_URL, money } from "../../../../lib/features/prospect/format";
 import { isLiterature } from "../../../../lib/features/prospect/purchases";
+import { dayLabel } from "../../../../lib/features/route/field-week";
+import { useAddToRoute } from "../../../../lib/features/route/use-add-to-route";
 import { AccountClient } from "./AccountClient";
 import { AccountSheet } from "./AccountSheet";
 import { useDraftOutreach } from "./AccountView";
@@ -147,6 +149,67 @@ function DraftTile({ accountId, leave }: { accountId: string; leave: (href: stri
         {busy ? "Drafting" : "Draft outreach"}
         {reason ? <span className="mt-1.5 block text-[13px] leading-snug text-[#E58A82]">{reason}</span> : null}
       </span>
+    </button>
+  );
+}
+
+/** Add to route: a tap opens the next days across both columns, a pick
+ *  appends the client to that day. On a day, it names it and opens Route. */
+function RouteTile({ accountId, leave }: { accountId: string; leave: (href: string) => void }) {
+  const { days, scheduledDay, busy, failed, add } = useAddToRoute(accountId);
+  const [picking, setPicking] = useState(false);
+  if (scheduledDay) {
+    const { weekday, short } = dayLabel(scheduledDay);
+    return (
+      <LeaveLink href="/route" leave={leave} className={tileCls}>
+        <span className={tileIcon}>
+          <Ico name="check" size={24} />
+        </span>
+        On route {weekday} {short}
+      </LeaveLink>
+    );
+  }
+  if (picking) {
+    return (
+      <div className="col-span-2 rounded-[22px] bg-[#F7F6F1]/[0.08] p-3">
+        <div className="mb-2 flex items-center justify-between px-1">
+          <span className="text-[14px] text-[#F7F6F1]">{busy ? "Adding" : "Add to route"}</span>
+          <button
+            type="button"
+            onClick={() => setPicking(false)}
+            aria-label="Cancel"
+            className="flex size-9 items-center justify-center rounded-full text-[#F7F6F1]/60 [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.11]"
+          >
+            <Ico name="close" size={14} />
+          </button>
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {days.map((d) => {
+            const { weekday, short } = dayLabel(d);
+            return (
+              <button
+                key={d}
+                type="button"
+                disabled={busy}
+                onClick={() => void add(d)}
+                className="flex min-h-14 flex-col items-center justify-center rounded-xl bg-[#F7F6F1]/[0.06] text-[13px] text-[#F7F6F1] transition-[transform,background-color] duration-100 [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.12] active:scale-[0.96] disabled:opacity-50 motion-reduce:transition-none"
+              >
+                {weekday}
+                <span className="text-[11.5px] tabular-nums text-[#F7F6F1]/50">{short}</span>
+              </button>
+            );
+          })}
+        </div>
+        {failed && <p className="mt-2 px-1 text-[13px] text-[#E58A82]">Not saved. Try again.</p>}
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={() => setPicking(true)} className={tileCls}>
+      <span className={tileIcon}>
+        <Ico name="route" size={24} />
+      </span>
+      Add to route
     </button>
   );
 }
@@ -476,6 +539,7 @@ export function AccountDrawer({ id, seed }: { id: string; seed?: AccountSeed }) 
       </LeaveLink>,
     );
   }
+  if (a) tiles.push(<RouteTile key="route" accountId={a.id} leave={leave} />);
   if (a?.website) {
     tiles.push(
       <a key="site" href={absoluteUrl(a.website)} target="_blank" rel="noreferrer" className={tileCls}>
