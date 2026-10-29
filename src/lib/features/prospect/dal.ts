@@ -240,7 +240,7 @@ export async function listPurchases(accountId: string): Promise<{ orders: Purcha
     ),
     sbGet<PurchaseLine>(
       "nb_order_lines",
-      new URLSearchParams({ select: "order_id,product_name,qty,line_revenue_cents,general_category", account_id: `eq.${accountId}` }),
+      new URLSearchParams({ select: "order_id,part_code,product_name,qty,line_revenue_cents,general_category", account_id: `eq.${accountId}` }),
     ),
   ]);
   if (orders.length === 0) return { orders: [], lines: [] };

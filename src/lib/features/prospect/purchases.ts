@@ -10,7 +10,7 @@
  * a purchase and is left out.
  */
 export type PurchaseOrder = { id: string; ordered_at: string; revenue_cents: number };
-export type PurchaseLine = { order_id: string; product_name: string | null; qty: number | null; line_revenue_cents: number; general_category?: string | null };
+export type PurchaseLine = { order_id: string; product_name: string | null; qty: number | null; line_revenue_cents: number; general_category?: string | null; part_code?: string | null };
 
 export type PurchaseSummaryItem = { name: string; qty: number; revenueCents: number; last3Qty: number; last: string | null };
 export type PurchaseSummary = { orderCount: number; since: string | null; topItems: PurchaseSummaryItem[]; smallItems: PurchaseSummaryItem[] };

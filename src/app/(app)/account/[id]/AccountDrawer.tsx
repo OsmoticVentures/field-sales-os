@@ -28,7 +28,8 @@ import { Ico, displayFace } from "../../../../lib/core/ui";
 import type { AccountPayload } from "../../../../lib/features/clients/account-payload";
 import { absoluteUrl, outlookCompose } from "../../../../lib/features/clients/ui";
 import { useOnPhone } from "../../../../lib/features/outbound/use-on-phone";
-import { HUBSPOT_COMPANY_URL } from "../../../../lib/features/prospect/format";
+import { HUBSPOT_COMPANY_URL, money } from "../../../../lib/features/prospect/format";
+import { isLiterature } from "../../../../lib/features/prospect/purchases";
 import { AccountClient } from "./AccountClient";
 import { AccountSheet } from "./AccountSheet";
 import { useDraftOutreach } from "./AccountView";
@@ -563,6 +564,35 @@ export function AccountDrawer({ id, seed }: { id: string; seed?: AccountSeed }) 
             </div>
             {failText && <p className="mb-7 text-[15px] text-[#E58A82]">{failText}</p>}
             {tiles.length > 0 && <div className="grid grid-cols-2 gap-3">{tiles}</div>}
+            {payload && payload.orders.length > 0 && (
+              <div className="mt-6">
+                <h3 className="mb-2 text-[12px] font-medium text-[#F7F6F1]/60">Orders</h3>
+                <ul className="flex flex-col gap-3">
+                  {[...payload.orders]
+                    .sort((x, y) => (x.ordered_at < y.ordered_at ? 1 : -1))
+                    .slice(0, 3)
+                    .map((o) => (
+                      <li key={o.id} className="rounded-xl border border-[#F7F6F1]/10 bg-[#F7F6F1]/[0.04] p-3 text-[13px]">
+                        <div className="mb-1 flex justify-between tabular-nums">
+                          <span>{o.ordered_at.slice(0, 10)}</span>
+                          <span className="text-[#F7F6F1]/60">{money(o.revenue_cents / 100)}</span>
+                        </div>
+                        {payload.lines
+                          .filter((l) => l.order_id === o.id && !isLiterature(l))
+                          .map((l, i) => (
+                            <div key={i} className="flex justify-between gap-3 py-0.5">
+                              <span className="min-w-0 truncate">
+                                {l.product_name}
+                                {l.part_code ? <span className="text-[#F7F6F1]/50"> #{l.part_code}</span> : null}
+                              </span>
+                              <span className="shrink-0 tabular-nums">{l.qty}</span>
+                            </div>
+                          ))}
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
 

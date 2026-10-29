@@ -19,7 +19,7 @@ import {
   realLifecycle,
   withinTrailing12mo,
 } from "../../../../lib/features/clients/ui";
-import { orderWindowLabel, summarizePurchases, type PurchaseLine, type PurchaseOrder } from "../../../../lib/features/prospect/purchases";
+import { isLiterature, orderWindowLabel, summarizePurchases, type PurchaseLine, type PurchaseOrder } from "../../../../lib/features/prospect/purchases";
 import { HUBSPOT_COMPANY_URL, daysAgo, money } from "../../../../lib/features/prospect/format";
 import { angleField } from "../../../../lib/features/prospect/angle";
 import { dayLabel, workingDayIso } from "../../../../lib/features/route/field-week";
@@ -516,6 +516,54 @@ function Purchases({ orders, lines }: { orders: PurchaseOrder[]; lines: Purchase
   );
 }
 
+function Orders({ orders, lines }: { orders: PurchaseOrder[]; lines: PurchaseLine[] }) {
+  const [all, setAll] = useState(false);
+  const shown = [...orders].sort((x, y) => (x.ordered_at < y.ordered_at ? 1 : -1)).slice(0, all ? orders.length : 3);
+  return (
+    <section>
+      <h2 className={`mb-3 ${eyebrowCls}`}>Orders</h2>
+      <div className="flex flex-col gap-3">
+        {shown.map((o) => {
+          const items = lines.filter((l) => l.order_id === o.id && !isLiterature(l));
+          return (
+            <Card key={o.id}>
+              <div className="mb-2 flex items-baseline justify-between gap-3 text-[13.5px]">
+                <span className="font-medium">{o.ordered_at.slice(0, 10)}</span>
+                <span className="tabular-nums text-[#5B6560]">{money(o.revenue_cents / 100)}</span>
+              </div>
+              {items.length > 0 && (
+                <table className="w-full text-left text-[13px]">
+                  <thead>
+                    <tr className="text-[#8A928C]">
+                      <th className="py-1 pr-2 font-normal">Item</th>
+                      <th className="py-1 pr-2 font-normal">Item #</th>
+                      <th className="py-1 text-right font-normal">Units</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EDEBE3]">
+                    {items.map((l, i) => (
+                      <tr key={i}>
+                        <td className="py-1 pr-2">{l.product_name}</td>
+                        <td className="py-1 pr-2 tabular-nums text-[#5B6560]">{l.part_code}</td>
+                        <td className="py-1 text-right tabular-nums">{l.qty}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+      {orders.length > 3 && (
+        <button type="button" onClick={() => setAll((v) => !v)} className="mt-2 text-[13px] text-[#5B6560] underline">
+          {all ? "Show fewer" : `Show all ${orders.length}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
 export function AccountView({
   account: a,
   contacts,
@@ -685,6 +733,7 @@ export function AccountView({
           )}
 
           {orders.length > 0 && <Purchases orders={orders} lines={lines} />}
+          {orders.length > 0 && <Orders orders={orders} lines={lines} />}
 
           <section>
             <h2 className={`mb-3 ${eyebrowCls}`}>History</h2>

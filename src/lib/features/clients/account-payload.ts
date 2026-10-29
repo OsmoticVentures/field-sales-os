@@ -215,7 +215,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
     sbGetAllFor<PurchaseLine & { account_id: string }>(
       "nb_order_lines",
       {
-        select: "account_id,order_id,product_name,qty,line_revenue_cents,general_category",
+        select: "account_id,order_id,part_code,product_name,qty,line_revenue_cents,general_category",
         order: "account_id.asc,order_id.asc,product_name.asc,qty.asc,line_revenue_cents.asc",
       },
       ids,
@@ -246,7 +246,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
       lines: accOrders.length
         ? (linesBy.get(id) ?? [])
             .filter((l) => orderIds.has(l.order_id))
-            .map(({ order_id, product_name, qty, line_revenue_cents }) => ({ order_id, product_name, qty, line_revenue_cents }))
+            .map(({ order_id, part_code, product_name, qty, line_revenue_cents, general_category }) => ({ order_id, part_code, product_name, qty, line_revenue_cents, general_category }))
         : [],
       initialTier: account.potential_juan ?? prio?.grade ?? (account.potential_hq ? account.potential_hq.split(" ")[0] || null : null),
       tierIsMine: Boolean(account.potential_juan),
