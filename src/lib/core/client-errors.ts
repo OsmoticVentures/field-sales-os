@@ -53,5 +53,12 @@ export function installClientErrorCapture(): void {
     if (!ev.error && !ev.message) return;
     reportClientError(ev.error ?? new Error(ev.message), "window");
   });
-  window.addEventListener("unhandledrejection", (ev) => reportClientError(ev.reason, "promise"));
+  window.addEventListener("unhandledrejection", (ev) => {
+    // The browser skips a view transition when the viewport resizes mid-way
+    // (keyboard, rotation, address bar) and rejects its ready promise. The
+    // page change itself still completes; only the animation is dropped.
+    const r = ev.reason as { name?: string; message?: string } | undefined;
+    if (r?.name === "InvalidStateError" && /view transition|Transition was aborted/i.test(r.message ?? "")) return;
+    reportClientError(ev.reason, "promise");
+  });
 }
