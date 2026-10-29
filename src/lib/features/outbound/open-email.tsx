@@ -56,7 +56,7 @@ type EmailDraft = Pick<Draft, "to_email" | "subject" | "body_md" | "bcc_email"> 
  *  before the id was kept opens the Drafts folder. */
 const IN_OUTLOOK = "outlook-draft";
 const OWA_DRAFTS = "https://outlook.cloud.microsoft/mail/drafts";
-const OWA_DRAFT = "https://outlook.office.com/mail/deeplink/compose/";
+const OWA_DRAFT = "https://outlook.cloud.microsoft/mail/deeplink/compose/";
 
 function outlookDraftHref(mark: string): string {
   const id = mark.slice(IN_OUTLOOK.length + 1);
