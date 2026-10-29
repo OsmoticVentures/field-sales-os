@@ -11,7 +11,9 @@ import { BASE_PATH } from "./api";
  * while it is out of sight, or before he has touched it since it opened or
  * came back, never under a half-typed note, so
  * an app left open on the phone runs today's build, not the one it launched
- * with. Production only: in dev it would serve stale chunks to a hot reload.
+ * with. On the Mac (the iPhone build in a window) the screen never goes
+ * hidden when he switches apps, so window focus and blur count too: he was
+ * left on a morning build all day (2026-10-29). Production only: in dev it would serve stale chunks to a hot reload.
  * Renders nothing.
  */
 const CHECK_GAP_MS = 60 * 1000;
@@ -78,7 +80,21 @@ export function ServiceWorkerRegister() {
       void reg.update().catch(() => {});
     };
     document.addEventListener("visibilitychange", onVisible);
+    const onFocus = () => {
+      untouched = true;
+      reloadIfSafe();
+      if (!reg || Date.now() - lastCheck < CHECK_GAP_MS) return;
+      lastCheck = Date.now();
+      void reg.update().catch(() => {});
+    };
+    const onBlur = () => {
+      if (newBuild && !typing()) window.location.reload();
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
     return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
       navigator.serviceWorker.removeEventListener("message", onMessage);
       navigator.serviceWorker.removeEventListener("controllerchange", onController);
       window.removeEventListener("pointerdown", onTouch, true);
