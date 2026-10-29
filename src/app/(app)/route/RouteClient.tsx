@@ -1244,13 +1244,32 @@ function RouteDay({
                   } ${dropAtEnd ? "border-b-2 border-[#2C6A46]" : ""}`}
                 >
                   <div className="flex items-start gap-3">
-                    <span
-                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[12px] font-semibold tabular-nums text-white ${
-                        c ? "rounded-[4px] bg-[#A0762C]" : "rounded-full bg-[#14201B]"
-                      }`}
-                    >
-                      {isDone ? <Ico name="check" size={13} /> : (stopNumber.get(s.id) ?? i + 1)}
-                    </span>
+                    {isDone ? (
+                      // Done shows once, here: the check and the struck name.
+                      // Tapping the check puts the stop back on the day.
+                      <button
+                        type="button"
+                        onClick={() => toggleDone(s.id)}
+                        aria-label={`Mark ${title} not done`}
+                        className="-mx-2 -mb-2 -mt-1.5 flex h-11 w-11 shrink-0 items-center justify-center transition-transform active:scale-[0.95]"
+                      >
+                        <span
+                          className={`flex h-7 w-7 items-center justify-center text-white ${
+                            c ? "rounded-[4px] bg-[#A0762C]" : "rounded-full bg-[#14201B]"
+                          }`}
+                        >
+                          <Ico name="check" size={13} />
+                        </span>
+                      </button>
+                    ) : (
+                      <span
+                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[12px] font-semibold tabular-nums text-white ${
+                          c ? "rounded-[4px] bg-[#A0762C]" : "rounded-full bg-[#14201B]"
+                        }`}
+                      >
+                        {stopNumber.get(s.id) ?? i + 1}
+                      </span>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         {a ? (
@@ -1430,19 +1449,12 @@ function RouteDay({
                       >
                         <RowIco name="grip" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleDone(s.id)}
-                        aria-pressed={isDone}
-                        className={
-                          isDone
-                            ? "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md bg-[#2C6A46] px-3 py-2 text-[13px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none"
-                            : iconBtn
-                        }
-                      >
-                        <Ico name="check" size={13} />
-                        {isDone ? "Done" : "Mark done"}
-                      </button>
+                      {!isDone && (
+                        <button type="button" onClick={() => toggleDone(s.id)} className={iconBtn}>
+                          <Ico name="check" size={13} />
+                          Mark done
+                        </button>
+                      )}
                       {email && <OpenEmailButtons draft={email} label="Open email" copy={false} />}
                       {days.length > 1 && (
                         <DayMoveMenu
@@ -1452,6 +1464,15 @@ function RouteDay({
                           label={`Move ${title} to a day`}
                           className={sqBtn}
                         />
+                      )}
+                      {a && (
+                        <Link
+                          href={{ pathname: "/visit", query: { account: a.id, name: a.name } }}
+                          className={iconBtn}
+                        >
+                          <Ico name="plus" size={13} />
+                          Log a visit
+                        </Link>
                       )}
                       {!c?.pending && (
                         <a
