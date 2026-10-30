@@ -331,12 +331,18 @@ export function reportHref(name: string): string {
  *  to find out. Returns the stable href, not the signed URL. */
 export async function reportPreviewHref(userId: string, name: string): Promise<string | null> {
   try {
-    const path = reportObjectPath(userId, name).split("/").map(enc).join("/");
-    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/info/${REPORTS_BUCKET}/${path}`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` },
+    if (!configured()) return null;
+    // The list endpoint answers 200 with an empty list for a missing object;
+    // object/info answers 400 for it, which is not a failure here.
+    const res = await fetchWithTimeout(`${SB_URL}/storage/v1/object/list/${REPORTS_BUCKET}`, {
+      method: "POST",
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix: userId === ROOT_REP ? "" : `${userId}/`, search: name, limit: 10 }),
       cache: "no-store",
     });
     if (!res.ok) return null;
+    const objects = (await res.json()) as Array<{ name: string }>;
+    if (!objects.some((o) => o.name === name)) return null;
     return reportHref(name);
   } catch {
     return null;
