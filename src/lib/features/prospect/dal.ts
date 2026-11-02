@@ -19,6 +19,8 @@
  */
 import "server-only";
 import type { PurchaseLine, PurchaseOrder } from "./purchases";
+import { isLiterature } from "./purchases";
+import type { CallContextInput } from "./call-context";
 import { statesCardFact } from "./angle";
 import { DEFAULT_USER, currentUser, myOwnerId } from "../../core/user";
 
@@ -382,6 +384,53 @@ export async function getAccountCallCards(ids: string[]): Promise<Record<string,
   return Object.fromEntries(
     rows.map((a) => [a.id, { name: a.name, phone: a.phone, area: a.area, businessHours: a.business_hours }]),
   );
+}
+
+/** What a call card needs to say what they buy and when we last touched:
+ *  top products by units, the last order date, the latest real touchpoint.
+ *  Three narrow reads for the whole week's list, not one per card. */
+export async function getCallContexts(ids: string[]): Promise<Record<string, CallContextInput>> {
+  if (ids.length === 0 || !isConfigured()) return {};
+  const inIds = `in.(${ids.join(",")})`;
+  const [accounts, lines, acts] = await Promise.all([
+    sbGet<{ id: string; last_order_at: string | null }>(
+      "nb_accounts",
+      new URLSearchParams({ select: "id,last_order_at", id: inIds, hubspot_owner_id: `eq.${await myOwnerId()}` }),
+    ),
+    sbGet<{ account_id: string; product_name: string | null; qty: number | null; line_revenue_cents: number; general_category: string | null }>(
+      "nb_order_lines",
+      new URLSearchParams({ select: "account_id,product_name,qty,line_revenue_cents,general_category", account_id: inIds, limit: "5000" }),
+    ),
+    sbGet<{ account_id: string; at: string; kind: string; origin: string }>(
+      "nb_v_activities_effective",
+      new URLSearchParams({
+        select: "account_id,at,kind:effective_kind,origin",
+        account_id: inIds,
+        retracted: "is.false",
+        effective_kind: "in.(call,meeting,visit,email_out,email_in)",
+        order: "at.desc",
+        limit: "1000",
+      }),
+    ),
+  ]);
+  const out: Record<string, CallContextInput> = {};
+  for (const a of accounts) out[a.id] = { topProducts: [], lastOrderAt: a.last_order_at, lastTouch: null };
+  const units = new Map<string, Map<string, number>>();
+  for (const l of lines) {
+    if (!out[l.account_id] || !l.product_name) continue;
+    if (isLiterature({ ...l, order_id: "" })) continue;
+    const m = units.get(l.account_id) ?? new Map<string, number>();
+    m.set(l.product_name, (m.get(l.product_name) ?? 0) + (l.qty ?? 0));
+    units.set(l.account_id, m);
+  }
+  for (const [id, m] of units) {
+    out[id].topProducts = [...m.entries()].filter(([, q]) => q > 0).sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  }
+  for (const act of acts) {
+    const c = out[act.account_id];
+    if (c && !c.lastTouch && act.origin !== "enriched") c.lastTouch = { at: act.at, kind: act.kind };
+  }
+  return out;
 }
 
 /** A light, single-account-name-search picker, filtered server-side. */

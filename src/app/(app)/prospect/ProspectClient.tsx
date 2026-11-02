@@ -59,6 +59,10 @@ type ScheduleItem = {
   priorityScore: number | null;
   priorityReason: string | null;
   priorityBand: "now" | "soon" | "later" | "unscored" | null;
+  /** "Set up Wed": why this call is on the list, from the queue row's notes. */
+  callReason?: string | null;
+  /** "Buys GSE Liquid Concentrate · Met Oct 28" */
+  buying?: string | null;
 };
 
 type AreaGroup = { id: string; label: string; color: string; prospects: number };
@@ -187,10 +191,10 @@ function useMounted(): boolean {
   return useSyncExternalStore(noopSubscribe, () => true, () => false);
 }
 
-function OpenBadge({ businessHours }: { businessHours: BusinessHours | null | undefined }) {
+function OpenBadge({ businessHours, closedOnly = false }: { businessHours: BusinessHours | null | undefined; closedOnly?: boolean }) {
   const mounted = useMounted();
   const status = mounted ? hoursStatus(businessHours) : null;
-  if (!status) return null;
+  if (!status || (closedOnly && status.open)) return null;
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-medium ${status.open ? "bg-[#E3EFE6] text-[#3D6B4A]" : "bg-[#ECEAE1] text-[#8A928C]"}`}>
       <span className={`h-[6px] w-[6px] rounded-full ${status.open ? "bg-[#3D6B4A]" : "bg-[#B7ACA0]"}`} />
@@ -441,12 +445,6 @@ function AddToDayForm({ date, onAdded }: { date: string; onAdded: (item: Schedul
 // One row
 // ---------------------------------------------------------------------------
 
-const PRIORITY_CHIP: Record<"low" | "mid" | "high", string> = {
-  low: "bg-[#ECEAE1] text-[#8A928C]",
-  mid: "bg-[#E7EDE4] text-[#3D6B4A]",
-  high: "bg-[#F3E3C6] text-[#8A6D2F]",
-};
-
 function ScheduleRow({
   item, active, onSelect, onDone, onReschedule, todayIso, statusError, showSuccess, onUndo,
 }: {
@@ -486,7 +484,6 @@ function ScheduleRow({
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] tracking-[0.06em] text-[#8A928C] uppercase">
             <span>{item.kind}</span>
-            {item.priority && <span className={`rounded px-1 py-0.5 text-[10.5px] font-medium ${PRIORITY_CHIP[item.priority]}`}>{item.priority}</span>}
             {item.status !== "pending" && <span>, {item.status}</span>}
           </div>
         </button>
@@ -509,12 +506,21 @@ function ScheduleRow({
         </div>
       </div>
 
-      {(item.businessHours || item.priorityReason) && (
-        <button onClick={onSelect} className="flex min-w-0 items-center gap-1.5 text-left">
-          {item.businessHours && <OpenBadge businessHours={item.businessHours} />}
-          {item.priorityReason && (
-            <span className="min-w-0 truncate text-[12px] leading-snug text-[#8A928C]" title={item.priorityReason}>
-              {item.priorityReason}
+      {(item.callReason || item.buying || item.businessHours) && (
+        <button onClick={onSelect} className="flex min-w-0 flex-col gap-0.5 text-left">
+          {(item.callReason || item.businessHours) && (
+            <span className="flex min-w-0 items-start gap-1.5">
+              {item.businessHours && <OpenBadge businessHours={item.businessHours} closedOnly />}
+              {item.callReason && (
+                <span className="line-clamp-2 min-w-0 text-[13.5px] leading-snug font-medium text-[#14201B]" title={item.callReason}>
+                  {item.callReason}
+                </span>
+              )}
+            </span>
+          )}
+          {item.buying && (
+            <span className="min-w-0 truncate text-[12.5px] leading-snug text-[#5B6560]" title={item.buying}>
+              {item.buying}
             </span>
           )}
         </button>

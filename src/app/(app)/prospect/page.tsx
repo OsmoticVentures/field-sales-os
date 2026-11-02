@@ -17,8 +17,9 @@
 import { PageHead } from "../../../lib/core/ui";
 import { requireAccess } from "../../../lib/core/devices";
 import { ProspectClient } from "./ProspectClient";
-import { getAccountCallCards, getPriorityBook, isConfigured, listAreas, listSdrSchedule, todayStartLA } from "../../../lib/features/prospect/dal";
+import { getAccountCallCards, getCallContexts, getPriorityBook, isConfigured, listAreas, listSdrSchedule, todayStartLA } from "../../../lib/features/prospect/dal";
 import { sortAreasByProspects } from "../../../lib/features/prospect/priority";
+import { buyingLine, callReason } from "../../../lib/features/prospect/call-context";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
   const accountIds = [
     ...new Set([...schedule.map((r) => r.account_id).filter((id): id is string => !!id), ...(focusAccountId ? [focusAccountId] : [])]),
   ];
-  const cards = await getAccountCallCards(accountIds);
+  const [cards, contexts] = await Promise.all([getAccountCallCards(accountIds), getCallContexts(accountIds)]);
 
   const items = schedule.map((r) => {
     const card = r.account_id ? cards[r.account_id] : undefined;
@@ -57,6 +58,8 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
       priorityScore: p?.score ?? null,
       priorityReason: p?.reason ?? null,
       priorityBand: p?.band ?? null,
+      callReason: callReason(r.notes, r.account_id ? (contexts[r.account_id]?.lastOrderAt ?? null) : null),
+      buying: r.account_id && contexts[r.account_id] ? buyingLine(contexts[r.account_id]) : null,
     };
   });
 
