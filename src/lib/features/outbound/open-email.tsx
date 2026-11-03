@@ -15,27 +15,33 @@ import { outlookAppComposeLink, owaComposeLink } from "./mail-links";
 import { useOnPhone } from "./use-on-phone";
 import { bodyToHtml, bodyToPlain, hasTable } from "./table-body";
 
+/** Puts a draft body on the clipboard (rich when it holds a table). False
+ *  when the browser refuses; the body is on screen either way. */
+async function copyBody(body: string): Promise<boolean> {
+  try {
+    if (hasTable(body) && typeof ClipboardItem !== "undefined") {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([bodyToHtml(body)], { type: "text/html" }),
+          "text/plain": new Blob([bodyToPlain(body)], { type: "text/plain" }),
+        }),
+      ]);
+    } else {
+      await navigator.clipboard.writeText(body);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function CopyBodyButton({ body }: { body: string }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
-    try {
-      if (hasTable(body) && typeof ClipboardItem !== "undefined") {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": new Blob([bodyToHtml(body)], { type: "text/html" }),
-            "text/plain": new Blob([bodyToPlain(body)], { type: "text/plain" }),
-          }),
-        ]);
-      } else {
-        await navigator.clipboard.writeText(body);
-      }
+    if (await copyBody(body)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard permission refused. The body is on screen above either
-      // way, so this degrades to selecting it by hand rather than to
-      // nothing.
     }
   }
 
@@ -74,6 +80,7 @@ export function OpenEmailButtons({
   copy?: boolean;
 }) {
   const onPhone = useOnPhone();
+  const [opened, setOpened] = useState(false);
   const tableBody = hasTable(draft.body_md);
   if (draft.provider_msg_id?.startsWith(IN_OUTLOOK)) {
     return (
@@ -96,10 +103,19 @@ export function OpenEmailButtons({
   }
   return (
     <>
-      <a href={outlook.href} target="_blank" rel="noopener noreferrer" className={`${primaryBtn} inline-flex items-center`}>
+      {/* Outlook on the web drops a deep link's body when it bounces through
+          sign-in or account select (Juan, 2026-11-03: "the open on outlook
+          doesnt carry the body"), so opening also puts the body on the
+          clipboard: an empty compose is one paste away, never a retype. */}
+      <a href={outlook.href} target="_blank" rel="noopener noreferrer"
+         onClick={() => { void copyBody(draft.body_md).then(setOpened); }}
+         className={`${primaryBtn} inline-flex items-center`}>
         {label}
       </a>
       {copy && <CopyBodyButton body={draft.body_md} />}
+      {opened && !onPhone && (
+        <span className="text-[12px] text-[#8A928C]">Body copied. If Outlook opens empty, paste.</span>
+      )}
       {outlook.bodyOmitted && !tableBody && (
         <span className="text-[12px] text-[#8A6D2F]">Too long to prefill. Outlook opens addressed, paste the body in.</span>
       )}
