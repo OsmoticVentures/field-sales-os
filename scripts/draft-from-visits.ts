@@ -14,11 +14,20 @@
  * A refusal is not stored by draftFromVisit, so each note gets at most
  * MAX_TRIES sweep attempts, counted in STATE (pruned past SWEEP_DAYS).
  *
+ * The same run drafts every promised follow-up email whose day has come:
+ * `[follow-up:email]` directives (target FOLLOW_UP_TARGET) filed from a visit
+ * note (from-visit.ts) or a sent email (bridges/nutribiotic/sent_promises.py).
+ * A drafted one is marked routed; one that cannot be written gets MAX_TRIES.
+ *
  * Needs NB_SUPABASE_* and ANTHROPIC_API_KEY in the env. Runs as rep
  * NB_SCRIPT_USER (default "juan"), so it drafts for that rep's book only.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { draftFromVisit, givenEmails } from "../src/lib/features/outbound/from-visit";
+import { loadAskInputs } from "../src/lib/features/outbound/actions";
+import { composeAsk } from "../src/lib/features/outbound/compose";
+import { FOLLOW_UP_TARGET, insertAskDraft } from "../src/lib/features/outbound/dal";
+import { laDay } from "../src/lib/core/once-server";
 
 process.env.NB_SCRIPT_USER ??= "juan";
 const SB_URL = process.env.NB_SUPABASE_URL!;
@@ -116,9 +125,78 @@ async function sweep() {
   writeFileSync(STATE, JSON.stringify(state, null, 1));
 }
 
+type Directive = { id: string; account_id: string | null; directive: string; created_at: string };
+
+/** Promised follow-up emails whose day is today or past, drafted into Outbound. */
+async function dueFollowUps(state: Record<string, { tries: number; at: string }>) {
+  const rows = await get<Directive[]>(
+    `nb_directives?select=id,account_id,directive,created_at&target=eq.${FOLLOW_UP_TARGET}&status=eq.pending&limit=200`,
+  );
+  const today = laDay();
+  for (const d of rows) {
+    const on = d.directive.match(/Stated time: (\d{4}-\d{2}-\d{2})/)?.[1] ?? laDay(new Date(Date.parse(d.created_at) + 7 * 864e5));
+    if (!d.account_id || on > today) continue;
+    const tries = state[d.id]?.tries ?? 0;
+    if (tries >= MAX_TRIES) continue;
+    state[d.id] = { tries: tries + 1, at: new Date().toISOString() };
+
+    const what = d.directive.replace(/^\[follow-up:email\]\s*/, "").split(" · ")[0];
+    const { account, contacts, voice } = await loadAskInputs(d.account_id);
+    if (!account) {
+      console.log("follow-up:", d.id, "skipped: not in this rep's book");
+      continue;
+    }
+    // The promise, plus the last notes and sent emails on the account, are the sources.
+    const recent = await get<{ raw_text: string; created_at: string }[]>(
+      `nb_touchpoints?select=raw_text,created_at&account_id=eq.${d.account_id}&order=created_at.desc&limit=3`,
+    );
+    const promisedOn = d.created_at.slice(0, 10);
+    const composed = await composeAsk({
+      ask:
+        `The follow-up he promised on ${promisedOn}, written to go out now: ${what}. ` +
+        "This is a second email, not a first one: do not re-introduce him or the company, do not repeat what the earlier email or visit already said or attached, and do not promise to reach out again. Pick up where the promise left off and make the one ask.",
+      noteText: [
+        `THE PROMISE, made ${promisedOn}: ${d.directive}`,
+        ...recent.map((r) => `EARLIER CONTACT ${r.created_at.slice(0, 10)}: ${r.raw_text}`),
+      ].join("\n\n"),
+      account: { id: account.id, name: account.name, city: account.city, email: account.email },
+      contacts,
+      voice,
+    });
+    if (!composed.written) {
+      console.log("follow-up:", d.id, "not written:", composed.reason);
+      continue;
+    }
+    const row = await insertAskDraft({
+      account_id: d.account_id,
+      ask: what,
+      composed,
+      urgency: { level: 2, reason: `Follow-up you promised for ${on}` },
+      source_directive_id: d.id,
+    });
+    if (!row) continue;
+    await fetch(`${SB_URL}/rest/v1/nb_directives?id=eq.${encodeURIComponent(d.id)}`, {
+      method: "PATCH",
+      headers: { ...H, "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "routed" }),
+    });
+    console.log("follow-up:", d.id, "drafted", row.id, row.to_email ?? "(no address)");
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
-  if (args[0] === "--sweep") return sweep();
+  if (args[0] === "--sweep") {
+    await sweep();
+    const state: Record<string, { tries: number; at: string }> = existsSync(STATE)
+      ? JSON.parse(readFileSync(STATE, "utf8"))
+      : {};
+    const cutoff = new Date(Date.now() - 30 * 864e5).toISOString();
+    for (const [id, s] of Object.entries(state)) if (s.at < cutoff) delete state[id]; // the bound
+    await dueFollowUps(state);
+    writeFileSync(STATE, JSON.stringify(state, null, 1));
+    return;
+  }
   if (!args.length) throw new Error("Pass touchpoint ids, or --sweep.");
   return byIds(args);
 }

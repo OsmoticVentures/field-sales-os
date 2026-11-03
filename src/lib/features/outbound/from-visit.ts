@@ -18,10 +18,10 @@ import "server-only";
 import { z } from "zod";
 import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
 import { withIdempotency } from "../../core/idempotency";
-import { Held, once } from "../../core/once-server";
+import { Held, laDay, once } from "../../core/once-server";
 import { loadAskInputs } from "./actions";
 import { asksCollide, composeAsk } from "./compose";
-import { insertAskDraft } from "./dal";
+import { insertAskDraft, insertFollowUpDirective } from "./dal";
 
 export type VisitOutbound =
   | { status: "drafted"; draftId: string; toEmail: string | null }
@@ -69,23 +69,29 @@ const DecideSchema = z.object({
   email_needed: z.boolean().describe("true when the note says the rep will, should or needs to email the customer, or send them something by email (a thank-you, a price sheet, a catalog, terms, product info, an order confirmation), or the customer asked for something to be emailed to them. false when the next step is only a call, a text, a WhatsApp, a return visit, or nothing; when the other side will send HIM something; or when the email is internal (to HQ, the orders desk, himself)."),
   ask: z.string().describe("When email_needed: what the email must say or carry, in the rep's own words from the note, kept close to verbatim (e.g. 'send him an email tonight saying thank you so much for the visit and go cobra Kai'). Every item the customer asked for goes in this one string. Empty when not needed."),
   today: z.boolean().describe("true when the note says the email goes out today, tonight, now or right away, or states no later time. false when it states a later time ('in a week')."),
+  follow_up_on: z.string().nullable().describe("When the note says he will follow up, reach out again, check back or email this customer at a LATER time, with no call, text or visit named: the approximate day, YYYY-MM-DD, resolved against TODAY. A named month is its first weekday, 'next week' is next Monday, 'in two weeks' is 14 days out, 'in a month' is 30 days out, and a later follow-up with no time stated is 7 days out. null when no later follow-up is stated, or when it is a call, a text or a visit."),
+  follow_up_what: z.string().describe("When follow_up_on is set: what the follow-up is about, in the rep's own words from the note. Empty otherwise."),
 });
 
 const DECIDE_SYSTEM = `You read one note a field sales rep just logged about a customer and decide one thing: does it leave an email he owes that customer?
 
-Only what the note says counts. Never invent an email he did not mention or a customer did not ask for. A promise to "follow up" with no channel is not an email. A text or a call is not an email. When the customer asked him to send them anything, that is an email unless the note names another channel. When someone at the account gave him an email address, that is an email he owes: the first email to that person after the visit.`;
+Only what the note says counts. Never invent an email he did not mention or a customer did not ask for. A promise to "follow up" later with no channel is not an email owed now: it is a follow-up for a later day (follow_up_on). A text or a call is not an email. When the customer asked him to send them anything, that is an email unless the note names another channel. When someone at the account gave him an email address, that is an email he owes: the first email to that person after the visit.`;
 
-type Decision = { email_needed: boolean; ask: string; today: boolean };
+type Decision = {
+  email_needed: boolean;
+  ask: string;
+  today: boolean;
+  followUp?: { on: string; what: string };
+};
 
 /** The decision could not be made because the day's AI limit is reached. */
 const CAPPED = Symbol("capped");
 
 async function decide(note: VisitNote): Promise<Decision | string | { [CAPPED]: string }> {
-  // What the visit parse already caught is the decision, with no model call.
-  if (note.outreachAsks.length > 0) {
-    return { email_needed: true, ask: note.outreachAsks.join("; "), today: true };
-  }
-  if (!aiConfigured()) return "no model is configured on this deployment";
+  // What the visit parse already caught is the email decision; the model
+  // still reads the note for a later follow-up.
+  const caught = note.outreachAsks.length > 0 ? { email_needed: true, ask: note.outreachAsks.join("; "), today: true } : null;
+  if (!aiConfigured()) return caught ?? "no model is configured on this deployment";
   try {
     const { data } = await ai({
       task: "outbound_decide",
@@ -93,13 +99,18 @@ async function decide(note: VisitNote): Promise<Decision | string | { [CAPPED]: 
       messages: [
         {
           role: "user",
-          content: `NOTE:\n${note.rawText}\n\nNEXT STEP AS FILED: ${note.nextStep ?? "(none stated)"}`,
+          content: `TODAY: ${laDay()}\n\nNOTE:\n${note.rawText}\n\nNEXT STEP AS FILED: ${note.nextStep ?? "(none stated)"}`,
         },
       ],
       schema: DecideSchema,
     });
-    return { email_needed: data.email_needed, ask: data.ask.trim(), today: data.today };
+    const on = data.follow_up_on && /^\d{4}-\d{2}-\d{2}$/.test(data.follow_up_on) && data.follow_up_on > laDay() ? data.follow_up_on : null;
+    return {
+      ...(caught ?? { email_needed: data.email_needed, ask: data.ask.trim(), today: data.today }),
+      ...(on ? { followUp: { on, what: data.follow_up_what.trim() || note.nextStep?.trim() || "Follow up after the visit" } } : {}),
+    };
   } catch (err) {
+    if (caught) return caught;
     if (isAiCap(err)) return { [CAPPED]: err.message };
     return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
@@ -123,6 +134,17 @@ async function run(note: VisitNote): Promise<VisitOutbound> {
   if (CAPPED in decision) return { status: "not_written", reason: `Email not drafted. ${decision[CAPPED]}` };
   // An email handed over at the visit is owed even when the note never says
   // "email them" (2026-11-03: a buyer's address sat in a note, nothing drafted).
+  if (decision.followUp) {
+    // A later follow-up is drafted on its day by scripts/draft-from-visits.ts
+    // --sweep, from this directive (Juan, 2026-11-03).
+    await insertFollowUpDirective({
+      id: `dir_fu_${note.touchpointId}`,
+      accountId: note.accountId,
+      on: decision.followUp.on,
+      what: decision.followUp.what,
+      quote: note.rawText,
+    }).catch(() => undefined);
+  }
   if (!decision.email_needed && given.length) {
     decision.email_needed = true;
     decision.ask = givenEmailAsk(given);

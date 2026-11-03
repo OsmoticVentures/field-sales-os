@@ -187,6 +187,8 @@ export async function insertAskDraft(input: {
   composed: ComposedAsk;
   /** A draft a visit just asked for goes to the top of the queue. */
   urgency?: { level: 0 | 1 | 2; reason: string };
+  /** The promised follow-up (nb_directives) this draft keeps. */
+  source_directive_id?: string;
 }): Promise<Draft | null> {
   const c = input.composed;
   // An ask that could not be written as an email is not an outbound item.
@@ -205,12 +207,32 @@ export async function insertAskDraft(input: {
     to_name: c.toName,
     bcc_email: null,
     play_key: ASK_COMPOSED_PLAY,
+    ...(input.source_directive_id ? { source_directive_id: input.source_directive_id } : {}),
     source_ask: normalizeAsk(input.ask),
     campaign_id: null,
     status: "pending",
     origin: "manual",
   });
   return row;
+}
+
+/** Where a promised follow-up email waits for its day. Not Route's inbox
+ *  (nutribiotic-route-planner), so it never shows as a return visit. */
+export const FOLLOW_UP_TARGET = "nutribiotic-outbound";
+
+/** File a promised later follow-up email, in the `[follow-up:email]` shape
+ *  bridges/nutribiotic/sent_promises.py writes for one promised in a sent
+ *  email. Its id is the caller's, so a retry writes nothing new. */
+export async function insertFollowUpDirective(input: { id: string; accountId: string; on: string; what: string; quote: string }) {
+  const quote = input.quote.replace(/\s+/g, " ").trim().slice(0, 400);
+  await sbWrite("nb_directives", "POST", {
+    id: input.id,
+    directive: `[follow-up:email] ${input.what} · Stated time: ${input.on} · From a visit note · Quote: "${quote}"`,
+    target: FOLLOW_UP_TARGET,
+    scope: "nutribiotic",
+    account_id: input.accountId,
+    status: "pending",
+  });
 }
 
 /**
