@@ -482,7 +482,8 @@ export async function runEngagement(
   if (activity.detail) {
     const sibling = await findRecentDuplicateEngagement(account.id, activity.detail, activityId);
     if (sibling) {
-      if (opts.write) await stampActivityEngagementId(activityId, sibling.hubspot_engagement_id);
+      // Not stamped: nb_activities.hubspot_engagement_id is unique and the
+      // sibling already holds this id, so copying it onto this row would 409.
       return { ...base, lines: [], matchedNames: [], alreadyFiledId: sibling.hubspot_engagement_id, wrote: false, noteId: sibling.hubspot_engagement_id };
     }
   }
