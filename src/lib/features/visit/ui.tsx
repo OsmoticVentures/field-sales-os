@@ -95,6 +95,7 @@ export function TouchpointCapture({
   onFiled,
   defaultKind,
   initialText,
+  kindPrefix,
   autoFocus = true,
 }: {
   /** The account the note is about, when the caller already knows it (the
@@ -109,6 +110,9 @@ export function TouchpointCapture({
   defaultKind?: KindOption;
   /** Pre-typed opening, caret at the end. Applied once, on mount. */
   initialText?: string;
+  /** Opening words per kind. Switching kind swaps the prefix only while the
+   *  note still starts with the previous kind's prefix; his own text stays. */
+  kindPrefix?: Partial<Record<KindOption, string>>;
   /** False on a phone where landing here is not yet the intent to type. */
   autoFocus?: boolean;
 } = {}) {
@@ -291,6 +295,13 @@ export function TouchpointCapture({
               key={opt.value}
               type="button"
               onClick={() => {
+                const from = kindPrefix?.[kind];
+                const to = kindPrefix?.[opt.value];
+                if (from && to && from !== to && text.startsWith(from)) {
+                  const next = to + text.slice(from.length);
+                  setText(next);
+                  refocus();
+                }
                 setKind(opt.value);
                 setKindTouched(true);
               }}

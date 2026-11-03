@@ -1063,6 +1063,10 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
             key={item.account_id}
             accountIdHint={item.account_id}
             defaultKind={item.kind === "visit" ? "meeting" : "call"}
+            kindPrefix={{
+              call: "Called",
+              meeting: item.kind === "visit" ? "Visited" : "Went to",
+            }}
             initialText={`${item.kind === "visit" ? "Visited" : "Called"} ${item.displayName} and spoke with: `}
             autoFocus={false}
             onFiled={() => {
