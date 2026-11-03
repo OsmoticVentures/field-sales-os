@@ -102,6 +102,9 @@ export async function userByPin(pin: string): Promise<User | null> {
 /** The user id this request's cookies name, before any registry check. The
  *  gate (devices.ts hasAccess) has already decided whether to let it in. */
 export async function currentUserId(): Promise<string> {
+  // A local script has no request and no cookies. It names its rep in the env
+  // (scripts/draft-from-visits.ts); no deployment ever sets this.
+  if (process.env.NB_SCRIPT_USER) return process.env.NB_SCRIPT_USER;
   const { session, device } = await readAuthCookies();
   const fromSession = await readSessionUser(session);
   if (fromSession) return fromSession;

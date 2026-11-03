@@ -36,7 +36,29 @@ type VisitNote = {
   kind: string;
   nextStep: string | null;
   outreachAsks: string[];
+  /** People the note says handed over an email address at this visit. */
+  givenEmails?: GivenEmail[];
 };
+
+export type GivenEmail = { name: string; email: string };
+
+type Person = { first_name?: string | null; last_name?: string | null; email?: string | null };
+
+/** An email address counts as handed over only when the note itself says it,
+ *  so an address enrichment found on a website never triggers a draft. */
+export function givenEmails(rawText: string, people: Person[] | undefined): GivenEmail[] {
+  const text = rawText.toLowerCase();
+  return (people ?? [])
+    .filter((p): p is Person & { email: string } => Boolean(p.email && text.includes(p.email.toLowerCase())))
+    .map((p) => ({ name: [p.first_name, p.last_name].filter(Boolean).join(" ").trim(), email: p.email }));
+}
+
+/** Someone gave him their email: the first email to them is owed, in the
+ *  note's own terms. No fact beyond the name and the address is added. */
+function givenEmailAsk(given: GivenEmail[]): string {
+  const who = given.map((g) => (g.name ? `${g.name} (${g.email})` : g.email)).join(" and ");
+  return `First email after the visit to ${who}, who gave this email at the visit`;
+}
 
 /** Kinds that are not a customer conversation, or are the email itself. */
 const NEVER_DRAFTED = new Set(["field_note", "email_out", "newsletter"]);
@@ -51,7 +73,7 @@ const DecideSchema = z.object({
 
 const DECIDE_SYSTEM = `You read one note a field sales rep just logged about a customer and decide one thing: does it leave an email he owes that customer?
 
-Only what the note says counts. Never invent an email he did not mention or a customer did not ask for. A promise to "follow up" with no channel is not an email. A text or a call is not an email. When the customer asked him to send them anything, that is an email unless the note names another channel.`;
+Only what the note says counts. Never invent an email he did not mention or a customer did not ask for. A promise to "follow up" with no channel is not an email. A text or a call is not an email. When the customer asked him to send them anything, that is an email unless the note names another channel. When someone at the account gave him an email address, that is an email he owes: the first email to that person after the visit.`;
 
 type Decision = { email_needed: boolean; ask: string; today: boolean };
 
@@ -95,9 +117,17 @@ function groundedAsk(ask: string, note: VisitNote): string {
 async function run(note: VisitNote): Promise<VisitOutbound> {
   if (NEVER_DRAFTED.has(note.kind)) return { status: "none" };
 
+  const given = note.givenEmails ?? [];
   const decision = await decide(note);
   if (typeof decision === "string") return { status: "not_written", reason: `Email not drafted: ${decision}.` };
   if (CAPPED in decision) return { status: "not_written", reason: `Email not drafted. ${decision[CAPPED]}` };
+  // An email handed over at the visit is owed even when the note never says
+  // "email them" (2026-11-03: a buyer's address sat in a note, nothing drafted).
+  if (!decision.email_needed && given.length) {
+    decision.email_needed = true;
+    decision.ask = givenEmailAsk(given);
+    decision.today = true;
+  }
   if (!decision.email_needed) return { status: "none" };
 
   const ask = groundedAsk(decision.ask, note);

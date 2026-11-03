@@ -48,7 +48,7 @@ import {
 } from "./dal";
 import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
-import { draftFromVisit, type VisitOutbound } from "../outbound/from-visit";
+import { draftFromVisit, givenEmails, type VisitOutbound } from "../outbound/from-visit";
 import { ai, aiConfigured, AiError, hashInput, isAiCap } from "../../core/ai/client";
 import { strictJsonSchema } from "../../core/ai/core";
 import { laDay, noteKey, once } from "../../core/once-server";
@@ -615,6 +615,7 @@ function visitNote(touchpointId: string, accountId: string, rawText: string, par
     kind: parsed.activity.kind,
     nextStep: parsed.next_step ?? null,
     outreachAsks: (parsed.outreach_asks ?? []).map((a) => a.ask?.trim()).filter((a): a is string => Boolean(a)),
+    givenEmails: givenEmails(rawText, parsed.people),
   };
 }
 
