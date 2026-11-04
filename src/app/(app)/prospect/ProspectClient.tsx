@@ -738,7 +738,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
   const [loading, startTransition] = useTransition();
   const [loadError, setLoadError] = useState<string | null>(null);
   const [enriching, setEnriching] = useState(false);
-  const [enrichResult, setEnrichResult] = useState<{ ok: boolean; error?: string; wroteHours?: boolean; wroteSummary?: boolean; skippedReason?: string } | null>(null);
+  const [enrichResult, setEnrichResult] = useState<{ ok: boolean; error?: string; wroteHours?: boolean; wroteSummary?: boolean } | null>(null);
   /* The account on screen right now. Every reply that lands after the rep
      moved to another client checks this first, so a slow answer about the
      last client can never repaint the panel of the next one. */
@@ -756,6 +756,14 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
     setEnrichResult(null);
     setLoadError(null);
   }
+
+  /* A finished look-up says so briefly, then gets out of the way. A failure
+     stays until the next try. */
+  useEffect(() => {
+    if (!enrichResult?.ok) return;
+    const id = setTimeout(() => setEnrichResult(null), 1100);
+    return () => clearTimeout(id);
+  }, [enrichResult]);
 
   /** The account's people as HubSpot has them now, merges followed. Asked for
    *  after the panel paints, so a slow portal never holds up the account. */
@@ -891,15 +899,20 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                   {c.title ? `, ${c.title}` : ""}
                   {c.isDecisionMaker && <span className="rounded bg-[#ECEAE1] px-1.5 py-0.5 text-[10.5px] font-medium tracking-wide text-[#3D4A44] uppercase">Decision maker</span>}
                 </span>
-                {c.phone ? (
-                  <a href={`tel:${c.phone.replace(/[^0-9+]/g, "")}`} className="shrink-0 text-[13.5px] font-medium text-[#3D6B4A] hover:underline">
-                    {c.phone}
-                  </a>
-                ) : c.email ? (
-                  <a href={`mailto:${c.email}`} className="shrink-0 text-[13.5px] text-[#5B6560] hover:underline">
-                    {c.email}
-                  </a>
-                ) : null}
+                {(c.phone || c.email) && (
+                  <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                    {c.phone && (
+                      <a href={`tel:${c.phone.replace(/[^0-9+]/g, "")}`} className="text-[13.5px] font-medium text-[#3D6B4A] hover:underline">
+                        {c.phone}
+                      </a>
+                    )}
+                    {c.email && (
+                      <a href={`mailto:${c.email}`} className="break-all text-[13.5px] text-[#5B6560] hover:underline">
+                        {c.email}
+                      </a>
+                    )}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -950,14 +963,11 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
             {enrichResult && !enriching && (
               <div className="mt-2.5">
                 {enrichResult.ok ? (
-                  <SuccessNote
-                    title={enrichResult.wroteHours || enrichResult.wroteSummary ? "Enriched" : "Nothing new found"}
-                    detail={[enrichResult.wroteHours ? "Hours updated." : null, enrichResult.wroteSummary ? "Angle filled." : null, !enrichResult.wroteHours && !enrichResult.wroteSummary ? (enrichResult.skippedReason ?? "The website, Google Maps, and order history had nothing new to add.") : null].filter(Boolean).join(" ")}
-                  />
+                  <SuccessNote title={enrichResult.wroteHours || enrichResult.wroteSummary ? "Updated" : "Nothing new"} />
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A6D2F]">
                     <Ico name="alert" size={13} />
-                    {enrichResult.error ?? "Enrich further failed."}
+                    {enrichResult.error ?? "Could not finish. Try again."}
                   </span>
                 )}
               </div>

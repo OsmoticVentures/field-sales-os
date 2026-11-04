@@ -13,7 +13,7 @@
  */
 import "server-only";
 import { getAccount, listContacts, type Account, type Contact } from "../prospect/dal";
-import type { Proposal, Provenance } from "./types";
+import type { Provenance } from "./types";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -99,8 +99,8 @@ export function outOfScopeReason(acc: EnrichAccount, ownerId: string): string | 
   return null;
 }
 
-/** Never overwrite: a blank-fill goes straight through, a disagreement comes
- *  back to the caller as a would-be proposal rather than a write. Re-reads
+/** Never overwrite: a blank-fill goes straight through, a disagreement
+ *  is left as it is. Re-reads
  *  the live row right before deciding, per the department's standing rule
  *  that a concurrent pass may have filled the cell since the search ran. */
 export async function patchAccountBlankFill(
@@ -147,8 +147,8 @@ export async function insertFoundContact(row: NewFoundContact): Promise<Contact 
   return sbInsert<Contact>("nb_contacts", { id: randId("c"), origin: "enriched", ...row });
 }
 
-/** A blank title on an existing contact gets filled; anything else is the
- *  caller's job to turn into a proposal instead of calling this. */
+/** A blank title on an existing contact gets filled; a title already on file
+ *  stays. */
 export async function fillContactTitle(contactId: string, title: string, provenance: Provenance): Promise<void> {
   const res = await fetchWithTimeout(`${SB_URL}/rest/v1/nb_contacts?id=eq.${encodeURIComponent(contactId)}&select=title,enrichment_status`, {
     headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Accept: "application/json" },
@@ -161,66 +161,33 @@ export async function fillContactTitle(contactId: string, title: string, provena
   await sbPatch("nb_contacts", { title, enrichment_status: status }, contactId);
 }
 
-/**
- * Juan taps Accept on a proposal. The live row is read again right here,
- * never trusted from the run that surfaced the proposal, and the write only
- * happens if the field still holds exactly the `on_file` value the
- * proposal was made against; a field a human or another pass has since
- * changed is left alone and reported back as a conflict, not silently
- * overwritten a second time.
- */
-export async function applyProposal(p: Proposal): Promise<{ ok: boolean; error?: string }> {
-  const now = new Date().toISOString();
-  const provenance: Provenance = { found_by: p.evidence.split(". ")[0] || p.evidence, at: now, basis: p.evidence, source_tier: p.source_tier };
-
-  if (p.kind === "account_field") {
-    const live = await getEnrichAccount(p.account_id);
-    if (!live) return { ok: false, error: "That account no longer exists." };
-    const current = (live as unknown as Record<string, unknown>)[p.field];
-    const currentStr = current == null ? null : String(current);
-    if (currentStr !== p.on_file) return { ok: false, error: "This field changed since the proposal was made." };
-    const status = { ...(live.enrichment_status || {}), [p.field]: provenance };
-    await sbPatch("nb_accounts", { [p.field]: p.found, enrichment_status: status }, p.account_id);
-    return { ok: true };
-  }
-
-  if (!p.contact_id) return { ok: false, error: "No contact named on this proposal." };
-  const res = await fetchWithTimeout(
-    `${SB_URL}/rest/v1/nb_contacts?id=eq.${encodeURIComponent(p.contact_id)}&select=title,is_decision_maker,enrichment_status`,
-    { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Accept: "application/json" }, cache: "no-store" },
-  );
-  const rows = res.ok
-    ? ((await res.json()) as { title: string | null; is_decision_maker: boolean; enrichment_status: Record<string, unknown> | null }[])
-    : [];
+/** The contact's own phone and email, blank-fill only. Re-reads the row first,
+ *  since another pass or a person may have filled it since the search ran. */
+export async function fillContactReach(
+  contactId: string,
+  reach: { phone?: string | null; email?: string | null },
+  provenance: { phone?: Provenance; email?: Provenance },
+): Promise<boolean> {
+  const res = await fetchWithTimeout(`${SB_URL}/rest/v1/nb_contacts?id=eq.${encodeURIComponent(contactId)}&select=phone,email,enrichment_status`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  const rows = res.ok ? ((await res.json()) as { phone: string | null; email: string | null; enrichment_status: Record<string, unknown> | null }[]) : [];
   const live = rows[0];
-  if (!live) return { ok: false, error: "That contact no longer exists." };
-
-  if (p.field === "is_decision_maker") {
-    if (live.is_decision_maker) return { ok: true }; // already true, nothing to do
-    const status = { ...(live.enrichment_status || {}), is_decision_maker: provenance };
-    await sbPatch("nb_contacts", { is_decision_maker: true, enrichment_status: status }, p.contact_id);
-    return { ok: true };
+  if (!live) return false;
+  const patch: Record<string, unknown> = {};
+  const status = { ...(live.enrichment_status || {}) };
+  if (reach.phone && !(live.phone || "").trim()) {
+    patch.phone = reach.phone;
+    status.phone = provenance.phone;
   }
-
-  if ((live.title || null) !== p.on_file) return { ok: false, error: "This field changed since the proposal was made." };
-  const status = { ...(live.enrichment_status || {}), title: provenance };
-  await sbPatch("nb_contacts", { title: p.found, enrichment_status: status }, p.contact_id);
-  return { ok: true };
-}
-
-const DISMISSED_CAP = 200;
-
-/** No write undoes anything here; a dismissal only keeps this exact
- *  proposal from resurfacing the next time Find Contacts runs on this
- *  account, the same way a curated value already on file would. */
-export async function dismissProposal(accountId: string, proposalId: string): Promise<void> {
-  const live = await getEnrichAccount(accountId);
-  if (!live) return;
-  const status = { ...(live.enrichment_status || {}) } as Record<string, unknown>;
-  const existing = Array.isArray(status.dismissed_proposals) ? (status.dismissed_proposals as string[]) : [];
-  if (existing.includes(proposalId)) return;
-  status.dismissed_proposals = [...existing, proposalId].slice(-DISMISSED_CAP);
-  await sbPatch("nb_accounts", { enrichment_status: status }, accountId);
+  if (reach.email && !(live.email || "").trim()) {
+    patch.email = reach.email;
+    status.email = provenance.email;
+  }
+  if (Object.keys(patch).length === 0) return false;
+  await sbPatch("nb_contacts", { ...patch, enrichment_status: status }, contactId);
+  return true;
 }
 
 /** Closed is a note, never a routing decision (nutribiotic-enricher.md):

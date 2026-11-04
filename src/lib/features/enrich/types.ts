@@ -46,49 +46,11 @@ export type FoundPerson = {
   source_url: string | null;
 };
 
-export type FilledField = {
-  field: string;
-  value: string;
-  contact_name?: string;
-};
-
-export type Proposal = {
-  id: string;
-  kind: "contact_field" | "account_field";
-  account_id: string;
-  contact_id?: string;
-  person_name?: string;
-  field: string;
-  on_file: string | null;
-  found: string;
-  evidence: string;
-  source_tier: SourceTier;
-  confidence: "high" | "medium" | "low";
-};
-
-export type NotFoundField = { field: string; searched: string };
-
-export type TierOutcome = {
-  tier: SourceTier;
-  ran: boolean;
-  skipped_reason?: string;
-  pages_read?: string[];
-  failures?: string[];
-};
-
 export type FindContactsResult = {
-  status: "ok" | "blocked" | "error";
+  status: "ok" | "blocked";
   account_id: string;
   account_name: string;
   error?: string;
-  people_found: FoundPerson[];
   contacts_added: number;
-  contacts_title_filled: number;
-  filled: FilledField[];
-  proposals: Proposal[];
-  not_found: NotFoundField[];
-  tiers: TierOutcome[];
-  closed_signal: { note: string; source: string } | null;
-  different_business_signal: string | null;
-  leads: Lead[];
+  contacts_updated: number;
 };
