@@ -171,8 +171,8 @@ function newId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-/** Plain refresh glyph for "Enrich further" (core ui's "wand" icon is a
- *  sparkle mark, banned agency-wide; feature-local since lib/core is out of
+/** Plain refresh glyph for "Enrich further" (the banned sparkle icon is gone from core ui;
+ *  feature-local since lib/core was out of
  *  scope for this pass). Matches Ico's own stroke weight and viewBox. */
 function RefreshIcon({ size = 13 }: { size?: number }) {
   return (
