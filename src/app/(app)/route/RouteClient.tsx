@@ -310,6 +310,10 @@ export function RouteClient() {
   // Set once a server answer is on screen; only then is the screen's own
   // state written back as the phone copy.
   const fresh = useRef(false);
+  // A painted copy can be a route that has since been replaced. The screen's
+  // own automatic writes (a Lunch going in, calendar stops, a late stop
+  // moving) wait for the server's answer, so an old copy is never saved back.
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
     // Everything the screen will ask for, started together rather than as
@@ -349,6 +353,7 @@ export function RouteClient() {
           routeSync.version = j.version ?? "";
           shown.current = true;
           fresh.current = true;
+          setSettled(true);
           setData(j);
           setActiveDay((d) => (d && j.days.includes(d) ? d : j.activeDay));
         })
@@ -454,7 +459,7 @@ export function RouteClient() {
   return (
     <>
       {saveError && <p className="text-[14px] text-[#8A2E2E]">{saveError} The route shows what is saved.</p>}
-      <RouteDay data={data} setData={setDataForDay} activeDay={activeDay} setActiveDay={setActiveDay} />
+      <RouteDay data={data} setData={setDataForDay} activeDay={activeDay} setActiveDay={setActiveDay} settled={settled} />
     </>
   );
 }
@@ -464,11 +469,14 @@ function RouteDay({
   setData,
   activeDay,
   setActiveDay,
+  settled,
 }: {
   data: StatePayload;
   setData: (next: StatePayload | ((prev: StatePayload) => StatePayload)) => void;
   activeDay: string;
   setActiveDay: (d: string) => void;
+  /** The server has answered; until then `data` may be an old copy. */
+  settled: boolean;
 }) {
   const days = data.days;
   const accountPanel = useAccountPanel();
@@ -684,13 +692,13 @@ function RouteDay({
   // at its time, a moved one moves, a deleted one leaves. Past days stay as
   // they were driven.
   useEffect(() => {
-    if (activeDay < laTodayIso()) return;
+    if (!settled || activeDay < laTodayIso()) return;
     const next = reconcileCalendar(draft, stopTimes, calDay, dayEvents, (order, timed) =>
       placeByTime(order, timed, pointOfEntry, start, minutesOfDay(stopTimes[DEPART_KEY] ?? data.prefs.depart), prefs.dwellMinutes, timeOfEntry),
     );
     if (next) patchDraftAndTimes(activeDay, next.draft, next.times);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calDay, activeDay, draft]);
+  }, [calDay, activeDay, draft, settled]);
 
   // The day's Lunch stop goes in on its own, right after the stop it falls
   // behind, at that stop's spot and named for its area until a place is
@@ -700,7 +708,7 @@ function RouteDay({
   // field day and gets no Lunch stop.
   const fieldDay = stops.some((s) => s.type === "account");
   useEffect(() => {
-    if (lunchAfter === null || !fieldDay) return;
+    if (!settled || legState !== "ok" || lunchAfter === null || !fieldDay) return;
     const before = routed[lunchAfter];
     if (!before) return;
     const area = before.type === "account" ? (before.account.area ?? before.account.city) : (before.custom.area ?? null);
@@ -718,7 +726,7 @@ function RouteDay({
     if (at < 0) return;
     patchDraft(activeDay, [...draft.slice(0, at + 1), lunch, ...draft.slice(at + 1)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lunchAfter, activeDay]);
+  }, [lunchAfter, activeDay, settled, legState]);
 
   // A stop with a stated time that the order makes late (a stop added or
   // moved ahead of it) goes back in where its time falls. If it is still late
@@ -729,7 +737,7 @@ function RouteDay({
   // that moves a stop leaves one fewer to move.
   const lateKey = schedule ? [...schedule.missedAnchors].sort().join("|") : "";
   useEffect(() => {
-    if (!lateKey || legState !== "ok" || activeDay < laTodayIso()) return;
+    if (!settled || !lateKey || legState !== "ok" || activeDay < laTodayIso()) return;
     const late = new Set(lateKey.split("|"));
     const idOf = (e: RouteDraftEntry) => (typeof e === "string" ? e : e.id);
     const now = activeDay === laTodayIso() ? minutesOfDay(nowHHMM()) : 0;
@@ -767,7 +775,7 @@ function RouteDay({
     )[0];
     moveToSdr(pick.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lateKey, legState, pathKey, activeDay]);
+  }, [lateKey, legState, pathKey, activeDay, settled]);
 
   /** Off the day's drive and onto the same day's SDR list as a call. The
    *  stop stays on the list, crossed off, until the rep puts it back. */
