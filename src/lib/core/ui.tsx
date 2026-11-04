@@ -98,12 +98,6 @@ export const ICONS: Record<string, ReactNode> = {
       <path d="M3.6 5.4v2.2A2.4 2.4 0 0 0 6 10h4a2.4 2.4 0 0 1 2.4 2.4" />
     </>
   ),
-  wand: (
-    <>
-      <path d="m3 13 7-7" />
-      <path d="M11 2.6v1.8M13.6 5.2h-1.8M8.6 2.6l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5.5-1.3Z" />
-    </>
-  ),
   globe: (
     <>
       <circle cx="8" cy="8" r="5.6" />
