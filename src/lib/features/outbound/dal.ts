@@ -10,6 +10,7 @@
 import "server-only";
 import { currentUser } from "../../core/user";
 import { ASK_COMPOSED_PLAY, normalizeAsk, type ComposedAsk } from "./compose";
+import { daysNear, type Place, type RouteDay } from "./route-days";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -172,6 +173,36 @@ export async function getVoiceContext(accountId: string): Promise<{
     };
   } catch {
     return { lessons: [], pairs: [] };
+  }
+}
+
+/**
+ * The days Juan is already driving near this account (route-days.ts). The route
+ * on nb_ui_prefs is his, so another rep gets none. A failed read is no days, and
+ * the email is written without one.
+ */
+export async function getRouteDaysNear(accountId: string): Promise<RouteDay[]> {
+  if ((await currentUser()).id !== "juan") return [];
+  try {
+    const [prefs] = await sbGet<{ route_draft: Record<string, unknown[]> | null }>(
+      "nb_ui_prefs",
+      new URLSearchParams({ select: "route_draft", id: "eq.1" }),
+    );
+    const draft = prefs?.route_draft ?? {};
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+    const ids = new Set<string>([accountId]);
+    for (const [date, stops] of Object.entries(draft)) {
+      if (date > today) for (const e of stops ?? []) if (typeof e === "string") ids.add(e);
+    }
+    const rows = await sbGet<Place>(
+      "nb_accounts",
+      new URLSearchParams({ select: "id,city,lat,lng", id: `in.(${[...ids].join(",")})` }),
+    );
+    const places = new Map(rows.map((r) => [r.id, r]));
+    const target = places.get(accountId);
+    return target ? daysNear(draft, places, target, today) : [];
+  } catch {
+    return [];
   }
 }
 

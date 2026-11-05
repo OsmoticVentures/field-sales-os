@@ -27,7 +27,9 @@ import { z } from "zod";
 import { ai, aiConfigured, isAiCap, isAiCredits } from "../../core/ai/client";
 import { EMAIL_VOICE } from "./email-voice.generated";
 import { TALKING_POINTS } from "./talking-points.generated";
-import { fabricationFailure, styleFailure } from "./gates";
+import { ATTACHABLE_FILES } from "./attachments.generated";
+import { fabricationFailure, openAskFailure, styleFailure } from "./gates";
+import type { RouteDay } from "./route-days";
 
 export { asksCollide, normalizeAsk, specificityFailure, fabricationFailure, styleFailure, groundingFailure } from "./gates";
 
@@ -62,6 +64,8 @@ export type ComposeAskInput = {
   account: AskAccount;
   contacts: AskContact[];
   voice?: VoiceContext;
+  /** Days he is already driving near this account. Absent means read them off his route. */
+  routeDays?: RouteDay[];
   /** Whose email this is. Absent means Juan, the original author of every rule here. */
   rep?: Rep;
 };
@@ -139,11 +143,11 @@ WHAT THIS EMAIL IS FOR. Your habit is to write a report of his visit note. He re
 
 5. You may use one or two APPROVED TALKING POINTS (below) when they fit, close to verbatim. They are facts he wrote himself. Nothing else outside the note is a fact.
 
-6. The ask is his to propose, and small. Offer a day or a window rather than asking them to pick one ("Do you have 15 minutes Thursday or Friday morning?", "How is next Monday?"), and use a day or time the note states when it states one. Never write a clock time or a date that is not in the note. When they are ready to buy, the ask is the order itself.
+6. The ask is his to propose, and small, and it names a day. A next step the note already states stands exactly as he said it ("I'll call you in the morning" stays that, with no other day added). When the email asks to meet in person and the note names no day, propose the first of HIS NEXT DAYS NEAR THIS ACCOUNT when that list is given: "How is Wednesday, Nov 18?" Those days are for coming in, never for a phone call. Never hand the choice back to them ("whichever is more convenient", "which day works", "is there an afternoon"). Never write a clock time that is not in the note, and never a date that is in neither the note nor that list. When they are ready to buy, the ask is the order itself.
 
 7. Time is relative: "a couple weeks ago", "recently", "two days ago", never the exact date from the note unless it was a day or two ago. Leave out logistics they already know or that go without saying ("with at least a week of notice", "so I am writing here").
 
-8. An attachment is never mentioned alone: say what it is for ("so you can see all products and prices", "helpful to print and show to customers"), and mention one only when the note says he is sending it.
+8. An attachment is never mentioned alone: say what it is for ("so you can see all products and prices", "helpful to print and show to customers"), and mention one only when the note says he is sending it, or when one of the FILES HE CAN ATTACH (below) shows them exactly what the note says they are interested in. At most one or two, named as they are listed. Never any other document.
 
 9. Every sentence carries a fact from the note, a talking point, a concrete ask, or a specific kindness about that person. A sentence that would read the same for any account is filler and is refused. "Let me know what other information you need from me to move forward" is refused.
 
@@ -154,7 +158,18 @@ WHAT THIS EMAIL IS FOR. Your habit is to write a report of his visit note. He re
 A first email runs four to six short paragraphs of one or two sentences each. A reply is shorter.
 
 APPROVED TALKING POINTS:
-${TALKING_POINTS.map((t) => `- (${t.topic}) ${t.line}`).join("\n")}`;
+${TALKING_POINTS.map((t) => `- (${t.topic}) ${t.line}`).join("\n")}
+
+FILES HE CAN ATTACH:
+${ATTACHABLE_FILES.map((f) => `- ${f}`).join("\n")}`;
+}
+
+function routeSection(days?: RouteDay[]): string {
+  if (!days?.length) return "";
+  return `
+
+HIS NEXT DAYS NEAR THIS ACCOUNT, from his own route (facts; say the day, never the word "route"):
+${days.map((d) => `- ${d.label}${d.onRoute ? " (this account is on that day)" : ""}`).join("\n")}`;
 }
 
 function userPrompt(input: ComposeAskInput, rep: Rep): string {
@@ -173,7 +188,7 @@ THE ASK, in ${rep.first}'s own words:
 ${input.ask}
 
 THE FULL NOTE the ask came from, which is the only other thing you know:
-${input.noteText}${voiceSection(input.voice)}`;
+${input.noteText}${routeSection(input.routeDays)}${voiceSection(input.voice)}`;
 }
 
 /** His own corrections of earlier drafts. Habits to copy, never facts: a
@@ -231,8 +246,12 @@ async function askModel(input: ComposeAskInput, rep: Rep, correction: string | n
 export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
   if (!aiConfigured()) return { written: false, reason: "Not written: no model is configured on this deployment." };
   const rep = input.rep ?? (await currentRep());
+  const { getRouteDaysNear } = await import("./dal");
+  const routeDays = input.routeDays ?? (await getRouteDaysNear(input.account.id));
+  input = { ...input, routeDays };
+  const dayLabels = routeDays.map((d) => d.label);
 
-  const sources = [input.ask, input.noteText, input.account.name, input.account.city ?? "", TALKING_POINT_TEXT];
+  const sources = [input.ask, input.noteText, input.account.name, input.account.city ?? "", TALKING_POINT_TEXT, dayLabels.join("\n")];
   const firstNames = input.contacts.map((c) => c.name.split(/\s+/)[0]).filter(Boolean);
 
   let correction: string | null = null;
@@ -260,6 +279,13 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
         continue;
       }
       return { written: false, reason: `Not written: ${style}.` };
+    }
+
+    // One correction, then it stands: a draft with an open ask is still better than no draft.
+    const open = attempt === 0 ? openAskFailure(out.body, dayLabels) : null;
+    if (open) {
+      correction = `That draft handed the choice back to them ("${open}"). ${rep.first} proposes the day himself. Rewrite the ask to propose ${dayLabels[0]}, and change nothing else.`;
+      continue;
     }
 
     // The person greeted is the person it goes to. A pick that greets one

@@ -225,6 +225,19 @@ export function fabricationFailure(
  * ONCE. Unlike a fabrication, this is safe to hand back: the facts are
  * already settled, and what is wrong is the writing.
  */
+/**
+ * An ask that hands the choosing back to them, when he has a real day to offer.
+ * "Whichever is more convenient" and "which day works" are the lines he rewrites
+ * most (voice_lessons: propose-specific-date-time). Returns the words that gave it away.
+ */
+const OPEN_ASK = /\b(whichever (?:is|works)[^.?!\n]*|whenever (?:works|is)[^.?!\n]*|(?:which|what) (?:day|days|time|afternoon|morning|wednesday|tuesday|monday|thursday|friday)\b[^.?!\n]*|is there an? (?:afternoon|morning|day|time)[^.?!\n]*|let me know (?:a|what|when)\b[^.?!\n]*(?:day|time|works|good)[^.?!\n]*|find a time[^.?!\n]*|a time that works[^.?!\n]*)/i;
+
+export function openAskFailure(body: string, dayLabels: string[]): string | null {
+  if (!dayLabels.length) return null;
+  if (dayLabels.some((l) => body.includes(l) || body.includes(l.split(", ")[1] ?? l))) return null;
+  return body.match(OPEN_ASK)?.[0]?.trim() ?? null;
+}
+
 export function styleFailure(subject: string, body: string, sources: string[]): string | null {
   const text = `${subject}\n${body}`;
 
