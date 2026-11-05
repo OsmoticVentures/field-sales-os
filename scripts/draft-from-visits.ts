@@ -12,7 +12,9 @@
  *   - a note decided "nothing owed" while someone in it handed over an email
  *     address and the account has no draft since the note.
  * A refusal is not stored by draftFromVisit, so each note gets at most
- * MAX_TRIES sweep attempts, counted in STATE (pruned past SWEEP_DAYS).
+ * MAX_TRIES sweep attempts, counted in STATE (pruned past SWEEP_DAYS). A run
+ * stopped because the AI itself is out (no credit, the daily cap) ends the pass
+ * and costs nothing: the owed email waits for the AI, it was never refused.
  *
  * The same run drafts every promised follow-up email whose day has come:
  * `[follow-up:email]` directives (target FOLLOW_UP_TARGET) filed from a visit
@@ -28,6 +30,7 @@ import { loadAskInputs } from "../src/lib/features/outbound/actions";
 import { composeAsk } from "../src/lib/features/outbound/compose";
 import { FOLLOW_UP_TARGET, insertAskDraft } from "../src/lib/features/outbound/dal";
 import { laDay } from "../src/lib/core/once-server";
+import { AI_CAP_MESSAGE, AI_CREDITS_MESSAGE, AI_LEDGER_DOWN_MESSAGE } from "../src/lib/core/ai/core";
 
 process.env.NB_SCRIPT_USER ??= "juan";
 const SB_URL = process.env.NB_SUPABASE_URL!;
@@ -37,6 +40,10 @@ const H = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
 const SWEEP_DAYS = 3;
 const MAX_TRIES = 3;
 const STATE = process.env.VISIT_SWEEP_STATE ?? `${process.env.HOME}/agency/bridges/nutribiotic/.visit-draft-sweep.json`;
+
+/** The AI is out, for every note alike. Says nothing about this note. */
+const aiOut = (reason?: string) =>
+  [AI_CREDITS_MESSAGE, AI_CAP_MESSAGE, AI_LEDGER_DOWN_MESSAGE].some((m) => reason?.includes(m));
 
 type Person = { first_name?: string | null; last_name?: string | null; email?: string | null };
 type Parsed = {
@@ -110,6 +117,7 @@ async function sweep() {
   for (const tp of candidates) {
     const tries = state[tp.id]?.tries ?? 0;
     if (tries >= MAX_TRIES) continue;
+    const before = state[tp.id];
     state[tp.id] = { tries: tries + 1, at: new Date().toISOString() };
     // A stored outcome was decided under an older rule or never finished;
     // clear it so the current rule decides. Two stores hold it:
@@ -120,7 +128,13 @@ async function sweep() {
         await fetch(`${SB_URL}/rest/v1/nb_idempotency_keys?id=eq.${encodeURIComponent(k)}`, { method: "DELETE", headers: H });
       }
     }
-    console.log("sweep:", tp.id, JSON.stringify(await draft(tp)));
+    const out = await draft(tp);
+    console.log("sweep:", tp.id, JSON.stringify(out));
+    if (aiOut((out as { reason?: string }).reason)) {
+      if (before) state[tp.id] = before;
+      else delete state[tp.id];
+      break;
+    }
   }
   writeFileSync(STATE, JSON.stringify(state, null, 1));
 }
@@ -138,6 +152,7 @@ async function dueFollowUps(state: Record<string, { tries: number; at: string }>
     if (!d.account_id || on > today) continue;
     const tries = state[d.id]?.tries ?? 0;
     if (tries >= MAX_TRIES) continue;
+    const before = state[d.id];
     state[d.id] = { tries: tries + 1, at: new Date().toISOString() };
 
     const what = d.directive.replace(/^\[follow-up:email\]\s*/, "").split(" · ")[0];
@@ -165,6 +180,11 @@ async function dueFollowUps(state: Record<string, { tries: number; at: string }>
     });
     if (!composed.written) {
       console.log("follow-up:", d.id, "not written:", composed.reason);
+      if (aiOut(composed.reason)) {
+        if (before) state[d.id] = before;
+        else delete state[d.id];
+        break;
+      }
       continue;
     }
     const row = await insertAskDraft({

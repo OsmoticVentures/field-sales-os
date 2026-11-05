@@ -46,6 +46,29 @@ async function reserveOnce(usd: number): Promise<Awaited<ReturnType<Budget["rese
   return { ok: false, reason: "unavailable" };
 }
 
+let creditsNotedDay = "";
+
+/** The API account has no credit left: one notice a day, on the same path as
+ *  the daily cap's. An "aicap-" fingerprint is texted to Juan as a plain sentence
+ *  and never sent to the fix agent (bridges/clientos/errors_triage.py). Bounded
+ *  by the one fingerprint a day and nb_app_errors_prune. */
+export async function noteCreditsOut(): Promise<void> {
+  const day = new Date().toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  if (!SB_URL || !SB_KEY || creditsNotedDay === day) return;
+  creditsNotedDay = day;
+  await rpc("nb_app_error_hit", {
+    p_fingerprint: `aicap-credits-${day}`,
+    p_kind: "server",
+    p_route: "/ai/credits",
+    p_message: "AI credits ran out. Notes still file while your laptop is online. Visit emails stop drafting until you add credits at console.anthropic.com/settings/billing.",
+    p_top_frame: "noteCreditsOut",
+    p_stack: "",
+    p_rep_id: null,
+    p_commit_sha: null,
+    p_hits: 1,
+  }).catch(() => null); // A notice never fails the step it describes.
+}
+
 export const spendLedger: Budget = {
   async reserve(usd) {
     if (!SB_URL || !SB_KEY) return { ok: false, reason: "unavailable" };

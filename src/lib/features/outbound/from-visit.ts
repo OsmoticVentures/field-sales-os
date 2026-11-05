@@ -16,7 +16,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
+import { ai, aiConfigured, isAiCap, isAiCredits } from "../../core/ai/client";
 import { withIdempotency } from "../../core/idempotency";
 import { Held, laDay, once } from "../../core/once-server";
 import { loadAskInputs } from "./actions";
@@ -111,7 +111,7 @@ async function decide(note: VisitNote): Promise<Decision | string | { [CAPPED]: 
     };
   } catch (err) {
     if (caught) return caught;
-    if (isAiCap(err)) return { [CAPPED]: err.message };
+    if (isAiCap(err) || isAiCredits(err)) return { [CAPPED]: err.message };
     return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
 }

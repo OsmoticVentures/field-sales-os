@@ -13,12 +13,12 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
-import { AiError, runAi, type AiRequest, type AiResult } from "./core";
+import { AiError, isAiCredits, runAi, type AiRequest, type AiResult } from "./core";
 import { writeRunRecord } from "./run-log";
-import { spendLedger } from "./spend-ledger";
+import { noteCreditsOut, spendLedger } from "./spend-ledger";
 import { currentUser } from "../user";
 
-export { AiError, hashInput, isAiCap, AI_CAP_MESSAGE, AI_CAP_STATUS, AI_DAILY_CAP_USD } from "./core";
+export { AiError, hashInput, isAiCap, isAiCredits, AI_CREDITS_MESSAGE, AI_CAP_MESSAGE, AI_CAP_STATUS, AI_DAILY_CAP_USD } from "./core";
 
 let client: Anthropic | null | undefined;
 
@@ -42,12 +42,17 @@ export async function ai<S extends z.ZodType | undefined = undefined>(
   const c = getClient();
   if (!c) throw new AiError("unconfigured", "No model is configured on this deployment.");
   const actor = req.actor !== undefined ? req.actor : await currentUser().then((u) => u.id).catch(() => null);
-  return runAi(
-    {
-      create: (params, opts) => c.messages.create(params, opts),
-      log: writeRunRecord,
-      budget: spendLedger,
-    },
-    { ...req, actor },
-  );
+  try {
+    return await runAi(
+      {
+        create: (params, opts) => c.messages.create(params, opts),
+        log: writeRunRecord,
+        budget: spendLedger,
+      },
+      { ...req, actor },
+    );
+  } catch (err) {
+    if (isAiCredits(err)) await noteCreditsOut();
+    throw err;
+  }
 }

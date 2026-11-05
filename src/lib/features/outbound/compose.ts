@@ -24,7 +24,7 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured, isAiCap } from "../../core/ai/client";
+import { ai, aiConfigured, isAiCap, isAiCredits } from "../../core/ai/client";
 import { EMAIL_VOICE } from "./email-voice.generated";
 import { TALKING_POINTS } from "./talking-points.generated";
 import { fabricationFailure, styleFailure } from "./gates";
@@ -215,7 +215,7 @@ async function askModel(input: ComposeAskInput, rep: Rep, correction: string | n
     });
     return data;
   } catch (err) {
-    if (isAiCap(err)) return { capped: err.message };
+    if (isAiCap(err) || isAiCredits(err)) return { capped: err.message };
     return err instanceof Error ? err.message.replace(/\.$/, "").toLowerCase() : String(err);
   }
 }

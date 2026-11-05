@@ -91,6 +91,10 @@ const MAX_TOKENS_CEILING = 16_000;
 export const AI_DAILY_CAP_USD = 5;
 
 export const AI_CAP_MESSAGE = "Today's AI limit is reached. Try again tomorrow.";
+/** The account behind the API key has no credit left. Not the daily cap: this
+ *  stays a retrying failure on the phone, because the Mac's reader or a top-up
+ *  lets the same note file by itself. */
+export const AI_CREDITS_MESSAGE = "AI credits ran out.";
 export const AI_LEDGER_DOWN_MESSAGE = "Today's AI spend could not be checked just now. Try again in a minute.";
 /** What a route answers when the cap stops a step. 409, because neither
  *  phone queue (writeq-core.ts, outbox-core.ts) re-sends a 409 by itself: the
@@ -189,7 +193,7 @@ export type Budget = {
 
 /** "cap": the day's AI spend limit stopped the call before it was made (or
  *  the limit could not be checked, which stops it too). */
-export type AiErrorKind = "unconfigured" | "permanent" | "transient" | "timeout" | "invalid" | "refusal" | "cap";
+export type AiErrorKind = "unconfigured" | "permanent" | "transient" | "timeout" | "invalid" | "refusal" | "cap" | "credits";
 
 /** What a caller catches. `message` is plain enough to show a rep. */
 export class AiError extends Error {
@@ -207,6 +211,12 @@ export class AiError extends Error {
  *  step: the caller shows `err.message` as it is and saves nothing. */
 export function isAiCap(err: unknown): err is AiError {
   return err instanceof AiError && err.kind === "cap";
+}
+
+/** True when the API account has no credit left: nothing can answer until it
+ *  is topped up, so a caller must not spend one of its own retries on it. */
+export function isAiCredits(err: unknown): err is AiError {
+  return err instanceof AiError && err.kind === "credits";
 }
 
 type Failure = { retry: "same" | "fallback" | "never"; kind: AiErrorKind; detail: string; waitMs?: number };
@@ -228,6 +238,8 @@ export function classifyError(err: unknown): Failure {
   if (status === 529 || /overloaded/i.test(detail)) return { retry: "fallback", kind: "transient", detail };
   if (status === 429) return { retry: "same", kind: "transient", detail, waitMs: retryAfterMs(e.headers) };
   if (status === 408 || status === 409 || status >= 500) return { retry: "same", kind: "transient", detail };
+  // No credit left on the account: the fallback model is billed the same way.
+  if (status === 400 && /credit balance/i.test(detail)) return { retry: "never", kind: "credits", detail };
   // A model id the account cannot reach: the fallback can still answer.
   if (status === 404) return { retry: "fallback", kind: "permanent", detail };
   return { retry: "never", kind: "permanent", detail };
@@ -510,7 +522,11 @@ export async function runAi<S extends z.ZodType | undefined = undefined>(
         lastError = new AiError("permanent", "The model could not answer just now.", f.detail);
         continue;
       }
-      lastError = new AiError(f.kind, f.kind === "timeout" ? "The model ran out of time." : "The model could not answer just now.", f.detail);
+      lastError = new AiError(
+        f.kind,
+        f.kind === "timeout" ? "The model ran out of time." : f.kind === "credits" ? AI_CREDITS_MESSAGE : "The model could not answer just now.",
+        f.detail,
+      );
       if (f.retry === "never") break;
       if (f.retry === "fallback" && !toFallback()) {
         // Already on the fallback: a permanent failure ends it, an overload

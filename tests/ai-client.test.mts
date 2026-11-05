@@ -3,7 +3,7 @@
 // and the run record. No network, no spend.
 // Run: node --experimental-strip-types tests/ai-client.test.mts
 import { z } from "zod";
-import { AiError, MAX_UNION_PARAMS, MODELS, TASKS, TIERS, backoffMs, classifyError, runAi, strictJsonSchema, unionCount, validate, type Deps, type RunRecord } from "../src/lib/core/ai/core.ts";
+import { AI_CREDITS_MESSAGE, AiError, isAiCap, isAiCredits, MAX_UNION_PARAMS, MODELS, TASKS, TIERS, backoffMs, classifyError, runAi, strictJsonSchema, unionCount, validate, type Deps, type RunRecord } from "../src/lib/core/ai/core.ts";
 import { TouchpointSchema } from "../src/lib/features/visit/touchpoint-schema.ts";
 
 let failures = 0;
@@ -121,6 +121,20 @@ t("no dated model ids", Object.keys(MODELS).every((m) => !/\d{8}$/.test(m)));
     err = e;
   }
   t("400 fails fast, one attempt", err instanceof AiError && (err as AiError).kind === "permanent" && f.calls.length === 1);
+}
+
+{
+  const out = '400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}';
+  const f = fake([{ throw: apiError(400, out) }, { text: good }]);
+  let err: unknown = null;
+  try {
+    await runAi(f.deps, base);
+  } catch (e) {
+    err = e;
+  }
+  t("no credit: one attempt, no fallback", f.calls.length === 1 && f.logs[0].fallback_used === false);
+  t("no credit: says so plainly", isAiCredits(err) && (err as AiError).message === AI_CREDITS_MESSAGE);
+  t("no credit is not the daily cap, so the phone keeps retrying the note", !isAiCap(err));
 }
 
 {
