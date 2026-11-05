@@ -174,6 +174,12 @@ function absoluteUrl(value: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
 }
 
+/** The same minute clock() shows, as a stored "14:12". */
+function hhmmOf(mins: number): string {
+  const t = ((Math.round(mins) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+}
+
 type ScheduleRow = { arrive: number; leave: number; stay: number };
 type Schedule = {
   rows: ScheduleRow[];
@@ -242,7 +248,9 @@ function buildSchedule(
     const anchor = anchors[s.id];
     if (anchor) {
       const at = minutesOfDay(anchor);
-      if (at >= t) t = at;
+      // Whole minutes, as the card shows them: a stop locked at its own 2:12
+      // is on time when the drive lands at 2:12 and a few seconds.
+      if (at >= Math.round(t)) t = at;
       else missedAnchors.add(s.id);
     }
     if (s.type === "account" && s.account.business_hours) {
@@ -968,6 +976,15 @@ function RouteDay({
     );
     patchDraftAndTimes(activeDay, placed, times);
   }
+  /** One tap: holds the stop at the time it already shows. The order stays as
+   *  it is, and the second tap lets the time follow the route again. */
+  function toggleLock(id: string, hhmm: string) {
+    if (stopTimes[id]) {
+      setLockedTime(id, null);
+      return;
+    }
+    patchTimes(activeDay, { ...stopTimes, [id]: hhmm });
+  }
   function patchCustom(id: string, next: Partial<CustomStop>) {
     patchDraft(
       activeDay,
@@ -1227,6 +1244,8 @@ function RouteDay({
               const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
               const dropAtEnd = drag && drag.dropIndex === stops.length && i === stops.length - 1;
               const lockedAt = /^\d{1,2}:\d{2}$/.test(stopTimes[s.id] ?? "") ? stopTimes[s.id] : null;
+              const row = schedule && ri !== undefined ? schedule.rows[ri] : undefined;
+              const shownTime = lockedAt ?? (row ? hhmmOf(row.arrive) : null);
               if (movedIds.has(s.id)) {
                 return (
                   <li key={s.id} data-stop-id={s.id} className="flex items-center gap-3 px-4 py-3">
@@ -1297,8 +1316,8 @@ function RouteDay({
                             {CUSTOM_STOP_LABEL[c.kind]}
                           </span>
                         )}
-                        {schedule && ri !== undefined && schedule.rows[ri] && (!lockedAt || missedAnchor) && (
-                          <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(schedule.rows[ri].arrive)}</span>
+                        {row && lockedAt && missedAnchor && (
+                          <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(row.arrive)}</span>
                         )}
                         {closed && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">closed the rest of the day</span>
@@ -1398,7 +1417,7 @@ function RouteDay({
                           )}
                         </div>
                       )}
-                      {c && !lockedAt && (c.kind === "hotel" || c.kind === "lunch") && (
+                      {c && !shownTime && (c.kind === "hotel" || c.kind === "lunch") && (
                         <label className="mt-1 flex items-center gap-1.5 text-[12.5px] text-[#5B6560]">
                           At
                           <input
@@ -1430,13 +1449,28 @@ function RouteDay({
                           </div>
                         ))}
                     </div>
-                    {lockedAt && (
-                      <LockedTime
-                        value={lockedAt}
-                        label={title}
-                        clearable={!c?.calendarId}
-                        onSave={(v) => setLockedTime(s.id, v)}
-                      />
+                    {shownTime && (
+                      <div className="-mr-1 -mt-1 flex shrink-0 items-center">
+                        <StopTime
+                          value={shownTime}
+                          label={title}
+                          clearable={Boolean(lockedAt) && !c?.calendarId}
+                          onSave={(v) => setLockedTime(s.id, v)}
+                        />
+                        {!c?.calendarId && !isDone && (
+                          <button
+                            type="button"
+                            onClick={() => toggleLock(s.id, shownTime)}
+                            aria-pressed={Boolean(lockedAt)}
+                            aria-label={lockedAt ? `Unlock ${title}'s time` : `Lock ${title} at ${clock(minutesOfDay(shownTime))}`}
+                            className={`inline-flex min-h-11 min-w-11 items-center justify-center rounded-md transition-transform active:scale-[0.92] motion-reduce:transition-none ${
+                              lockedAt ? "text-[#2C6A46]" : "text-[#A9AFA9] hover:text-[#5B6560]"
+                            }`}
+                          >
+                            <RowIco name={lockedAt ? "lock" : "lock-open"} size={16} />
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                   {confirmingDone.has(s.id) ? (
@@ -1575,10 +1609,10 @@ function RouteDay({
   );
 }
 
-/** A locked stop's time, top right of its card. The time field sits over
- *  the clock, so a tap opens the phone's time picker; closing it saves,
- *  Escape keeps the old time. */
-function LockedTime({
+/** A stop's arrival, top right of its card. The time field sits over the
+ *  clock, so a tap opens the phone's time picker; closing it on a new time
+ *  saves and locks the stop there, Escape keeps the old time. */
+function StopTime({
   value,
   label,
   clearable,
@@ -1597,7 +1631,7 @@ function LockedTime({
   }
   const shown = draft || value;
   return (
-    <label className="relative -mr-1 -mt-1 inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-2 transition-transform active:scale-[0.97] motion-reduce:transition-none">
+    <label className="relative inline-flex min-h-11 shrink-0 cursor-pointer items-center rounded-md px-1.5 transition-transform active:scale-[0.97] motion-reduce:transition-none">
       <span
         aria-hidden
         className="text-[17px] font-bold tabular-nums text-[#14201B] underline decoration-[#C9C5B8] decoration-dotted underline-offset-4"

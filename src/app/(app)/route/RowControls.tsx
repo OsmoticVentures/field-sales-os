@@ -39,6 +39,18 @@ const PATHS: Record<string, ReactNode> = {
       <path d="M8 1.6v2.5M8 11.9v2.5M1.6 8h2.5M11.9 8h2.5" />
     </>
   ),
+  lock: (
+    <>
+      <rect x="3.4" y="7.2" width="9.2" height="6.8" rx="1.5" fill="currentColor" />
+      <path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.2 0v2.2" />
+    </>
+  ),
+  "lock-open": (
+    <>
+      <rect x="3.4" y="7.2" width="9.2" height="6.8" rx="1.5" />
+      <path d="M5.4 7.2V5a2.6 2.6 0 0 1 5-1" />
+    </>
+  ),
   flag: (
     <>
       <path d="M3.8 14.2V2.2" />
