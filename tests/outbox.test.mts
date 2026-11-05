@@ -307,6 +307,7 @@ function enqueue(world: ReturnType<typeof fakeWorld>, over: Partial<Parameters<t
   const it = enqueue(w, { newCompany: true });
   const r = await advance(it, w.deps);
   const tp = w.sent[w.sent.length - 1];
+  t("11 the note carries when it was written", typeof (tp.json as { occurredAt: string }).occurredAt === "string" && !Number.isNaN(Date.parse((tp.json as { occurredAt: string }).occurredAt)));
   t("11 the note files to the account already in the book", tp.path === "/api/visit/touchpoint" && (tp.json as { accountIdHint: string }).accountIdHint === "acc-a");
   t("11 complete, no type asked", r.removed && !w.disk.has(it.id));
 

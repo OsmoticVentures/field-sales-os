@@ -1,13 +1,13 @@
 /**
  * A phone note read on Juan's Max plan when his laptop is open (Juan,
- * 2026-10-22: "Laptop if open, else now").
+ * 2026-11-04: "regular credits and only once i open laptop").
  *
  * The Mac's reader (bridges/nutribiotic/note_reader.py) polls nb_mac_poll()
  * every few seconds while it is awake. If it polled just now, the note goes
  * into nb_note_reads and this waits for its read; the reader runs `claude -p`
  * against extractionSpec() and writes the parse back. Any miss (lid shut, no
- * claim in time, a failed or slow read) returns null and the caller reads the
- * note on the API key as before. Nothing here can stop a note from filing.
+ * claim in time, a failed or slow read) returns null and his note stays on the
+ * phone, waiting, while another rep's reads on the API key.
  */
 import "server-only";
 

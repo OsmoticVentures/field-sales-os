@@ -21,7 +21,8 @@
  * note (from-visit.ts) or a sent email (bridges/nutribiotic/sent_promises.py).
  * A drafted one is marked routed; one that cannot be written gets MAX_TRIES.
  *
- * Needs NB_SUPABASE_* and ANTHROPIC_API_KEY in the env. Runs as rep
+ * Needs NB_SUPABASE_* in the env, and NB_AI_CLI=1 to answer on the Max plan
+ * (follow_through_cron.sh sets it). Runs as rep
  * NB_SCRIPT_USER (default "juan"), so it drafts for that rep's book only.
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -43,7 +44,9 @@ const STATE = process.env.VISIT_SWEEP_STATE ?? `${process.env.HOME}/agency/bridg
 
 /** The AI is out, for every note alike. Says nothing about this note. */
 const aiOut = (reason?: string) =>
-  [AI_CREDITS_MESSAGE, AI_CAP_MESSAGE, AI_LEDGER_DOWN_MESSAGE].some((m) => reason?.includes(m));
+  [AI_CREDITS_MESSAGE, AI_CAP_MESSAGE, AI_LEDGER_DOWN_MESSAGE, "The model could not answer"].some((m) =>
+    reason?.toLowerCase().includes(m.toLowerCase()),
+  );
 
 type Person = { first_name?: string | null; last_name?: string | null; email?: string | null };
 type Parsed = {

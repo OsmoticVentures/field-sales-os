@@ -16,7 +16,8 @@
  */
 import "server-only";
 import { z } from "zod";
-import { ai, aiConfigured, isAiCap, isAiCredits } from "../../core/ai/client";
+import { ai, aiConfigured, aiViaCli, isAiCap, isAiCredits } from "../../core/ai/client";
+import { currentUser, DEFAULT_USER } from "../../core/user";
 import { withIdempotency } from "../../core/idempotency";
 import { Held, laDay, once } from "../../core/once-server";
 import { loadAskInputs } from "./actions";
@@ -187,6 +188,10 @@ class Refused extends Error {
 }
 
 export async function draftFromVisit(note: VisitNote): Promise<VisitOutbound> {
+  // Juan's emails are written on the Max plan, by the Mac's sweep while the
+  // laptop is open (scripts/draft-from-visits.ts). Nothing is stored here, so
+  // the sweep finds this note still open. Another rep's stay on the API.
+  if (!aiViaCli() && (await currentUser().then((u) => u.id).catch(() => null)) === DEFAULT_USER) return { status: "none" };
   try {
     // once() makes it atomic across a double tap and two instances (the
     // ask-collision check alone reads before either has written); the inner

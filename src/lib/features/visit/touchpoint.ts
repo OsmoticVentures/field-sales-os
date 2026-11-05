@@ -52,7 +52,8 @@ import { draftFromVisit, givenEmails, type VisitOutbound } from "../outbound/fro
 import { ai, aiConfigured, AiError, hashInput, isAiCap } from "../../core/ai/client";
 import { strictJsonSchema } from "../../core/ai/core";
 import { laDay, noteKey, once } from "../../core/once-server";
-import { currentUser } from "../../core/user";
+import { currentUser, DEFAULT_USER } from "../../core/user";
+import { WAITING_FOR_LAPTOP } from "../../core/outbox-core";
 import { TouchpointSchema } from "./touchpoint-schema";
 import { readOnMac } from "./mac-reader";
 import { looksLikeTestFiling, TEST_FILING_ERROR } from "./test-filing";
@@ -307,6 +308,15 @@ export async function extractionSpec(): Promise<{ system: string; schema: Record
   return { system: `${cached}\n\n${tail}`, schema: strictJsonSchema(TouchpointSchema) };
 }
 
+/** A note read well after it was written: "tomorrow" means the day after he
+ *  wrote it, not the day after the laptop opened. */
+function forLaterRead(text: string, occurredAt?: string | null): string {
+  const at = occurredAt ? Date.parse(occurredAt) : NaN;
+  if (!(Date.now() - at > 5 * 60_000)) return text;
+  const when = new Date(at).toLocaleString("en-US", { timeZone: "America/Los_Angeles", dateStyle: "full", timeStyle: "short" });
+  return `Written ${when}, Pacific. Read today, tomorrow and every other date in this note against that moment, not the current time.\n\n${text}`;
+}
+
 export async function recordTouchpoint(
   rawText: string,
   accountIdHint?: string | null,
@@ -334,21 +344,31 @@ export async function recordTouchpoint(
   if (!text) return { ok: false, error: "Nothing to record." };
   if (looksLikeTestFiling(text)) return { ok: false, error: TEST_FILING_ERROR };
 
+  const alreadyRead = opts.parsed && accountIdHint && isParsedTouchpoint(opts.parsed) ? opts.parsed : null;
+  // Read on the Mac's Max plan first, before the account list: a note waiting
+  // for the laptop retries for hours and each retry must cost almost nothing.
+  let readHere: ParsedTouchpoint | null = null;
+  if (!alreadyRead && opts.macParsed === undefined) {
+    if (opts.tryMac !== false) {
+      const read = TouchpointSchema.safeParse(await readOnMac(forLaterRead(text, opts.occurredAt)));
+      if (read.success) readHere = read.data as ParsedTouchpoint;
+    }
+    // Juan, 2026-11-04: his notes read on his Max plan, only once the laptop is
+    // open, never on the metered API. Another rep's still read on the key below.
+    if (!readHere && (await currentUser().then((u) => u.id).catch(() => null)) === DEFAULT_USER) {
+      return { ok: false, error: WAITING_FOR_LAPTOP };
+    }
+  }
+
   const candidates = await listAccountsForMatching();
   if (candidates.length === 0) return { ok: false, error: "No accounts to match against yet." };
 
-  if (opts.parsed && accountIdHint && isParsedTouchpoint(opts.parsed)) {
-    return continueTouchpoint(text, opts.parsed, candidates, accountIdHint, opts);
-  }
+  if (alreadyRead) return continueTouchpoint(text, alreadyRead, candidates, accountIdHint, opts);
+  if (readHere) return continueTouchpoint(text, readHere, candidates, accountIdHint, opts);
   if (opts.macParsed !== undefined) {
     const read = TouchpointSchema.safeParse(opts.macParsed);
     if (!read.success) return { ok: false, error: "That read of the note does not fit the schema. Nothing filed." };
     return continueTouchpoint(text, read.data as ParsedTouchpoint, candidates, accountIdHint, opts);
-  }
-  // Laptop open: the Mac reads it on the Max plan. Any miss reads it here.
-  if (opts.tryMac !== false) {
-    const read = TouchpointSchema.safeParse(await readOnMac(text));
-    if (read.success) return continueTouchpoint(text, read.data as ParsedTouchpoint, candidates, accountIdHint, opts);
   }
   if (!aiConfigured()) return { ok: false, error: "ANTHROPIC_API_KEY is not configured on this deployment." };
 

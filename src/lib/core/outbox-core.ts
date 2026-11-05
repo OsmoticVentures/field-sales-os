@@ -216,7 +216,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
         req: {
           path: "/api/visit/touchpoint",
           key: `${it.id}:${it.pickedAccountId}`,
-          json: { text: it.text, accountIdHint: it.pickedAccountId, kindOverride, parsed: it.parsed ?? undefined, replaces: it.replaces ?? undefined },
+          json: { text: it.text, occurredAt: new Date(it.createdAt).toISOString(), accountIdHint: it.pickedAccountId, kindOverride, parsed: it.parsed ?? undefined, replaces: it.replaces ?? undefined },
         },
       };
     }
@@ -225,7 +225,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
       req: {
         path: "/api/visit/touchpoint",
         key: it.id,
-        json: { text: it.text, accountIdHint: it.accountIdHint ?? undefined, kindOverride, forceNewAccount: it.newCompany, replaces: it.replaces ?? undefined },
+        json: { text: it.text, occurredAt: new Date(it.createdAt).toISOString(), accountIdHint: it.accountIdHint ?? undefined, kindOverride, forceNewAccount: it.newCompany, replaces: it.replaces ?? undefined },
       },
     };
   }
@@ -297,6 +297,9 @@ type NeedsShape = NeedsAccount & { needsAccount: true };
 type HubspotShape = { hubspotFiled: boolean; hubspotError: string | null };
 
 export const CRM_OFF = "CRM filing off";
+/** The note reads on the laptop's Max plan, so it waits there, on the phone,
+ *  until the laptop is open. Not a failure, and it never shows in red. */
+export const WAITING_FOR_LAPTOP = "Waiting for your laptop.";
 /** The server's wording for a passing miss, as opposed to a stated refusal. */
 const PASSING_MISS = "Not filed to HubSpot yet.";
 

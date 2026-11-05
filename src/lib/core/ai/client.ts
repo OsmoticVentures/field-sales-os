@@ -31,17 +31,27 @@ function getClient(): Anthropic | null {
   return client;
 }
 
+/** A Mac script answering on the Max plan (./cli.ts), never the deployed app. */
+export function aiViaCli(): boolean {
+  return process.env.NB_AI_CLI === "1";
+}
+
 /** True when a key is configured on this deployment. */
 export function aiConfigured(): boolean {
-  return getClient() !== null;
+  return aiViaCli() || getClient() !== null;
 }
 
 export async function ai<S extends z.ZodType | undefined = undefined>(
   req: AiRequest<S>,
 ): Promise<AiResult<S extends z.ZodType ? z.infer<S> : string>> {
+  const actor = req.actor !== undefined ? req.actor : await currentUser().then((u) => u.id).catch(() => null);
+  if (aiViaCli()) {
+    // The Max plan: no API spend to cap. The run record stays, for error analysis.
+    const { createViaCli } = await import("./cli");
+    return runAi({ create: (params) => createViaCli(params), log: writeRunRecord }, { ...req, actor });
+  }
   const c = getClient();
   if (!c) throw new AiError("unconfigured", "No model is configured on this deployment.");
-  const actor = req.actor !== undefined ? req.actor : await currentUser().then((u) => u.id).catch(() => null);
   try {
     return await runAi(
       {

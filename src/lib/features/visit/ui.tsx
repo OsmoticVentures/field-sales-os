@@ -31,7 +31,7 @@ import {
 } from "../../core/outbox";
 import { apiFetch } from "../../core/api";
 import { workingDayIso } from "../route/field-week";
-import { waitsForType, type AccountPick, type DoorCounts, type NeedsAccount } from "../../core/outbox-core";
+import { WAITING_FOR_LAPTOP, waitsForType, type AccountPick, type DoorCounts, type NeedsAccount } from "../../core/outbox-core";
 import { getAccountPayload, refreshAccount } from "../../core/phone-sync";
 import { BLANK_COUNTS, COUNT_SLOTS, CountSlots, countsOf, type CountValues } from "../clients/CountSlots";
 import { Ico, SuccessNote, ghostBtn } from "../../core/ui";
@@ -473,6 +473,7 @@ function standing(it: OutboxItem, running: boolean): { word: string; alert: bool
   if (it.parked === "rejected") return { word: "Not filed", alert: true };
   if (!it.filed) {
     if (running || it.attempts === 0) return { word: "Saving", alert: false };
+    if (it.lastError === WAITING_FOR_LAPTOP) return { word: "Waiting for laptop", alert: false };
     return { word: it.offline ? "No connection, retrying" : "Retrying", alert: false };
   }
   if (it.hubspot === "pending") {
@@ -650,7 +651,7 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
               />
             )}
             {/* Still failing after a few rounds: the reason, never a bare "Retrying". */}
-            {!it.parked && it.attempts >= 3 && it.lastError && (
+            {!it.parked && it.attempts >= 3 && it.lastError && it.lastError !== WAITING_FOR_LAPTOP && (
               <ErrorLine message={it.lastError} picks={[]} busy={running === it.id} onPick={() => {}} onRetry={null} />
             )}
             {waitsForType(it) && (

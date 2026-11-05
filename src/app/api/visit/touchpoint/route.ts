@@ -38,6 +38,10 @@ export async function POST(req: Request) {
   const kindOverride = body?.kindOverride as "meeting" | "call" | "email" | "field_note" | undefined;
   const forceNewAccount = Boolean(body?.forceNewAccount);
   const parsed = (body?.parsed as ParsedTouchpoint | undefined) ?? null;
+  // When he wrote it on the phone, which a note waiting for the laptop can be
+  // long before it files. HubSpot and the account history carry this time.
+  const written = Date.parse(String(body?.occurredAt ?? ""));
+  const occurredAt = written <= Date.now() + 5 * 60_000 && written >= Date.now() - 30 * 864e5 ? new Date(written).toISOString() : null;
   const replaces = body?.replaces as { touchpointId?: string; activityId?: number } | undefined;
 
   try {
@@ -46,7 +50,7 @@ export async function POST(req: Request) {
     // "Not sure which store" writes nothing and is not stored either, so the
     // same note logged again after an edit is read fresh.
     const { result, replayed } = await withIdempotency(`visit:touchpoint:${key}`, async () => {
-      const r = await recordTouchpoint(text, accountIdHint, { kindOverride, forceNewAccount, parsed });
+      const r = await recordTouchpoint(text, accountIdHint, { kindOverride, forceNewAccount, parsed, occurredAt });
       if (!r.ok) throw new NotFiled(r.error);
       if (r.needsAccount) throw new NotSure(r);
       return r;
