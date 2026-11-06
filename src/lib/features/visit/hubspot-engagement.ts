@@ -35,7 +35,7 @@ import {
   type Contact,
   type EngagementActivity,
 } from "./dal";
-import { assertOwnBook, batchRead, request, type HubspotFeature } from "./hubspot";
+import { assertOwnBook, batchRead, HubSpotError, request, type HubspotFeature } from "./hubspot";
 import { ensureCompanyFor } from "./hubspot-company";
 import { currentUser } from "../../core/user";
 import { Held, once } from "../../core/once-server";
@@ -318,18 +318,26 @@ async function ensureHubspotContacts(companyId: string, matched: MatchedPerson[]
           phone: c.phone,
         }).filter(([, v]) => v),
       );
-      const res = await request<{ id?: string }>({
-        method: "POST",
-        path: "/crm/v3/objects/contacts",
-        body: {
-          properties: props,
-          associations: [{ to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: CONTACT_TO_COMPANY }] }],
-        },
-        entity: "contacts",
-        operation: "create",
-        feature,
-      });
-      hid = res.id ?? null;
+      try {
+        const res = await request<{ id?: string }>({
+          method: "POST",
+          path: "/crm/v3/objects/contacts",
+          body: {
+            properties: props,
+            associations: [{ to: { id: companyId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: CONTACT_TO_COMPANY }] }],
+          },
+          entity: "contacts",
+          operation: "create",
+          feature,
+        });
+        hid = res.id ?? null;
+      } catch (e) {
+        // HubSpot refuses a duplicate email and names the contact that owns it
+        // (it just is not on this company). Reuse that contact.
+        const existing = e instanceof HubSpotError && e.status === 409 ? /Existing ID: (\d+)/.exec(e.body)?.[1] : undefined;
+        if (!existing) throw e;
+        hid = existing;
+      }
     }
     if (hid) {
       await linkContactHubspotId(c.id, hid);
