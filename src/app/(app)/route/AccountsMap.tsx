@@ -34,6 +34,8 @@ import {
   LEAD_STAGE_COLOR,
   LEAD_STAGE_LABEL,
   LEAD_STAGES,
+  NOT_VISITED_COLOR,
+  NOT_VISITED_LABEL,
   matchesFilters,
   READINESS_COLOR,
   READINESS_FILTERS,
@@ -423,6 +425,7 @@ export function AccountsMap({
           score: priorityById[a.id]?.score ?? null,
           channel: a.channel,
           leadStage: a.lead_stage,
+          hqUnvisited: !!a.hq_unvisited,
         })),
     [visibleAccounts, priorityById],
   );
@@ -439,6 +442,7 @@ export function AccountsMap({
           score: priorityById[a.id]?.score ?? null,
           channel: a.channel,
           leadStage: a.lead_stage,
+          hqUnvisited: !!a.hq_unvisited,
         }),
       ),
     [visibleAccounts, filters, priorityById],
@@ -848,7 +852,10 @@ export function AccountsMap({
             )}
           </FilterSection>
 
-          <FilterSection label="Lead status" onClear={filters.stages.size > 0 ? () => setFiltersAndClose({ ...filters, stages: new Set() }) : undefined}>
+          <FilterSection
+            label="Lead status"
+            onClear={filters.stages.size > 0 || filters.notVisited ? () => setFiltersAndClose({ ...filters, stages: new Set(), notVisited: false }) : undefined}
+          >
             {LEAD_STAGES.map((s) => (
               <Chip
                 key={s}
@@ -859,6 +866,9 @@ export function AccountsMap({
                 {LEAD_STAGE_LABEL[s]} <Count n={counts.stages[s] ?? 0} />
               </Chip>
             ))}
+            <Chip active={filters.notVisited} dot={NOT_VISITED_COLOR} onClick={() => setFiltersAndClose({ ...filters, notVisited: !filters.notVisited })}>
+              {NOT_VISITED_LABEL} <Count n={counts.notVisited} />
+            </Chip>
             {prospectExcludedCount > 0 && (
               <HideToggle
                 shown={displayPrefs.showProspects}

@@ -100,6 +100,12 @@ export const LEAD_STAGE_COLOR: Record<LeadStage, string> = {
   closed: "#8A928C",
 };
 
+/** The Lead status section's extra chip: an account from HQ's initial list
+ *  (it carries an ERP customer code) with no in-person touch logged yet,
+ *  the same "owed" test bridges/nutribiotic/hq_pool.py routes from. */
+export const NOT_VISITED_LABEL = "Not visited";
+export const NOT_VISITED_COLOR = "#7A4FA0";
+
 // --- The state, the subject, the predicate ----------------------------------
 
 export type FilterSubject = {
@@ -110,6 +116,7 @@ export type FilterSubject = {
   score: number | null;
   channel: string | null;
   leadStage: LeadStage | null;
+  hqUnvisited: boolean;
 };
 
 /** Empty set means UNFILTERED, never "nothing matches": a chip narrows on
@@ -121,14 +128,15 @@ export type AccountFilterState = {
   hotScore: boolean;
   types: Set<AccountType>;
   stages: Set<LeadStage>;
+  notVisited: boolean;
 };
 
 export function emptyFilters(): AccountFilterState {
-  return { areas: new Set(), tiers: new Set(), readiness: new Set(), hotScore: false, types: new Set(), stages: new Set() };
+  return { areas: new Set(), tiers: new Set(), readiness: new Set(), hotScore: false, types: new Set(), stages: new Set(), notVisited: false };
 }
 
 export function activeFilterCount(f: AccountFilterState): number {
-  return f.areas.size + f.tiers.size + f.readiness.size + (f.hotScore ? 1 : 0) + f.types.size + f.stages.size;
+  return f.areas.size + f.tiers.size + f.readiness.size + (f.hotScore ? 1 : 0) + f.types.size + f.stages.size + (f.notVisited ? 1 : 0);
 }
 
 /** Every section narrows independently and combines with AND; within a
@@ -146,7 +154,13 @@ export function matchesFilters(f: AccountFilterState, s: FilterSubject): boolean
   }
 
   if (f.types.size > 0 && !f.types.has(accountType(s.channel))) return false;
-  if (f.stages.size > 0 && !(s.leadStage !== null && f.stages.has(s.leadStage))) return false;
+  // Not visited sits with the stages and ORs with them, as the 75+ chip does
+  // with the readiness tags.
+  if (f.stages.size > 0 || f.notVisited) {
+    const byStage = s.leadStage !== null && f.stages.has(s.leadStage);
+    const byVisit = f.notVisited && s.hqUnvisited;
+    if (!byStage && !byVisit) return false;
+  }
   return true;
 }
 
@@ -157,13 +171,14 @@ export type FilterCounts = {
   hotScore: number;
   types: Record<string, number>;
   stages: Record<string, number>;
+  notVisited: number;
 };
 
 /** Counted over the whole (display-narrowed) subject list, not over the
  *  current selection: each chip's own count has to stay whole for every
  *  other chip to still make sense picked alongside it. */
 export function countSubjects(subjects: FilterSubject[]): FilterCounts {
-  const counts: FilterCounts = { areas: {}, tiers: {}, readiness: {}, hotScore: 0, types: {}, stages: {} };
+  const counts: FilterCounts = { areas: {}, tiers: {}, readiness: {}, hotScore: 0, types: {}, stages: {}, notVisited: 0 };
   for (const s of subjects) {
     if (s.area) counts.areas[s.area] = (counts.areas[s.area] ?? 0) + 1;
     if (s.tier) counts.tiers[s.tier] = (counts.tiers[s.tier] ?? 0) + 1;
@@ -172,6 +187,7 @@ export function countSubjects(subjects: FilterSubject[]): FilterCounts {
     const t = accountType(s.channel);
     counts.types[t] = (counts.types[t] ?? 0) + 1;
     if (s.leadStage) counts.stages[s.leadStage] = (counts.stages[s.leadStage] ?? 0) + 1;
+    if (s.hqUnvisited) counts.notVisited += 1;
   }
   return counts;
 }

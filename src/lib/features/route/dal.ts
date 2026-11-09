@@ -88,7 +88,7 @@ async function ownedRows(): Promise<AccountRow[]> {
   return whileOwnedRowsUnchanged("route-owned", owner, () =>
     raw<AccountRow>(
       "nb_accounts",
-      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness,source,scout_grade:enrichment_status->lead_scout->>grade" +
+      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness,source,erp_customer_code,scout_grade:enrichment_status->lead_scout->>grade" +
         `&hubspot_owner_id=eq.${owner}&lat=not.is.null&closed_at=is.null&order=name.asc`,
     ),
   );
@@ -104,17 +104,36 @@ export async function listOwnerAccounts(): Promise<RouteAccount[]> {
   const ids = rows.map((a) => a.id);
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += 300) chunks.push(ids.slice(i, i + 300));
-  const [grades, stages] = await Promise.all([
+  // In-person touches only for HQ-list accounts, account_id alone: a few
+  // hundred short rows, the same kinds hq_pool.py counts as a visit.
+  const hqIds = rows.filter((a) => a.erp_customer_code).map((a) => a.id);
+  const hqChunks: string[][] = [];
+  for (let i = 0; i < hqIds.length; i += 300) hqChunks.push(hqIds.slice(i, i + 300));
+  const [grades, stages, visits] = await Promise.all([
     Promise.all(
       chunks.map((c) => raw<{ account_id: string; potential_grade: Tier }>("nb_v_account_potential", `select=account_id,potential_grade&account_id=in.(${c.map(encodeURIComponent).join(",")})`)),
     ),
     Promise.all(
       chunks.map((c) => raw<{ account_id: string; lead_stage: LeadStage }>("nb_v_account_lead_stage", `select=account_id,lead_stage&account_id=in.(${c.map(encodeURIComponent).join(",")})`)),
     ),
+    Promise.all(
+      hqChunks.map((c) =>
+        raw<{ account_id: string }>(
+          "nb_activities",
+          `select=account_id&kind=in.(visit,meeting,sample_drop,staff_training)&account_id=in.(${c.map(encodeURIComponent).join(",")})`,
+        ),
+      ),
+    ),
   ]);
+  const visited = new Set(visits.flat().map((v) => v.account_id));
   const tierById = new Map(grades.flat().map((g) => [g.account_id, g.potential_grade]));
   const stageById = new Map(stages.flat().map((s) => [s.account_id, s.lead_stage]));
-  return rows.map((a) => ({ ...a, tier: tierById.get(a.id) ?? null, lead_stage: stageById.get(a.id) ?? null }));
+  return rows.map((a) => ({
+    ...a,
+    tier: tierById.get(a.id) ?? null,
+    lead_stage: stageById.get(a.id) ?? null,
+    hq_unvisited: !!a.erp_customer_code && !visited.has(a.id),
+  }));
 }
 
 // --- Map display prefs (show chains / practices / prospects) -----------

@@ -160,6 +160,10 @@ export type RouteAccount = {
   source?: string | null;
   /** The scout's own grade (A to E), not HQ potential. A to C is the New Indies list. */
   scout_grade?: string | null;
+  /** HQ's initial list carries an ERP customer code; a lead or a Places add does not. */
+  erp_customer_code?: string | null;
+  /** On HQ's initial list with no in-person touch logged yet. */
+  hq_unvisited?: boolean;
 };
 
 export type RouteStopView = { id: string; lat: number; lng: number } & (
