@@ -11,6 +11,9 @@
 	<key>CFBundlePackageType</key><string>XPC!</string>
 	<key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSWidgetWantsLocation</key><true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ClientOS uses your location to time the drive to your next stop.</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key><string>com.apple.widgetkit-extension</string>

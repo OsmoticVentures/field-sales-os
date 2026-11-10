@@ -532,7 +532,16 @@ function RouteDay({
   const prevDay = dayIndex > 0 ? days[dayIndex - 1] : null;
   const [myLoc, setMyLoc] = useState<RouteEndpoint | null>(null);
   useEffect(() => {
-    locateMe().then(setMyLoc);
+    locateMe().then((loc) => {
+      setMyLoc(loc);
+      // Saved, so the widget's next drive starts from here, not the last stop made.
+      if (loc)
+        apiFetch("/api/location", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lat: loc.lat, lng: loc.lng }),
+        }).catch(() => {});
+    });
   }, []);
   // Where the rep is right now only matters on today's route. A future day
   // is planned: it leaves from the day before's end, or home, at 9.

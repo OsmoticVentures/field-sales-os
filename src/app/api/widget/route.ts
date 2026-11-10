@@ -17,7 +17,9 @@ import {
   isConfigured,
   listOwnerAccounts,
   listVisitedAccountIds,
+  setLastLocation,
 } from "../../../lib/features/route/dal";
+import { routeDriveLegs } from "../../../lib/features/route/drive";
 import { defaultActiveDay, planningHorizonDates } from "../../../lib/features/route/field-week";
 import { likelyDriveMinutes } from "../../../lib/features/route/traffic";
 import { DEPART_KEY, LUNCH_OFF, lunchDue, movedToSdr, type CustomStopKind, type RouteAccount, type Tier } from "../../../lib/features/route/types";
@@ -109,6 +111,22 @@ export async function GET(request: Request) {
     getRouteEndpointsByDay(),
   ]);
   const byId = new Map(accounts.map((a) => [a.id, a]));
+
+  /* The widget sends its own location fix with each refresh. It is where
+     the next drive starts, and it is saved so the route screen and the
+     next refresh know it too. */
+  const q = new URL(request.url).searchParams;
+  const qLat = Number(q.get("lat"));
+  const qLng = Number(q.get("lng"));
+  const hereNow =
+    q.has("lat") && q.has("lng") && Number.isFinite(qLat) && Number.isFinite(qLng) && Math.abs(qLat) <= 90 && Math.abs(qLng) <= 180
+      ? { lat: qLat, lng: qLng, at: new Date().toISOString() }
+      : null;
+  if (hereNow) {
+    const moved = !lastLocation || haversineMiles(lastLocation, hereNow) >= 0.1;
+    const stale = !lastLocation || Date.now() - new Date(lastLocation.at).getTime() > 10 * 60_000;
+    if (moved || stale) await setLastLocation(hereNow.lat, hereNow.lng).catch(() => {});
+  }
 
   const days = planningHorizonDates();
   const requested = new URL(request.url).searchParams.get("day");
@@ -217,28 +235,21 @@ export async function GET(request: Request) {
     total += miles;
   }
 
-  /* A rough, live finish-time estimate: no Directions call here (see the
-     file header), so free-flow per leg is this endpoint's own circuity/speed
-     guess; the time-of-day multiplier over it is traffic.ts's real curve,
-     the same one the route screen prices every leg with, so the two never
-     quote a different "back by" for the same day. */
+  /* A live finish-time estimate, priced the way the route screen prices it:
+     OSRM free-flow per leg, times traffic.ts's time-of-day curve. */
   const dayMileage = mileageByDay[day] ?? {};
   let schedule: { depart: string; finish_clock: string; live: boolean; rough: true } | null = null;
   if (home && stops.length > 0) {
-    const CIRCUITY = 1.28;
-    const FREEWAY_MPH = 42;
-    const SURFACE_MPH = 21;
-    const FREEWAY_MIN_MILES = 6;
     const [dy, dm2, dd] = day.split("-").map(Number);
     const dateAtMinutes = (mins: number): Date => {
       const wrapped = ((Math.round(mins) % 1440) + 1440) % 1440;
       return new Date(Date.UTC(dy, dm2 - 1, dd, Math.floor(wrapped / 60), wrapped % 60));
     };
-    const leg = (a: { lat: number; lng: number }, b: { lat: number; lng: number }, departAtMinutes: number) => {
+    /* Only when the road network cannot be reached: a straight-line guess. */
+    const CIRCUITY = 1.28;
+    const roughFreeFlow = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
       const miles = haversineMiles(a, b) * CIRCUITY;
-      const mph = miles >= FREEWAY_MIN_MILES ? FREEWAY_MPH : SURFACE_MPH;
-      const freeFlow = (miles / mph) * 60;
-      return Math.max(4, likelyDriveMinutes(freeFlow, dateAtMinutes(departAtMinutes)));
+      return (miles / (miles >= 6 ? 42 : 21)) * 60;
     };
     const dayDepart = state.times[day]?.[DEPART_KEY] ?? prefs.depart;
     const [dh, dm] = dayDepart.split(":").map(Number);
@@ -251,9 +262,14 @@ export async function GET(request: Request) {
     });
     const remaining = stops.filter((s) => !s.done);
 
-    const LOCATION_FRESH_MINUTES = 90;
-    const freshLocation =
-      lastLocation && Date.now() - new Date(lastLocation.at).getTime() < LOCATION_FRESH_MINUTES * 60_000 ? lastLocation : null;
+    /* Where the rep is: the widget's own fix on this request first, else the
+       last one saved within the window, else the last stop made. */
+    const LOCATION_FRESH_MINUTES = 30;
+    const freshLocation = hereNow
+      ? hereNow
+      : lastLocation && Date.now() - new Date(lastLocation.at).getTime() < LOCATION_FRESH_MINUTES * 60_000
+        ? lastLocation
+        : null;
 
     const startPos = future
       ? { lat: home.lat, lng: home.lng }
@@ -263,9 +279,17 @@ export async function GET(request: Request) {
         ? { lat: stops[lastDoneIdx].lat, lng: stops[lastDoneIdx].lng }
         : { lat: home.lat, lng: home.lng };
     const dayStarted = !future && (Boolean(freshLocation) || lastDoneIdx >= 0 || Boolean(dayMileage.start));
+    const finishAt = endpoints.end[day] ?? home;
+
+    /* Road time over the real network, the same OSRM legs and time-of-day
+       curve the route screen prices with, so both quote the same clock. */
+    const path = [startPos, ...remaining, finishAt];
+    const roads = await routeDriveLegs(path).catch(() => null);
+    const freeFlow = path.slice(1).map((p, i) => roads?.[i]?.freeFlowMinutes ?? roughFreeFlow(path[i], p));
+    const leg = (i: number, departAtMinutes: number) =>
+      Math.max(roads ? 1 : 4, likelyDriveMinutes(freeFlow[i], dateAtMinutes(departAtMinutes)));
 
     let t = dayStarted ? nowMin : future ? departMin : Math.max(departMin, nowMin);
-    let pos = startPos;
     // A calendar event's stop stays as long as the event runs.
     const eventMinutes = new Map(
       draft.flatMap((e) => (typeof e !== "string" && typeof e.minutes === "number" ? [[e.id, e.minutes] as const] : [])),
@@ -276,8 +300,8 @@ export async function GET(request: Request) {
       const wrapped = ((Math.round(mins) % 1440) + 1440) % 1440;
       return `${String(Math.floor(wrapped / 60)).padStart(2, "0")}:${String(wrapped % 60).padStart(2, "0")}`;
     };
-    for (const s of remaining) {
-      const drive = leg(pos, s, t);
+    remaining.forEach((s, i) => {
+      const drive = leg(i, t);
       t += drive;
       if (s.locked_at) {
         const [lh, lm] = s.locked_at.split(":").map(Number);
@@ -292,9 +316,8 @@ export async function GET(request: Request) {
         t += prefs.lunchMinutes;
         lunchTaken = true;
       }
-      pos = s;
-    }
-    t += leg(pos, home, t);
+    });
+    t += leg(remaining.length, t);
     schedule = {
       depart: dayDepart,
       finish_clock: clock(t),
