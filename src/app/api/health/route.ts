@@ -15,7 +15,8 @@ import { stage } from "../../../lib/core/stage";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const body: Record<string, unknown> = { ok: true, service: "field-sales-os", stage: stage() };
+  // commit: which build is live, so a deploy can be confirmed from outside.
+  const body: Record<string, unknown> = { ok: true, service: "field-sales-os", stage: stage(), commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null };
   if (new URL(req.url).searchParams.get("db") === "1") body.db = await timedReads();
   return NextResponse.json(body, { headers: { "cache-control": "no-store" } });
 }
