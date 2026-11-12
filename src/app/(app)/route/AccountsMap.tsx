@@ -21,7 +21,7 @@ import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico } from "@/lib/core/ui";
 import { useFlag } from "@/lib/core/me";
 import { loadGoogleMaps, useGoogleMapsAuthFailed } from "@/lib/shared/google-maps-loader";
-import { dayLabel } from "@/lib/features/route/field-week";
+import { dayLabel, laTodayIso } from "@/lib/features/route/field-week";
 import {
   accountType,
   ACCOUNT_TYPE_LABEL,
@@ -155,7 +155,7 @@ function DayButtons({ days, onPick, disabled }: { days: string[]; onPick: (day: 
         disabled={disabled}
         className="min-h-11 rounded-md bg-[#2C6A46] px-3.5 py-2 text-[13px] font-semibold text-white transition-transform active:scale-[0.97] disabled:opacity-40"
       >
-        Today
+        {days[0] === laTodayIso() ? "Today" : `${dayLabel(days[0]).weekday} ${dayLabel(days[0]).short}`}
       </button>
       {days.slice(1).map((d) => {
         const { weekday, short } = dayLabel(d);

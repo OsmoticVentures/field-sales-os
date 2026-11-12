@@ -183,7 +183,11 @@ function RouteTile({ accountId, leave }: { accountId: string; leave: (href: stri
             </button>
           </span>
         </div>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-6 gap-2">
+          {/* Monday to Saturday columns: the first day sits under its own weekday. */}
+          {Array.from({ length: (new Date(`${days[0]}T12:00:00Z`).getUTCDay() + 6) % 7 }, (_, i) => (
+            <span key={`pad-${i}`} aria-hidden="true" />
+          ))}
           {days.map((d) => {
             const { weekday, short } = dayLabel(d);
             const current = d === scheduledDay;

@@ -1,13 +1,13 @@
 /**
- * The planning horizon: today's field days rolling ten days deep, every day
- * of the week. Ported unchanged from the NutriBiotic OS
+ * The planning horizon: today's field days rolling 24 days deep, Monday to
+ * Saturday (Sundays off the picker, 2026-11-12). Ported unchanged from the NutriBiotic OS
  * (portfolio/src/app/nutribiotic/lib/field-week.ts). Pure, no I/O, framework
  * free so it works from both the server and the client.
  */
 
 const WEEKDAY: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
-export const PLANNING_HORIZON_DAYS = 10;
+export const PLANNING_HORIZON_DAYS = 24;
 
 /** From this Los Angeles hour on, "today" is over and the app works on tomorrow. */
 export const WORKING_DAY_ROLLOVER_HOUR = 21;
@@ -50,14 +50,15 @@ function weekdayIsoOf(iso: string): number {
   return dow === 0 ? 7 : dow;
 }
 
-/** The next `count` days starting today, every day of the week included. */
+/** The field days in the next `count` calendar days starting today, Sundays
+ *  left out (no field work on Sunday). */
 export function planningHorizonDates(count: number = PLANNING_HORIZON_DAYS): string[] {
   const { iso } = laToday();
   const [y, m, d] = iso.split("-").map(Number);
   const cursor = new Date(Date.UTC(y, m - 1, d));
   const out: string[] = [];
-  while (out.length < count) {
-    out.push(cursor.toISOString().slice(0, 10));
+  for (let i = 0; i < count; i++) {
+    if (cursor.getUTCDay() !== 0) out.push(cursor.toISOString().slice(0, 10));
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;
