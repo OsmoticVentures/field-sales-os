@@ -58,6 +58,13 @@ export const BANNED: StyleRule[] = [
    * drift this file closes.
    */
   { re: /\b(circl(e|es|ed|ing)\s+back|touch(es|ed|ing)?\s+base|thought leader|game.?changer|best.?in.?class|move\s+the\s+needle|synergy|cutting.?edge|leverag(e|es|ed|ing)|utiliz(e|es|ed|ing)|spearhead(s|ed|ing)?|facilitat(e|es|ed|ing))\b/i, why: "a phrase he hates" },
+  /**
+   * Juan, 2026-11-12, from his own edits: he rewrites "I'm putting together
+   * the price list, will send today" into "As promised, here is our price
+   * list" with the file attached. A draft delivers the file; when there is no
+   * file to attach, order_watch writes that on the draft in red.
+   */
+  { re: /\b(i('|\s+a)?m\s+putting\s+together|i('ll|\s+will)\s+(send|email|forward|get)\b[^.\n]{0,60}?\b(today|tonight|tomorrow|shortly|soon|later|this\s+(week|afternoon|evening)|by\s+(monday|tuesday|wednesday|thursday|friday|the\s+end))\b)/i, why: "a promise to send something instead of sending it" },
 ];
 
 /**
