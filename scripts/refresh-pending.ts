@@ -71,10 +71,20 @@ async function refresh(r: Row, today: string, dry: boolean, replace: Record<stri
   const notes = await get<{ raw_text: string; created_at: string }[]>(
     `nb_touchpoints?select=raw_text,created_at&account_id=eq.${r.account_id}&order=created_at.desc&limit=3`,
   );
-  if (!notes.length && !r.source_ask) return "skipped: no note on file to write from";
+  // Older visits live only in the activity log (HubSpot-era meetings and calls), never enrichment rows.
+  const acts = notes.length
+    ? []
+    : await get<{ at: string; detail: string | null }[]>(
+        `nb_activities?select=at,detail&account_id=eq.${r.account_id}&kind=in.(meeting,call)&detail=not.is.null&order=at.desc&limit=3`,
+      );
+  const lines = [
+    ...notes.map((n) => `NOTE ${n.created_at.slice(0, 10)}: ${n.raw_text}`),
+    ...acts.map((a) => `NOTE ${a.at.slice(0, 10)}: ${a.detail}`),
+  ];
+  if (!lines.length && !r.source_ask) return "skipped: no note on file to write from";
   const composed = await composeAsk({
     ask: r.source_ask ?? r.subject ?? "",
-    noteText: notes.map((n) => `NOTE ${n.created_at.slice(0, 10)}: ${n.raw_text}`).join("\n\n"),
+    noteText: lines.join("\n\n"),
     account: { id: account.id, name: account.name, city: account.city, email: account.email },
     contacts,
     voice,
