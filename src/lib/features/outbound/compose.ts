@@ -28,6 +28,7 @@ import { ai, aiConfigured, isAiCap, isAiCredits } from "../../core/ai/client";
 import { EMAIL_VOICE } from "./email-voice.generated";
 import { TALKING_POINTS } from "./talking-points.generated";
 import { ATTACHABLE_FILES } from "./attachments.generated";
+import { MEETING_LENGTHS, MEETING_TIMES } from "./meeting-asks.generated";
 import { fabricationFailure, openAskFailure, styleFailure } from "./gates";
 import type { RouteDay } from "./route-days";
 
@@ -68,6 +69,9 @@ export type ComposeAskInput = {
   routeDays?: RouteDay[];
   /** Whose email this is. Absent means Juan, the original author of every rule here. */
   rep?: Rep;
+  /** An earlier draft of this same email that was never sent, when one is being rewritten.
+   *  Shown to the model for who and what; never a source: the number check does not see it. */
+  reference?: { body: string; today: string };
 };
 
 /** The rep an email is written for: the name it is signed with and the territory it speaks from. */
@@ -90,6 +94,9 @@ export async function currentRep(): Promise<Rep> {
 /** Facts Juan wrote in his own sent mail and approved as a source, 2026-09-23.
  *  Source text for the number check, like the note. */
 const TALKING_POINT_TEXT = TALKING_POINTS.map((t) => t.line).join("\n");
+
+/** His approved meeting times and lengths ("10am", "30 minutes"): the number check lets these exact phrases through. */
+const MEETING_PHRASES = [...MEETING_TIMES, ...MEETING_LENGTHS].map((m) => m.phrase);
 
 export type ComposedAsk =
   | {
@@ -135,7 +142,7 @@ WHAT THIS EMAIL IS FOR. Your habit is to write a report of his visit note. He re
 
 1. Name everyone on their team that the note or the contacts list names, in the first two lines: who connected you, who he met, who he is writing to. "Hi Honey and Susan," / "Following up after meeting with Carmen." / "Miriam told me this address is the way to reach Mehrdad."
 
-2. In a first email, say who he is in one line: "I'm ${rep.first}, your representative with NutriBiotic." Not in a reply.
+2. In a first email to someone he has not met, say who he is in one line: "I'm ${rep.first}, your representative with NutriBiotic." Not in a reply, and not when the note says he met or talked with them: they know who he is, and he cuts the line.
 
 3. Turn account data into the relationship: "Your company has been trusting NutriBiotic for years." Never recite order dates or order history; those are his notes, not their news.
 
@@ -143,11 +150,11 @@ WHAT THIS EMAIL IS FOR. Your habit is to write a report of his visit note. He re
 
 5. You may use one or two APPROVED TALKING POINTS (below) when they fit, close to verbatim. They are facts he wrote himself. Nothing else outside the note is a fact.
 
-6. The ask is his to propose, and small, and it names a day. A next step the note already states stands exactly as he said it ("I'll call you in the morning" stays that, with no other day added). When the email asks to meet in person and the note names no day, propose the first of HIS NEXT DAYS NEAR THIS ACCOUNT when that list is given: "How is Wednesday, Nov 18?" Those days are for coming in, never for a phone call. Never hand the choice back to them ("whichever is more convenient", "which day works", "is there an afternoon"). Never write a clock time that is not in the note, and never a date that is in neither the note nor that list. When they are ready to buy, the ask is the order itself.
+6. The ask is his to propose, and small, and it names a day and a time. A next step the note already states stands exactly as he said it ("I'll call you in the morning" stays that, with no other day added). When the email asks to meet in person and the note names no day, propose the first of HIS NEXT DAYS NEAR THIS ACCOUNT when that list is given, with one time from HIS MEETING TIMES (below): "How is Wednesday, Nov 18 at 10am?" A time the note gives (their hours, "afternoons work best") picks the time; otherwise the morning one. A length only where HIS MEETING LENGTHS says it goes: a training ("I intend for us to take no longer than 30 minutes"), or a short introduction at a clinic or a busy office; a cold ask to a store carries no length. Those days are for coming in, never for a phone call. Never hand the choice back to them ("whichever is more convenient", "which day works", "is there an afternoon"). Never write a clock time or a length that is in neither the note nor those lists, and never a date that is in neither the note nor the days list. When they are ready to buy, the ask is the order itself.
 
 7. Time is relative: "a couple weeks ago", "recently", "two days ago", never the exact date from the note unless it was a day or two ago. Leave out logistics they already know or that go without saying ("with at least a week of notice", "so I am writing here").
 
-8. An attachment is never mentioned alone: say what it is for ("so you can see all products and prices", "helpful to print and show to customers"), and mention one only when the note says he is sending it, or when one of the FILES HE CAN ATTACH (below) shows them exactly what the note says they are interested in. At most one or two, named as they are listed. Never any other document.
+8. The files go on by themselves; the email says so in one short line. A first email to a store or clinic carries the Best Sellers ("I attached our best sellers list so you can see the products and wholesale prices."), or the Spa Partner Guide for a spa or salon. A training offer carries the training flyer, and the note's own request picks any other file from FILES HE CAN ATTACH. When the note says he would send something, send it: "As promised, here is our portfolio," never "I'm putting together" or "I'll send". At most two files, named as they are listed, and never explain what is inside beyond those few words. Never any other document.
 
 9. Every sentence carries a fact from the note, a talking point, a concrete ask, or a specific kindness about that person. A sentence that would read the same for any account is filler and is refused. "Let me know what other information you need from me to move forward" is refused.
 
@@ -160,8 +167,14 @@ A first email runs four to six short paragraphs of one or two sentences each. A 
 APPROVED TALKING POINTS:
 ${TALKING_POINTS.map((t) => `- (${t.topic}) ${t.line}`).join("\n")}
 
-FILES HE CAN ATTACH:
-${ATTACHABLE_FILES.map((f) => `- ${f}`).join("\n")}`;
+FILES HE CAN ATTACH (name, then when it goes):
+${ATTACHABLE_FILES.map((f) => `- ${f.name}: ${f.use}`).join("\n")}
+
+HIS MEETING TIMES (his own words from sent mail; the only clock times you may write that the note does not give):
+${MEETING_TIMES.map((t) => `- ${t.phrase}: ${t.use}. He wrote: "${t.quote}"`).join("\n")}
+
+HIS MEETING LENGTHS (the only lengths you may write that the note does not give):
+${MEETING_LENGTHS.map((t) => `- ${t.phrase}: ${t.use}. He wrote: "${t.quote}"`).join("\n")}`;
 }
 
 function routeSection(days?: RouteDay[]): string {
@@ -188,7 +201,15 @@ THE ASK, in ${rep.first}'s own words:
 ${input.ask}
 
 THE FULL NOTE the ask came from, which is the only other thing you know:
-${input.noteText}${routeSection(input.routeDays)}${voiceSection(input.voice)}`;
+${input.noteText}${routeSection(input.routeDays)}${referenceSection(input.reference)}${voiceSection(input.voice)}`;
+}
+
+function referenceSection(ref?: ComposeAskInput["reference"]): string {
+  if (!ref) return "";
+  return `
+
+AN EARLIER DRAFT OF THIS EMAIL, never sent. Use it only for who it goes to and what it is about. It is not a source: a fact in it that the note does not give stays out. Today is ${ref.today}. A day in the note or in this draft that is today or earlier has passed and is never proposed; propose from his next days instead, and if none is listed, ask for a visit without a date.
+${ref.body}`;
 }
 
 /** His own corrections of earlier drafts. Habits to copy, never facts: a
@@ -269,7 +290,7 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
       };
     }
 
-    const invented = fabricationFailure(out.subject, out.body, sources, firstNames);
+    const invented = fabricationFailure(out.subject, out.body, sources, firstNames, MEETING_PHRASES);
     if (invented) return { written: false, reason: `Not written: ${invented}.` };
 
     const style = styleFailure(out.subject, out.body, sources);
@@ -284,7 +305,7 @@ export async function composeAsk(input: ComposeAskInput): Promise<ComposedAsk> {
     // One correction, then it stands: a draft with an open ask is still better than no draft.
     const open = attempt === 0 ? openAskFailure(out.body, dayLabels) : null;
     if (open) {
-      correction = `That draft handed the choice back to them ("${open}"). ${rep.first} proposes the day himself. Rewrite the ask to propose ${dayLabels[0]}, and change nothing else.`;
+      correction = `That draft handed the choice back to them ("${open}"). ${rep.first} proposes the day himself. Rewrite the ask to propose ${dayLabels[0]} at one of HIS MEETING TIMES, and change nothing else.`;
       continue;
     }
 

@@ -174,6 +174,15 @@ export function specificityFailure(body: string, sources: string[]): string | nu
   return shared >= 2 ? null : "the draft never names anything from the note, so it would read the same for any account";
 }
 
+/** A meeting phrase from his own sent mail ("10am", "30 minutes") as a pattern that
+ *  matches only that phrase, spacing and case aside: "10am" passes as "10 AM", never as "10". */
+export function meetingPhrasePattern(phrase: string): RegExp {
+  const m = phrase.match(/^(\d+)\s*(am|pm|minutes?)$/i);
+  if (!m) return new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+  const unit = /min/i.test(m[2]) ? "(?:minutes?|mins?)" : m[2];
+  return new RegExp(`(?<![\\d:])${m[1]}\\s?${unit}\\b`, "gi");
+}
+
 /**
  * A fact in the draft that nobody stated. NEVER RETRIED.
  *
@@ -187,8 +196,11 @@ export function fabricationFailure(
   body: string,
   sources: string[],
   allowedFirstNames: string[],
+  meetingPhrases: string[] = [],
 ): string | null {
-  const text = `${subject}\n${body}`;
+  // An approved meeting time or length is his own phrase, not an invented number;
+  // it is lifted out before the count, and only in that exact shape.
+  const text = meetingPhrases.reduce((t, p) => t.replace(meetingPhrasePattern(p), " "), `${subject}\n${body}`);
 
   const stated = new Set(digitRuns(sources.join(" \n ")));
   for (const n of digitRuns(text)) {
