@@ -154,54 +154,74 @@ function DraftTile({ accountId, leave }: { accountId: string; leave: (href: stri
 }
 
 /** Add to route: a tap opens the next days across both columns, a pick
- *  appends the client to that day. On a day, it names it and opens Route. */
+ *  appends the client to that day. On a day, it names it; a tap opens the
+ *  same days to move it, with Route one tap away. */
 function RouteTile({ accountId, leave }: { accountId: string; leave: (href: string) => void }) {
-  const { days, scheduledDay, busy, failed, add } = useAddToRoute(accountId);
+  const { days, scheduledDay, busy, failed, add, move } = useAddToRoute(accountId);
   const [picking, setPicking] = useState(false);
-  if (scheduledDay) {
-    const { weekday, short } = dayLabel(scheduledDay);
-    return (
-      <LeaveLink href="/route" leave={leave} className={tileCls}>
-        <span className={tileIcon}>
-          <Ico name="check" size={24} />
-        </span>
-        On route {weekday} {short}
-      </LeaveLink>
-    );
-  }
   if (picking) {
+    const on = scheduledDay ? dayLabel(scheduledDay) : null;
     return (
       <div className="col-span-2 rounded-[22px] bg-[#F7F6F1]/[0.08] p-3">
-        <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-[14px] text-[#F7F6F1]">{busy ? "Adding" : "Add to route"}</span>
-          <button
-            type="button"
-            onClick={() => setPicking(false)}
-            aria-label="Cancel"
-            className="flex size-9 items-center justify-center rounded-full text-[#F7F6F1]/60 [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.11]"
-          >
-            <Ico name="close" size={14} />
-          </button>
+        <div className="mb-2 flex items-center justify-between gap-2 px-1">
+          <span className="text-[14px] text-[#F7F6F1]">
+            {busy ? (on ? "Moving" : "Adding") : on ? `Move from ${on.weekday} ${on.short}` : "Add to route"}
+          </span>
+          <span className="flex items-center gap-1">
+            {on && (
+              <LeaveLink href="/route" leave={leave} className="flex min-h-9 items-center rounded-full px-3 text-[13px] text-[#F7F6F1]/70 [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.11]">
+                Open Route
+              </LeaveLink>
+            )}
+            <button
+              type="button"
+              onClick={() => setPicking(false)}
+              aria-label="Cancel"
+              className="flex size-9 items-center justify-center rounded-full text-[#F7F6F1]/60 [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.11]"
+            >
+              <Ico name="close" size={14} />
+            </button>
+          </span>
         </div>
         <div className="grid grid-cols-5 gap-2">
           {days.map((d) => {
             const { weekday, short } = dayLabel(d);
+            const current = d === scheduledDay;
             return (
               <button
                 key={d}
                 type="button"
-                disabled={busy}
-                onClick={() => void add(d)}
-                className="flex min-h-14 flex-col items-center justify-center rounded-xl bg-[#F7F6F1]/[0.06] text-[13px] text-[#F7F6F1] transition-[transform,background-color] duration-100 [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.12] active:scale-[0.96] disabled:opacity-50 motion-reduce:transition-none"
+                disabled={busy || current}
+                aria-current={current ? "date" : undefined}
+                onClick={async () => {
+                  const ok = scheduledDay ? await move(d) : await add(d);
+                  if (ok) setPicking(false);
+                }}
+                className={`flex min-h-14 flex-col items-center justify-center rounded-xl text-[13px] transition-[transform,background-color] duration-100 active:scale-[0.96] motion-reduce:transition-none ${
+                  current
+                    ? "bg-[#F7F6F1] text-[#14201B]"
+                    : "bg-[#F7F6F1]/[0.06] text-[#F7F6F1] [@media(hover:hover)]:hover:bg-[#F7F6F1]/[0.12] disabled:opacity-50"
+                }`}
               >
                 {weekday}
-                <span className="text-[11.5px] tabular-nums text-[#F7F6F1]/50">{short}</span>
+                <span className={`text-[11.5px] tabular-nums ${current ? "text-[#14201B]/60" : "text-[#F7F6F1]/50"}`}>{short}</span>
               </button>
             );
           })}
         </div>
         {failed && <p className="mt-2 px-1 text-[13px] text-[#E58A82]">Not saved. Try again.</p>}
       </div>
+    );
+  }
+  if (scheduledDay) {
+    const { weekday, short } = dayLabel(scheduledDay);
+    return (
+      <button type="button" onClick={() => setPicking(true)} className={tileCls}>
+        <span className={tileIcon}>
+          <Ico name="check" size={24} />
+        </span>
+        On route {weekday} {short}
+      </button>
     );
   }
   return (

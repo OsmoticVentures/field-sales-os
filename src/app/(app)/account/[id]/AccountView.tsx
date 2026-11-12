@@ -234,12 +234,18 @@ function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: 
   const [failed, setFailed] = useState(false);
   if (days.length === 0) return null;
 
-  async function add() {
+  /** Adds on a free account; moves one already on a day. Both write on the
+   *  server from the saved route, so a stale page never drops a stop. */
+  async function save() {
+    if (date === scheduledDay) {
+      setPicking(false);
+      return;
+    }
     setBusy(true);
     setFailed(false);
     try {
-      const entries = draftByDay[date] ?? [];
-      await postJson("/api/route/draft", { day: date, entries: [...entries, accountId] });
+      if (scheduledDay) await postJson("/api/route/move", { id: accountId, day: date });
+      else await postJson("/api/route/add", { day: date, ids: [accountId] });
       setAddedDay(date);
       setPicking(false);
     } catch {
@@ -249,13 +255,26 @@ function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: 
     }
   }
 
-  if (scheduledDay) {
+  if (scheduledDay && !picking) {
     const { weekday, short } = dayLabel(scheduledDay);
     return (
-      <Link href="/route" className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#EEECE3] px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] ${press}`}>
-        <Ico name="check" size={14} />
-        On the route &middot; {weekday} {short}
-      </Link>
+      <span className="inline-flex items-center gap-1.5">
+        <Link href="/route" className={`inline-flex min-h-11 items-center gap-1.5 rounded-md bg-[#EEECE3] px-3.5 py-2 text-[14px] font-medium text-[#3D4A44] ${press}`}>
+          <Ico name="check" size={14} />
+          On the route &middot; {weekday} {short}
+        </Link>
+        <button
+          type="button"
+          onClick={() => {
+            setDate(scheduledDay);
+            setFailed(false);
+            setPicking(true);
+          }}
+          className={`inline-flex min-h-11 items-center rounded-md border border-[#E2DFD5] bg-white px-3 py-2 text-[13.5px] font-medium text-[#3D4A44] hover:bg-[#FAF9F5] ${press}`}
+        >
+          Move
+        </button>
+      </span>
     );
   }
 
@@ -276,6 +295,7 @@ function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: 
     );
   }
 
+  const verb = scheduledDay ? "Move" : "Add";
   return (
     <div className="inline-flex flex-col gap-1">
       <div className="inline-flex items-center gap-1.5 rounded-md border border-[#E2DFD5] bg-white py-1 pr-1 pl-2.5">
@@ -296,11 +316,11 @@ function AddToRoute({ accountId, days, draftByDay }: { accountId: string; days: 
         </select>
         <button
           type="button"
-          onClick={add}
-          disabled={busy}
+          onClick={save}
+          disabled={busy || date === scheduledDay}
           className={`min-h-11 rounded-md bg-[#2C6A46] px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-60 ${press}`}
         >
-          {busy ? "Adding" : "Add"}
+          {busy ? (scheduledDay ? "Moving" : "Adding") : verb}
         </button>
         <button
           type="button"

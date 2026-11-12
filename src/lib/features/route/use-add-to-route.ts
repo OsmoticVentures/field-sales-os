@@ -55,6 +55,30 @@ export function useAddToRoute(accountId: string | null | undefined) {
     }
   }
 
+  /** Takes the client off the day it is on and puts it on another, in one
+   *  server write (/api/route/move). */
+  async function move(day: string): Promise<boolean> {
+    if (!accountId || busy) return false;
+    setBusy(true);
+    setFailedFor(null);
+    try {
+      const res = await apiFetch("/api/route/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+        body: JSON.stringify({ id: accountId, day }),
+      });
+      const j = (await res.json()) as { ok?: boolean };
+      if (!res.ok || !j.ok) throw new Error("move failed");
+      setOnDay({ id: accountId, day });
+      return true;
+    } catch {
+      setFailedFor(accountId);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const scheduledDay = onDay && onDay.id === accountId ? onDay.day : null;
-  return { days, scheduledDay, busy, failed: failedFor !== null && failedFor === accountId, add };
+  return { days, scheduledDay, busy, failed: failedFor !== null && failedFor === accountId, add, move };
 }

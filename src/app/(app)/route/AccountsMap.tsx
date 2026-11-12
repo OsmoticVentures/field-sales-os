@@ -182,6 +182,7 @@ function AddToRouteDay({
   days,
   scheduledDay,
   onPick,
+  onMove,
 }: {
   accountId: string;
   lat: number;
@@ -189,16 +190,57 @@ function AddToRouteDay({
   days: string[];
   scheduledDay: string | null;
   onPick: (id: string, day: string, lat: number, lng: number) => void;
+  onMove: (id: string, day: string) => void;
 }) {
   const [open, setOpen] = useState(false);
 
   if (scheduledDay) {
     const { weekday, short } = dayLabel(scheduledDay);
+    if (open) {
+      return (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {days.map((d) => {
+            const l = dayLabel(d);
+            const current = d === scheduledDay;
+            return (
+              <button
+                key={d}
+                type="button"
+                disabled={current}
+                aria-current={current ? "date" : undefined}
+                onClick={() => {
+                  onMove(accountId, d);
+                  setOpen(false);
+                }}
+                className={`min-h-9 rounded-md px-2 py-1.5 text-[11.5px] font-medium transition-colors ${
+                  current ? "bg-[#EEECE3] text-[#5B6560]" : "border border-[#E2DFD5] bg-white text-[#3D4A44] hover:bg-[#FAF9F5]"
+                }`}
+              >
+                {l.weekday} {l.short}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Cancel"
+            className="flex min-h-9 min-w-9 items-center justify-center rounded-md text-[#8A928C] hover:bg-[#FAF9F5] hover:text-[#14201B]"
+          >
+            <Ico name="close" size={12} />
+          </button>
+        </div>
+      );
+    }
     return (
-      <div className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md bg-[#EEECE3] px-3 py-2 text-[13px] font-semibold text-[#5B6560]">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-2 flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md bg-[#EEECE3] px-3 py-2 text-[13px] font-semibold text-[#5B6560] transition-colors hover:bg-[#E6E3D8]"
+      >
         <Ico name="check" size={13} />
         On the route &middot; {weekday} {short}
-      </div>
+        <span className="ml-1 font-medium text-[#2C6A46]">Move</span>
+      </button>
     );
   }
 
@@ -320,6 +362,7 @@ export function AccountsMap({
   doneIds,
   focus,
   onAddToRouteOnDay,
+  onMoveToDay,
 }: {
   /** Juan's whole owned book, from /api/route/state (RouteAccount, already
    *  carrying the map's extra fields). */
@@ -340,6 +383,8 @@ export function AccountsMap({
    *  order, any other day just appends (mirrors the source's
    *  handleAddToRouteOnDay in MapScreen.tsx). */
   onAddToRouteOnDay: (id: string, day: string, lat: number, lng: number) => void;
+  /** Takes a stop off whichever day holds it and puts it on another. */
+  onMoveToDay: (id: string, day: string) => void;
 }) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
   const [loaded, setLoaded] = useState(false);
@@ -921,6 +966,7 @@ export function AccountsMap({
           days={days}
           scheduledDay={stopDayById.get(selected.id) ?? null}
           onAddToRouteOnDay={onAddToRouteOnDay}
+          onMoveToDay={onMoveToDay}
           onClose={() => setSelected(null)}
         />
       )}
@@ -1000,6 +1046,7 @@ function AccountPinCard({
   days,
   scheduledDay,
   onAddToRouteOnDay,
+  onMoveToDay,
   onClose,
 }: {
   account: RouteAccount;
@@ -1009,6 +1056,7 @@ function AccountPinCard({
   days: string[];
   scheduledDay: string | null;
   onAddToRouteOnDay: (id: string, day: string, lat: number, lng: number) => void;
+  onMoveToDay: (id: string, day: string) => void;
   onClose: () => void;
 }) {
   const lifetime = usd(a.lifetime_revenue);
@@ -1081,7 +1129,7 @@ function AccountPinCard({
 
       {a.do_not_visit && <div className="mt-1 text-[11.5px] text-[#A0762C]">do not visit</div>}
 
-      <AddToRouteDay key={`route-${a.id}`} accountId={a.id} lat={a.lat} lng={a.lng} days={days} scheduledDay={scheduledDay} onPick={onAddToRouteOnDay} />
+      <AddToRouteDay key={`route-${a.id}`} accountId={a.id} lat={a.lat} lng={a.lng} days={days} scheduledDay={scheduledDay} onPick={onAddToRouteOnDay} onMove={onMoveToDay} />
       <AddToSdr key={`sdr-${a.id}`} accountId={a.id} days={days} />
 
       <div className="mt-2 flex flex-wrap items-center gap-3 text-[12.5px]">

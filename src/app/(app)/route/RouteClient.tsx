@@ -936,6 +936,25 @@ function RouteDay({
     patchDraft(day, [...entries, id]);
   }
 
+  /** The map card's Move: off whichever day holds the stop, onto the picked
+   *  one, in one state update and one server write (/api/route/move). */
+  function moveAccountToDay(id: string, targetDay: string) {
+    const idOf = (e: RouteDraftEntry) => (typeof e === "string" ? e : e.id);
+    setData((prev) => {
+      let entry: RouteDraftEntry | undefined;
+      const draftNext: Record<string, RouteDraftEntry[]> = {};
+      for (const [d, entries] of Object.entries(prev.draft)) {
+        const hit = d !== targetDay ? entries.find((e) => idOf(e) === id) : undefined;
+        if (hit !== undefined) entry ??= hit;
+        draftNext[d] = hit !== undefined ? entries.filter((e) => idOf(e) !== id) : entries;
+      }
+      const target = draftNext[targetDay] ?? [];
+      if (!target.some((e) => idOf(e) === id)) draftNext[targetDay] = [...target, entry ?? id];
+      return { ...prev, draft: draftNext };
+    });
+    postJson("/api/route/move", { id, day: targetDay }).catch(() => {});
+  }
+
   function removeStop(id: string) {
     const gone = draft.find((e) => typeof e !== "string" && e.id === id);
     if (gone && typeof gone !== "string" && gone.calendarId) {
@@ -1164,6 +1183,7 @@ function RouteDay({
           doneIds={doneIds}
           focus={focus}
           onAddToRouteOnDay={onAddToRouteOnDay}
+          onMoveToDay={moveAccountToDay}
         />
       </div>
 
