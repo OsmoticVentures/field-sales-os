@@ -94,14 +94,14 @@ export type Draft = {
   created_at: string;
   urgency: number | null;
   urgency_reason: string | null;
+  /** Set by bridges/nutribiotic/order_watch.py when the email promises a file it could not attach. */
+  send_error?: string | null;
   preferred_channel: "email" | "whatsapp" | "imessage" | null;
 };
 
 /**
- * The pending queue, most urgent first. Sort happens on the rows already
- * held rather than in the PostgREST `order`, same reasoning as the source's
- * listDrafts: an ungraded draft (urgency null) sorts below "low" rather than
- * being treated as "no hurry".
+ * The pending queue, newest first. Sorted on the rows already held because
+ * the scoped and the account-less reads are merged.
  */
 export async function listPendingDrafts(limit = 100): Promise<Draft[]> {
   // Each rep sees the drafts for accounts in their own HubSpot book. A draft
@@ -125,8 +125,8 @@ export async function listPendingDrafts(limit = 100): Promise<Draft[]> {
         )
       : [];
   const rows = [...scoped.map(({ nb_accounts: _o, ...d }) => d as Draft), ...loose];
-  const rank = (d: Draft) => (typeof d.urgency === "number" ? d.urgency : -1);
-  return [...rows].sort((a, b) => rank(b) - rank(a));
+  // Newest on top, always (Juan, 2026-11-12). Urgency stays a chip, not the order.
+  return [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 /**

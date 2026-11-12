@@ -15,6 +15,7 @@ import { Card, Ico, SuccessNote, ghostBtn } from "../../../lib/core/ui";
 import { useUndoWindow } from "../../../lib/core/undo";
 import { daysAgo } from "../../../lib/features/prospect/format";
 import type { Draft } from "../../../lib/features/outbound/dal";
+import { dueLabel, laIso } from "../../../lib/features/outbound/due";
 import { OpenEmailButtons } from "../../../lib/features/outbound/open-email";
 import { splitBody } from "../../../lib/features/outbound/table-body";
 
@@ -46,6 +47,7 @@ function BodyView({ body }: { body: string }) {
 
 function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
   const d = row.draft;
+  const due = dueLabel(d.created_at, laIso(new Date()));
   const [held, setHeld] = useState(false);
   const [decided, setDecided] = useState<"sent" | "dismissed" | null>(null);
   const [note, setNote] = useState<{ title: string; detail?: string | null } | null>(null);
@@ -145,6 +147,7 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
           </Link>
         )}
         <span className="text-[12px] text-[#8A928C]">{daysAgo(d.created_at)}</span>
+        <span className={due.late ? "text-[12px] font-medium text-[#8A2E2E]" : "text-[12px] text-[#5B6560]"}>{due.text}</span>
         {(d.urgency === 2 || d.urgency === 1) && (
           <span
             className={
@@ -167,6 +170,7 @@ function DraftCard({ row, onGone }: { row: Row; onGone: () => void }) {
         )}
       </div>
 
+      {d.send_error && <p className="mb-2 text-[13px] font-medium text-[#8A2E2E]">{d.send_error}</p>}
       <BodyView body={d.body_md} />
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
