@@ -45,6 +45,14 @@ export function callReason(notes: string | null | undefined, lastOrderAt: string
   if (!notes || !notes.trim()) return lapsed ? "Win back" : null;
   let text = notes.trim();
 
+  // "Visit Thu 11/19. Set the appointment with Letty." The planned visit
+  // day leads, then the first thing the call is for.
+  const plan = text.match(/^Visit\s+((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}\/\d{1,2})\.\s*([^\n]*)/i);
+  if (plan) {
+    const purpose = clean(plan[2].split(/(?<=[.!?])\s+/)[0] ?? "");
+    return purpose ? `Visit ${plan[1]} · ${cap(purpose)}` : `Visit ${plan[1]}`;
+  }
+
   const logged = text.match(/^Stated in the log:\s*[^:]+:\s*([^·]+)/i);
   if (logged) text = logged[1];
 

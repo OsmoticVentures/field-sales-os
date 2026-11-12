@@ -23,7 +23,6 @@ import { WarmthPicker } from "../../../lib/features/clients/WarmthPicker";
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { apiFetch } from "../../../lib/core/api";
 import { useUndoWindow } from "../../../lib/core/undo";
 import { Card, Ico, SuccessNote, ghostBtn, inputCls, primaryBtn } from "../../../lib/core/ui";
@@ -67,8 +66,6 @@ type ScheduleItem = {
 
 type AreaGroup = { id: string; label: string; color: string; prospects: number };
 
-type RankedAccount = { id: string; name: string; area: string | null; score: number | null; reason: string; band: string };
-
 type AccountPanelData = {
   id: string;
   name: string;
@@ -111,6 +108,14 @@ const callBtn =
   "inline-flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-[#8A2E2E] px-4 text-[14px] font-medium text-white transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
 const iconBtn =
   "flex h-11 w-11 shrink-0 items-center justify-center rounded-md border text-[#5B6560] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100";
+
+/** A day's calls in three lists, then any row without a tier. */
+const TIERS: { key: SdrPriority | null; label: string | null }[] = [
+  { key: "high", label: "High" },
+  { key: "mid", label: "Med" },
+  { key: "low", label: "Low" },
+  { key: null, label: null },
+];
 
 function addDaysIso(iso: string, n: number): string {
   const [y, m, d] = iso.split("-").map(Number);
@@ -1102,37 +1107,6 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
 }
 
 // ---------------------------------------------------------------------------
-// Ranked opportunities (right rail on desktop, below the panel on phone)
-// ---------------------------------------------------------------------------
-
-function RankedList({ ranked, onView }: { ranked: RankedAccount[]; onView: (r: RankedAccount) => void }) {
-  if (ranked.length === 0) return null;
-  return (
-    <Card>
-      <div className="mb-2 text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Ranked opportunities</div>
-      <ul className="flex flex-col divide-y divide-[#EDEBE3]">
-        {ranked.map((r) => (
-          <li key={r.id} className="flex items-start gap-2 py-2">
-            <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${r.band === "now" ? "bg-[#F3E3C6] text-[#8A6D2F]" : "bg-[#ECEAE1] text-[#5B6560]"}`}>{r.score}</span>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                
-                <button type="button" onClick={() => onView(r)} className="truncate text-left text-[13.5px] font-medium text-[#14201B] transition-transform active:scale-[0.97] motion-reduce:transition-none motion-reduce:active:scale-100 hover:underline">
-                  {r.name}
-                </button>
-              </div>
-              <div className="truncate text-[12px] text-[#8A928C]" title={r.reason}>
-                {r.reason}
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // The screen
 // ---------------------------------------------------------------------------
 
@@ -1179,7 +1153,7 @@ type FocusRecord = {
 
 
 export function ProspectClient({
-  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority, topRanked,
+  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority,
 }: {
   initialItems: ScheduleItem[];
   todayIso: string;
@@ -1191,10 +1165,8 @@ export function ProspectClient({
   focusAccountArea?: string | null;
   focusAccountHours?: BusinessHours | null;
   focusAccountPriority?: FocusRecord["priority"];
-  topRanked?: RankedAccount[];
 }) {
   const focusRecord: FocusRecord = { area: focusAccountArea, hours: focusAccountHours, priority: focusAccountPriority };
-  const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<ScheduleItem | null>(() =>
     focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord),
@@ -1339,45 +1311,12 @@ export function ProspectClient({
     });
   }
 
-  function viewRanked(r: RankedAccount) {
-    const existing = items.find((it) => it.account_id === r.id && it.status === "pending");
-    setActive(
-      existing ?? {
-        id: `unscheduled:${r.id}`,
-        account_id: r.id,
-        prospect_name: null,
-        prospect_phone: null,
-        kind: "call",
-        scheduled_date: todayIso,
-        status: "pending",
-        priority: null,
-        rescheduled_at: null,
-        displayName: r.name,
-        displayPhone: null,
-        area: r.area,
-        businessHours: null,
-        priorityScore: r.score,
-        priorityReason: r.reason,
-        priorityBand: r.band as ScheduleItem["priorityBand"],
-      },
-    );
-    // Client-side navigation, not a full page reload: keeps the account
-    // shareable in the URL without the <a href> reload the review flagged.
-    router.replace(`?account=${r.id}`, { scroll: false });
-  }
-
   return (
     <div className="flex flex-col gap-4">
       <GlobalSearch todayIso={todayIso} onView={viewHit} onAdded={addItem} />
 
       <div className="@container">
-      <div className="flex flex-col gap-6 @min-[720px]:grid @min-[720px]:grid-cols-[minmax(0,300px)_minmax(0,1fr)] @min-[720px]:grid-rows-[auto_1fr] @min-[720px]:items-start @min-[720px]:[grid-template-areas:'days_panel''rank_panel'] @min-[1000px]:grid-cols-[300px_minmax(0,1fr)_260px] @min-[1000px]:grid-rows-[auto] @min-[1000px]:[grid-template-areas:'days_panel_rank']">
-        {topRanked && topRanked.length > 0 && (
-          <div className="order-1 flex w-full min-w-0 flex-col gap-4 @min-[720px]:[grid-area:rank]">
-            <RankedList ranked={topRanked} onView={viewRanked} />
-          </div>
-        )}
-
+      <div className="flex flex-col gap-6 @min-[720px]:grid @min-[720px]:grid-cols-[minmax(0,320px)_minmax(0,1fr)] @min-[720px]:items-start @min-[720px]:[grid-template-areas:'days_panel'] @min-[1000px]:grid-cols-[360px_minmax(0,1fr)]">
         <div className="order-2 flex w-full min-w-0 flex-col gap-4 @min-[720px]:[grid-area:days]">
           {dayIsos.map((iso) => {
             const dayItems = items
@@ -1391,8 +1330,19 @@ export function ProspectClient({
             return (
               <div key={iso} className="rounded-lg border border-[#E2DFD5] bg-white p-3">
                 <div className="mb-2 text-[12.5px] font-semibold tracking-[0.06em] text-[#5B6560] uppercase">{dayLabel(iso, todayIso)}</div>
+                {TIERS.map((tier) => {
+                  const tierItems = dayItems.filter((it) => (it.priority ?? null) === tier.key);
+                  if (tierItems.length === 0) return null;
+                  return (
+                <div key={tier.label} className="mt-3 first:mt-0">
+                {tier.label && (
+                  <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-medium text-[#5B6560]">
+                    <span>{tier.label}</span>
+                    <span className="tabular-nums text-[#8A928C]">{tierItems.length}</span>
+                  </div>
+                )}
                 <ul className="flex flex-col gap-1.5">
-                  {dayItems.map((it) => (
+                  {tierItems.map((it) => (
                     <ScheduleRow
                       key={it.id}
                       item={it}
@@ -1407,6 +1357,9 @@ export function ProspectClient({
                     />
                   ))}
                 </ul>
+                </div>
+                  );
+                })}
                 <div className="mt-2">
                   <AddToDayForm date={iso} onAdded={addItem} />
                 </div>

@@ -12,7 +12,7 @@
  * this screen shows, is the Angle panel for an account already in the book
  * (current state / future state / impact), plus the headhunter's own
  * contacts (read-only here, the headhunter itself stays on the Mac
- * unchanged), opening hours, and the ranked opportunity list.
+ * unchanged) and opening hours.
  */
 import { PageHead } from "../../../lib/core/ui";
 import { requireAccess } from "../../../lib/core/devices";
@@ -74,14 +74,6 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
     prospects: priority.areaProspects.get(a.id) ?? 0,
   }));
 
-  const topRanked = priority.ranked.slice(0, 12).map((r) => ({
-    id: r.account.id,
-    name: r.account.name,
-    area: r.account.area ?? null,
-    score: r.result.score,
-    reason: r.result.reason,
-    band: r.result.band,
-  }));
 
   return (
     <>
@@ -97,7 +89,6 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
         focusAccountArea={focusAccountId ? (cards[focusAccountId]?.area ?? null) : null}
         focusAccountHours={focusAccountId ? (cards[focusAccountId]?.businessHours ?? null) : null}
         focusAccountPriority={focusPriority}
-        topRanked={topRanked}
       />
     </>
   );

@@ -103,7 +103,7 @@ const FIRST_VISITS_CAP = 100;
 export type SearchGroup = {
   id: string;
   name: string;
-  members: { places_id: string; name: string | null; candidate: Candidate; added_at: string }[];
+  members: { places_id: string; name: string | null; candidate: Candidate; added_at: string; score?: number | null }[];
 };
 
 type StageReply = {
@@ -1460,9 +1460,23 @@ function GroupsSection({
                   return (
                     <li key={m.places_id} className="flex items-start gap-2 py-2">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[13.5px] font-medium text-[#14201B]">{m.name ?? c.name}</div>
+                        <div className="flex items-baseline gap-1.5">
+                          {m.score != null && (
+                            <span className="shrink-0 rounded bg-[#ECEAE1] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[#5B6560]">{m.score}</span>
+                          )}
+                          {m.places_id.startsWith("a_") ? (
+                            <a href={`/prospect?account=${m.places_id}`} className="text-[13.5px] font-medium text-[#14201B] hover:underline">
+                              {m.name ?? c.name}
+                            </a>
+                          ) : (
+                            <span className="text-[13.5px] font-medium text-[#14201B]">{m.name ?? c.name}</span>
+                          )}
+                        </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-[#8A928C]">
                           {c.city && <span>{c.city}</span>}
+                          {c.phone && m.places_id.startsWith("a_") && (
+                            <a href={`tel:${c.phone.replace(/[^0-9+]/g, "")}`} className="hover:underline">{c.phone}</a>
+                          )}
                           {c.places_rating != null && <span>{c.places_rating.toFixed(1)} / 5</span>}
                           {site && (
                             <a href={site} target="_blank" rel="noopener noreferrer" className="hover:underline">

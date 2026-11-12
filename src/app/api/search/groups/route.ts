@@ -7,7 +7,12 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { addGroupMembers, createGroup, listGroups, removeGroupMember } from "../../../../lib/features/search/dal";
+import { getPriorityBook } from "../../../../lib/features/prospect/dal";
 import { captureError } from "@/lib/core/errors";
+
+/** The accounts screened call only. Members are keyed by account id; each
+ *  carries its live opportunity score, highest first. */
+const CALL_ONLY_GROUP_ID = "call-only";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +23,15 @@ const MAX_ADD = 100;
 export async function GET() {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   try {
-    return Response.json({ ok: true, groups: await listGroups() });
+    const groups = await listGroups();
+    const callOnly = groups.find((g) => g.id === CALL_ONLY_GROUP_ID);
+    if (callOnly) {
+      const book = await getPriorityBook();
+      callOnly.members = callOnly.members
+        .map((m) => ({ ...m, score: book.byId.get(m.places_id)?.score ?? null }))
+        .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    }
+    return Response.json({ ok: true, groups });
   } catch (caught) {
     captureError(caught, "/api/search/groups");
     return Response.json({ ok: false, error: "Could not read the groups." }, { status: 502 });
