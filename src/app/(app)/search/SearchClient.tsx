@@ -1465,9 +1465,9 @@ function GroupsSection({
                             <span className="shrink-0 rounded bg-[#ECEAE1] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[#5B6560]">{m.score}</span>
                           )}
                           {m.places_id.startsWith("a_") ? (
-                            <a href={`/prospect?account=${m.places_id}`} className="text-[13.5px] font-medium text-[#14201B] hover:underline">
+                            <Link href={`/prospect?account=${encodeURIComponent(m.places_id)}`} className="text-[13.5px] font-medium text-[#14201B] hover:underline">
                               {m.name ?? c.name}
-                            </a>
+                            </Link>
                           ) : (
                             <span className="text-[13.5px] font-medium text-[#14201B]">{m.name ?? c.name}</span>
                           )}
