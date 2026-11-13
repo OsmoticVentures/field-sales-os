@@ -34,6 +34,7 @@ import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/featur
 import { orderWindowLabel } from "../../../lib/features/prospect/purchases";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 import { withinTrailing12mo } from "../../../lib/features/clients/ui";
+import { FoldBody, FoldHeader, FoldSection, useFolded } from "../../../lib/features/prospect/folds";
 
 // ---------------------------------------------------------------------------
 // Types (mirror the /api/prospect/schedule and /api/prospect/account shapes)
@@ -897,8 +898,8 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
         </div>
 
         {panel && panel.contacts.length > 0 && (
-          <div className="mt-3 flex flex-col gap-2 border-t border-[#E2DFD5] pt-3">
-            <span className="text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Contacts</span>
+          <FoldSection id="contacts" label="Contacts">
+          <div className="flex flex-col gap-2">
             {panel.contacts.map((c) => (
               <div key={c.id} className="flex flex-wrap items-baseline justify-between gap-2 text-[13.5px]">
                 <span className="flex flex-wrap items-center gap-1.5 font-medium text-[#3D4A44]">
@@ -923,20 +924,23 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
               </div>
             ))}
           </div>
+          </FoldSection>
         )}
 
         {item.account_id && (
-          <div className="mt-3 border-t border-[#E2DFD5] pt-3">
+          <FoldSection id="find-contacts" label="Find contacts">
             <FindContacts key={item.account_id} accountId={item.account_id} onUpdated={refreshPanel} />
-          </div>
+          </FoldSection>
         )}
 
         {panel && item.account_id && (
-          <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-[#E2DFD5] pt-3">
+          <FoldSection id="grade" label="Grade and warmth">
+          <div className="flex flex-wrap items-center gap-4">
             <PotentialGradeInline key={`grade-${panel.id}`} accountId={panel.id} value={panel.potentialJuan} />
             <WarmthPicker key={`warmth-${panel.id}`} accountId={panel.id} value={panel.readiness} />
             <PhoneEditable key={`phone-${panel.id}`} accountId={panel.id} phone={panel.phone} />
           </div>
+          </FoldSection>
         )}
 
         {loading && <div className="mt-3 text-[13.5px] text-[#8A928C]">Loading account</div>}
@@ -951,21 +955,25 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                 account already in the book; a brand-new business renders
                 absent instead of a guess (no fabricated opening line). */}
             {(panel.currentState || panel.futureState || panel.impact) && (
-              <div className="mt-3 rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3 text-[14px] leading-relaxed text-[#3D4A44]">
+              <FoldSection id="angle" label="Angle">
+              <div className="rounded-md border border-[#E2DFD5] bg-[#FAF9F5] p-3 text-[14px] leading-relaxed text-[#3D4A44]">
                 <div className="flex flex-col gap-1">
                   {panel.currentState && <div>{panel.currentState}</div>}
                   {panel.futureState && <div>{panel.futureState}</div>}
                   {panel.impact && <div>{panel.impact}</div>}
                 </div>
               </div>
+              </FoldSection>
             )}
 
-            <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border border-[#E2DFD5] p-3 text-[14px]">
+            <FoldSection id="summary" label="Summary">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border border-[#E2DFD5] p-3 text-[14px]">
               <Fact label="Last purchase" value={exactDaysAgo(panel.lastOrderAt)} />
               <Fact label="Due purchase" value={dueInDays(panel.expectedReorderAt)} />
               <Fact label="Lifetime value" value={panel.lifetimeRevenue != null ? money(panel.lifetimeRevenue) : null} />
               <Fact label="Status" value={panel.leadStatus} />
             </div>
+            </FoldSection>
 
             {enrichResult && !enriching && (
               <div className="mt-2.5">
@@ -981,11 +989,8 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
             )}
 
             {panel.purchases && (
-              <div className="mt-3 border-t border-[#E2DFD5] pt-3">
-                <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">
-                  <span>Main purchases</span>
-                  <span className="text-[12px] normal-case tracking-normal">{orderWindowLabel(panel.purchases)}</span>
-                </div>
+              <FoldSection id="purchases" label="Main purchases">
+                <div className="mb-1.5 text-[12px] text-[#8A928C]">{orderWindowLabel(panel.purchases)}</div>
                 <ul className="flex flex-col divide-y divide-[#EDEBE3]">
                   {[...panel.purchases.topItems, ...panel.purchases.smallItems].map((it) => (
                     <li key={it.name} className="flex items-baseline justify-between gap-3 py-1.5 text-[14px]">
@@ -1001,16 +1006,12 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                     </li>
                   ))}
                 </ul>
-              </div>
+              </FoldSection>
             )}
 
-            <div className="mt-3 flex flex-col gap-1.5">
-              <Fact label="Address" value={address} />
-            </div>
-
             {panel.businessHours && (
-              <div className="mt-3 flex flex-col gap-1 border-t border-[#E2DFD5] pt-3">
-                <span className="text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Hours</span>
+              <FoldSection id="hours" label="Hours">
+              <div className="flex flex-col gap-1">
                 {Object.entries(panel.businessHours).map(([day, ranges]) => {
                   const isToday = mounted && day === laTodayKey();
                   return (
@@ -1024,9 +1025,12 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                   );
                 })}
               </div>
+              </FoldSection>
             )}
 
-            <div className="mt-3 flex flex-wrap items-center gap-4">
+            <FoldSection id="links" label="Address and links">
+            {address && <div className="text-[14px] text-[#3D4A44]">{address}</div>}
+            <div className="flex flex-wrap items-center gap-x-4">
               {panel.website && (
                 <a href={panel.website.startsWith("http") ? panel.website : `https://${panel.website}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[44px] items-center gap-1.5 text-[13.5px] font-medium text-[#3D6B4A] hover:underline">
                   <Ico name="globe" size={13} />
@@ -1053,10 +1057,11 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                 </a>
               )}
             </div>
+            </FoldSection>
 
             {panel.activities.length > 0 && (
-              <div className="mt-3 flex flex-col gap-2 border-t border-[#E2DFD5] pt-3">
-                <span className="text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Meetings and calls</span>
+              <FoldSection id="activities" label="Meetings and calls">
+              <div className="flex flex-col gap-2">
                 {panel.activities.map((act, i) => (
                   <div key={`${act.at}-${i}`} className="rounded-md bg-[#FAF9F5] p-2.5 text-[13.5px] text-[#5B6560]">
                     <span className="font-medium text-[#3D4A44] capitalize">{act.kind.replace(/_/g, " ")}</span> <span className="text-[#8A928C]">{daysAgo(act.at)}</span>
@@ -1064,6 +1069,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                   </div>
                 ))}
               </div>
+              </FoldSection>
             )}
 
           </>
@@ -1071,9 +1077,10 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
       </Card>
 
       {item.notes?.trim() && (
-        <Card>
-          <div className="mb-2 text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Why today</div>
-          <div className="text-[14.5px] leading-relaxed whitespace-pre-wrap text-[#14201B]">{item.notes.trim()}</div>
+        <Card className="py-2!">
+          <FoldSection id="why-today" label="Why today" className="">
+            <div className="text-[14.5px] leading-relaxed whitespace-pre-wrap text-[#14201B]">{item.notes.trim()}</div>
+          </FoldSection>
         </Card>
       )}
 
@@ -1118,6 +1125,34 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
 // ---------------------------------------------------------------------------
 // The screen
 // ---------------------------------------------------------------------------
+
+/** One day of calls, folded by tapping its date. */
+function DayFold({ iso, label, count, children }: { iso: string; label: string; count: number; children: React.ReactNode }) {
+  const [folded, toggle] = useFolded(`day:${iso}`);
+  return (
+    <div className="rounded-lg border border-[#E2DFD5] bg-white px-3 pt-1 pb-3">
+      <FoldHeader folded={folded} onToggle={toggle} count={count || undefined} className="text-[12.5px] font-semibold tracking-[0.06em] text-[#5B6560] uppercase">
+        {label}
+      </FoldHeader>
+      <FoldBody folded={folded}>{children}</FoldBody>
+    </div>
+  );
+}
+
+/** A High/Med/Low list inside a day, folded by tapping its label. Rows
+ *  without a tier have no label and stay open. */
+function TierFold({ id, label, count, children }: { id: string; label: string | null; count: number; children: React.ReactNode }) {
+  const [folded, toggle] = useFolded(id);
+  if (!label) return <div className="mt-2 first:mt-0">{children}</div>;
+  return (
+    <div className="mt-1 first:mt-0">
+      <FoldHeader folded={folded} onToggle={toggle} count={count} className="text-[12px] font-medium text-[#5B6560]">
+        {label}
+      </FoldHeader>
+      <FoldBody folded={folded}>{children}</FoldBody>
+    </div>
+  );
+}
 
 /** The card to open for a focused account: its pending card from the
  *  schedule, else an unscheduled call card when the name is known. */
@@ -1337,19 +1372,12 @@ export function ProspectClient({
                 return (b.priorityScore ?? -1) - (a.priorityScore ?? -1);
               });
             return (
-              <div key={iso} className="rounded-lg border border-[#E2DFD5] bg-white p-3">
-                <div className="mb-2 text-[12.5px] font-semibold tracking-[0.06em] text-[#5B6560] uppercase">{dayLabel(iso, todayIso)}</div>
+              <DayFold key={iso} iso={iso} label={dayLabel(iso, todayIso)} count={dayItems.length}>
                 {TIERS.map((tier) => {
                   const tierItems = dayItems.filter((it) => (it.priority ?? null) === tier.key);
                   if (tierItems.length === 0) return null;
                   return (
-                <div key={tier.label} className="mt-3 first:mt-0">
-                {tier.label && (
-                  <div className="mb-1.5 flex items-baseline justify-between text-[12px] font-medium text-[#5B6560]">
-                    <span>{tier.label}</span>
-                    <span className="tabular-nums text-[#8A928C]">{tierItems.length}</span>
-                  </div>
-                )}
+                <TierFold key={tier.label ?? "none"} id={`day:${iso}:${tier.key ?? "none"}`} label={tier.label} count={tierItems.length}>
                 <ul className="flex flex-col gap-1.5">
                   {tierItems.map((it) => (
                     <ScheduleRow
@@ -1366,13 +1394,13 @@ export function ProspectClient({
                     />
                   ))}
                 </ul>
-                </div>
+                </TierFold>
                   );
                 })}
                 <div className="mt-2">
                   <AddToDayForm date={iso} onAdded={addItem} />
                 </div>
-              </div>
+              </DayFold>
             );
           })}
         </div>
