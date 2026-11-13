@@ -60,6 +60,8 @@ type ScheduleItem = {
   priorityBand: "now" | "soon" | "later" | "unscored" | null;
   /** "Set up Wed": why this call is on the list, from the queue row's notes. */
   callReason?: string | null;
+  /** The queue row's full note, shown as Why today above the log box. */
+  notes?: string | null;
   /** "Buys GSE Liquid Concentrate · Met Oct 28" */
   buying?: string | null;
 };
@@ -1067,6 +1069,13 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
           </>
         )}
       </Card>
+
+      {item.notes?.trim() && (
+        <Card>
+          <div className="mb-2 text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">Why today</div>
+          <div className="text-[14.5px] leading-relaxed whitespace-pre-wrap text-[#14201B]">{item.notes.trim()}</div>
+        </Card>
+      )}
 
       {item.account_id && (
         <Card>
