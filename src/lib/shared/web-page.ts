@@ -367,13 +367,22 @@ export function sanitizeHours(raw: unknown): BusinessHours | null {
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const day = dayOf(k);
     if (!day || !Array.isArray(v)) continue;
+    const seen = new Set<string>();
     const pairs: string[][] = [];
     for (const p of v) {
       if (!Array.isArray(p) || p.length !== 2) continue;
       const o = hhmm(String(p[0]));
       const c = hhmm(String(p[1]));
-      if (o && c && o !== c) pairs.push([o, c]);
+      if (!o || !c || o === c || seen.has(`${o}-${c}`)) continue;
+      seen.add(`${o}-${c}`);
+      pairs.push([o, c]);
     }
+    pairs.sort((a, b) => a[0].localeCompare(b[0]));
+    // Two different ranges that overlap on one day (a chain's JSON-LD with
+    // every store, a holiday block beside the week) don't say which hours
+    // are this door's: refuse the whole read so the Places baseline stands.
+    // A split shift (09:00-12:00, 13:00-17:00) doesn't overlap and stays.
+    for (let i = 1; i < pairs.length; i++) if (pairs[i][0] < pairs[i - 1][1]) return null;
     out[day] = pairs;
   }
   // Every day "closed" is a parse artefact, not a business.
