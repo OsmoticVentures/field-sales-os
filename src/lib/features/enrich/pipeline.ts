@@ -187,15 +187,16 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   if (!hasDecisionMakerOnFile && !mergePeople(peopleGroups).some((p) => p.is_decision_maker)) {
     const rv = await runReviewsPass(places.candidate?.placeId ?? account.places_id ?? null);
     if (rv.ran) {
-      // One customer naming someone once is hearsay; two reviews are a finding.
-      const owners = distillReviews(rv.reviews).filter((o) => o.mentions >= 2);
+      // A bare first name in one review is hearsay; two reviews, or one that
+      // prints the full name, is a finding.
+      const owners = distillReviews(rv.reviews).filter((o) => o.mentions >= 2 || o.name.trim().includes(" "));
       peopleGroups.push(owners.map((o): FoundPerson => ({
         name: o.name,
         title: o.role.replace(/\b\w/g, (c) => c.toUpperCase()),
         is_decision_maker: true,
         source_tier: "places_reviews",
         found_by: `google reviews: ${o.mentions} mention(s)`,
-        basis: `customer reviews name this person as the ${o.role}, in ${o.mentions} reviews`,
+        basis: `customer reviews name this person as the ${o.role}${o.mentions >= 2 ? `, in ${o.mentions} reviews` : ", by full name"}`,
         source_text: o.sentence,
         source_url: places.candidate?.placeId || account.places_id ? `https://www.google.com/maps/place/?q=place_id:${places.candidate?.placeId ?? account.places_id}` : null,
       })));

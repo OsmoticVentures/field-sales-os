@@ -18,4 +18,5 @@ t("a testimonial sentence is not a role", !verifyPerson({ name: "Kimberly Ross",
 t("'From the owner' names nobody", mentionsInReview("From the owner to his staff they treat me like family!!").length === 0);
 t("'Owner Along His Staff' names nobody", mentionsInReview("Dr. Philip The Pharmacist And Owner Along His Staff Were Helpful.").every((m) => m.name !== "Along"));
 t("a real review name still reads", mentionsInReview("Gayla, the owner, is remarkably knowledgeable.").some((m) => m.name === "Gayla"));
+t("a long real title is kept", verifyPerson({ name: "Stephane Ly", title: "Director of Operations, Blue Coast Pharmacy & Compounding Center" }, "Stephane Ly\nDirector of Operations, Blue Coast Pharmacy & Compounding Center").ok);
 if (!process.exitCode) console.log("people-guard: all cases pass");
