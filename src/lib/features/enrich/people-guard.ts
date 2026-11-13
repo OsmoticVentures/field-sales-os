@@ -18,7 +18,14 @@ const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace
 const DECISION_ROLE = /\b(owner|co-?owner|founder|co-?founder|president|ceo|proprietor|manager|director|buyer|principal|partner|general manager|administrator)\b/i;
 
 /** Page furniture and role labels that read as two capitalised words. */
-const NOT_A_PERSON = /\b(cookies?|consent|privacy|policy|terms|login|log in|sign in|password|authentication|subscribe|newsletter|book now|contact us|connect with us|our services|learn more|read more|shop|cart|checkout|guarantee|frequently asked|payment methods?|stay connected|site information)\b/i;
+const NOT_A_PERSON = /\b(cookies?|consent|privacy|policy|terms|login|log in|sign in|password|authentication|subscribe|newsletter|book now|contact us|connect with us|our services|learn more|read more|shop|cart|checkout|guarantee|frequently asked|payment methods?|stay connected|site information|send email|email us|call us|areas? covered|office staff|treatment options?|medication|synchronization|adherence|testimonials?|reviews?)\b/i;
+
+/** A role is a short label. An address, a link, or a sentence lifted from a
+ *  bio or a testimonial is not one. */
+export function isRoleLike(title: string): boolean {
+  const t = title.trim();
+  return t.length >= 2 && t.length <= 60 && !/@|https?:|www\.|\d{3}\D?\d{3}\D?\d{4}|[!?]/.test(t);
+}
 
 export function isDecisionRole(title: string | null | undefined): boolean {
   return !!title && DECISION_ROLE.test(title);
@@ -34,6 +41,7 @@ export function verifyPerson(p: RawPerson, pageText: string): Verdict {
   if (quote && !page.includes(norm(quote))) return { ok: false, reason: `the quoted line for "${name}" is not on the page` };
   const title = p.title && p.title.trim() ? p.title.trim() : null;
   if (title && !page.includes(norm(title))) return { ok: false, reason: `the title "${title}" for "${name}" is not on the page` };
+  if (title && !isRoleLike(title)) return { ok: false, reason: `"${title}" is not a role` };
   return { ok: true, title, is_decision_maker: isDecisionRole(title) };
 }
 

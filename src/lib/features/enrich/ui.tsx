@@ -21,7 +21,6 @@ function outcome(r: FindContactsResult): string {
 export function FindContacts({ accountId, onUpdated }: { accountId: string; onUpdated?: () => void }) {
   const [running, setRunning] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!note) return;
@@ -32,7 +31,6 @@ export function FindContacts({ accountId, onUpdated }: { accountId: string; onUp
   async function run() {
     if (running) return;
     setRunning(true);
-    setError(null);
     setNote(null);
     try {
       const res = await apiFetch("/api/enrich/run", {
@@ -41,15 +39,13 @@ export function FindContacts({ accountId, onUpdated }: { accountId: string; onUp
         body: JSON.stringify({ account_id: accountId }),
       });
       const j = await res.json().catch(() => null);
-      if (!j) throw new Error(res.status === 504 ? "That took too long. Try again." : "Could not finish. Try again.");
-      if (!j.ok) throw new Error(j.error || "Could not finish. Try again.");
-      const result = j.result as FindContactsResult;
-      if (result.status !== "ok") throw new Error(result.error || "Could not finish. Try again.");
+      const result = j?.ok ? (j.result as FindContactsResult) : null;
+      // A pass that could not finish wrote nothing and says nothing.
+      if (result?.status !== "ok") return;
       setNote(outcome(result));
       onUpdated?.();
-    } catch (e) {
-      // A dropped connection surfaces as a TypeError from fetch; say so plainly.
-      setError(e instanceof TypeError ? "No connection. Try again when you have signal." : e instanceof Error ? e.message : "Could not finish. Try again.");
+    } catch {
+      // No signal: quiet, the button is ready for another try.
     } finally {
       setRunning(false);
     }
@@ -62,12 +58,6 @@ export function FindContacts({ accountId, onUpdated }: { accountId: string; onUp
         {running ? "Finding contacts" : "Find contacts"}
       </button>
       {note && !running && <SuccessNote title={note} />}
-      {error && !running && (
-        <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A6D2F]">
-          <Ico name="alert" size={13} />
-          {error}
-        </span>
-      )}
     </div>
   );
 }

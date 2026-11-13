@@ -735,7 +735,10 @@ export async function applyQuickEnrichment(accountId: string, patch: QuickEnrich
     const existingTier = row.enrichment_status?.business_hours?.source_tier as string | undefined;
     const existingRank = existingTier ? (HOURS_TIER_RANK[existingTier] ?? 99) : 99;
     const newRank = HOURS_TIER_RANK[patch.hours_source_tier];
-    if (newRank < existingRank) {
+    const same = JSON.stringify(row.business_hours ?? null) === JSON.stringify(patch.business_hours);
+    if (same) {
+      // The same hours again: nothing to write, nothing to report.
+    } else if (newRank <= existingRank) {
       dbPatch.business_hours = patch.business_hours;
       status.business_hours = { source_tier: patch.hours_source_tier, found_by: patch.hours_found_by ?? "prospect_quick_enrich", at: new Date().toISOString() };
       report.business_hours = { status: row.business_hours ? "updated" : "filled" };
@@ -748,7 +751,8 @@ export async function applyQuickEnrichment(accountId: string, patch: QuickEnrich
   const blank = !row.current_state && !row.future_state && !row.impact;
   const restatesCard = [row.current_state, row.future_state, row.impact].some(statesCardFact);
   const stale = !!patch.inputs_at && patch.inputs_at > (gs.inputs_at ?? gs.at ?? "");
-  if ((blank || restatesCard || stale) && (patch.current_state || patch.future_state || patch.impact)) {
+  // A complete angle or none: a lone sentence never replaces a whole one.
+  if ((blank || restatesCard || stale) && patch.current_state && patch.future_state) {
     dbPatch.current_state = patch.current_state;
     dbPatch.future_state = patch.future_state;
     dbPatch.impact = patch.impact;

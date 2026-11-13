@@ -195,10 +195,6 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
   const siteText = site?.text ?? null;
   const siteUrl = site?.url ?? account.website;
 
-  if (!aiConfigured()) {
-    const placesHours = place?.businessHours ?? null;
-    return { ok: false, error: "Enrich further is not set up on this server yet.", ...EMPTY_RESULT, businessHours: placesHours, hoursSource: placesHours ? "places" : null };
-  }
 
   const evidence = [
     `Account: ${account.name} (${account.channel}), ${[account.city, account.state].filter(Boolean).join(", ") || "city unknown"}.`,
@@ -220,7 +216,9 @@ export async function enrichAccountQuickly(accountId: string): Promise<QuickEnri
   let toolOut: z.infer<typeof EnrichSchema> | null = null;
   let modelFailed = false;
   let capReason: string | null = null;
-  try {
+  // Without a model the site's own structured hours and Places still apply;
+  // only the angle needs one.
+  if (aiConfigured()) try {
     const res = await ai({
       task: "prospect_quick_enrich",
       system:

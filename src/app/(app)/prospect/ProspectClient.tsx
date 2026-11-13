@@ -836,8 +836,9 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
         body: JSON.stringify({ account_id: item.account_id }),
       });
       const j = await res.json().catch(() => null);
-      const result = j?.ok ? j.result : { ok: false, error: j?.error ?? (res.status === 504 ? "The look-up took too long. Try again." : undefined) };
-      if (showing.current !== accountId) return;
+      // A failed look-up changes nothing and says nothing; the button is back.
+      if (!j?.ok || !j.result?.ok || showing.current !== accountId) return;
+      const result = j.result;
       setEnrichResult(result);
       if (result.ok && (result.wroteHours || result.wroteSummary)) {
         setPanel((p) =>
@@ -853,7 +854,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
         );
       }
     } catch {
-      setEnrichResult({ ok: false, error: "No connection. Try again when you have signal." });
+      // No signal: quiet, the button is ready for another try.
     } finally {
       setEnriching(false);
     }
@@ -975,16 +976,9 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
             </div>
             </FoldSection>
 
-            {enrichResult && !enriching && (
+            {enrichResult?.ok && !enriching && (
               <div className="mt-2.5">
-                {enrichResult.ok ? (
-                  <SuccessNote title={enrichResult.wroteHours || enrichResult.wroteSummary ? "Updated" : "Nothing new"} />
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 text-[13.5px] text-[#8A6D2F]">
-                    <Ico name="alert" size={13} />
-                    {enrichResult.error ?? "Could not finish. Try again."}
-                  </span>
-                )}
+                <SuccessNote title={enrichResult.wroteHours || enrichResult.wroteSummary ? "Updated" : "Nothing new"} />
               </div>
             )}
 

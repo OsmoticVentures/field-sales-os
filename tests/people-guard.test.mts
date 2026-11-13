@@ -1,4 +1,5 @@
 import { verifyPerson } from "../src/lib/features/enrich/people-guard.ts";
+import { mentionsInReview } from "../src/lib/features/enrich/review-owners.ts";
 const page = "Our Team\nHannah Hunt\nOwner and Practice Manager\nBob Lee, RN\nConnect With Us";
 const t = (n: string, ok: boolean) => { if (!ok) { console.error("FAIL", n); process.exitCode = 1; } };
 const a = verifyPerson({ name: "Hannah Hunt", title: "Owner", is_decision_maker: false, source_text: "Hannah Hunt Owner and Practice Manager" }, page);
@@ -9,4 +10,12 @@ t("furniture dropped", !verifyPerson({ name: "Connect With Us", title: null }, p
 t("invented quote dropped", !verifyPerson({ name: "Bob Lee", title: null, source_text: "Bob Lee founded the clinic" }, page).ok);
 const b = verifyPerson({ name: "Bob Lee", title: "RN", is_decision_maker: true }, page);
 t("model cannot promote a non-DM", b.ok && !b.is_decision_maker);
+// Junk the book actually collected, each must be refused.
+const junk = "Send Email\nmifarmaciafamiliar@gmail.com\nAreas Covered\nServing trusted retail partners across USA\nKimberly Ross\nPersonal trainer and is currently certified to teach several forms of fitness!";
+t("a button is not a person", !verifyPerson({ name: "Send Email", title: "mifarmaciafamiliar@gmail.com" }, junk).ok);
+t("a section heading is not a person", !verifyPerson({ name: "Areas Covered", title: "Serving trusted retail partners across USA" }, junk).ok);
+t("a testimonial sentence is not a role", !verifyPerson({ name: "Kimberly Ross", title: "Personal trainer and is currently certified to teach several forms of fitness!" }, junk).ok);
+t("'From the owner' names nobody", mentionsInReview("From the owner to his staff they treat me like family!!").length === 0);
+t("'Owner Along His Staff' names nobody", mentionsInReview("Dr. Philip The Pharmacist And Owner Along His Staff Were Helpful.").every((m) => m.name !== "Along"));
+t("a real review name still reads", mentionsInReview("Gayla, the owner, is remarkably knowledgeable.").some((m) => m.name === "Gayla"));
 if (!process.exitCode) console.log("people-guard: all cases pass");

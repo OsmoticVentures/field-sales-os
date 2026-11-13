@@ -20,7 +20,6 @@
  */
 import "server-only";
 import {
-  fillContactReach,
   fillContactTitle,
   getEnrichAccount,
   insertClosedSignalNote,
@@ -83,7 +82,6 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   const hasDecisionMakerOnFile = existing.some((c) => c.is_decision_maker);
 
   const peopleGroups: FoundPerson[][] = [];
-  let closedSignal: { note: string } | null = null;
 
   // The route allows FIND_CONTACTS_BUDGET_MS; every tier below spends from
   // this one clock, so a slow site shortens the web search rather than the
@@ -168,9 +166,9 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     if (!account.lng && places.candidate.lng != null) accountPatch.lng = places.candidate.lng;
     if (Object.keys(accountPatch).length) await patchAccountBlankFill(accountId, accountPatch, provenance);
 
-    if (places.closed) {
-      closedSignal = { note: `Google Places marks this business as ${places.candidate.businessStatus}.` };
-      await insertClosedSignalNote(accountId, closedSignal.note);
+    // Said once, when Places first reports it, not on every press.
+    if (places.closed && !account.places_status) {
+      await insertClosedSignalNote(accountId, `Google Places marks this business as ${places.candidate.businessStatus}.`);
     }
   }
 
@@ -189,14 +187,15 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
   if (!hasDecisionMakerOnFile && !mergePeople(peopleGroups).some((p) => p.is_decision_maker)) {
     const rv = await runReviewsPass(places.candidate?.placeId ?? account.places_id ?? null);
     if (rv.ran) {
-      const owners = distillReviews(rv.reviews);
+      // One customer naming someone once is hearsay; two reviews are a finding.
+      const owners = distillReviews(rv.reviews).filter((o) => o.mentions >= 2);
       peopleGroups.push(owners.map((o): FoundPerson => ({
         name: o.name,
         title: o.role.replace(/\b\w/g, (c) => c.toUpperCase()),
-        is_decision_maker: o.mentions >= 2,
+        is_decision_maker: true,
         source_tier: "places_reviews",
         found_by: `google reviews: ${o.mentions} mention(s)`,
-        basis: `a customer's review names this person as the ${o.role}${o.mentions >= 2 ? ", in more than one review" : ", in a single review; decision-maker flag left to a person"}`,
+        basis: `customer reviews name this person as the ${o.role}, in ${o.mentions} reviews`,
         source_text: o.sentence,
         source_url: places.candidate?.placeId || account.places_id ? `https://www.google.com/maps/place/?q=place_id:${places.candidate?.placeId ?? account.places_id}` : null,
       })));
@@ -212,15 +211,12 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     if (ws.ran) {
       peopleGroups.push(ws.people);
       leads.push(...ws.leads);
-      if (ws.closed_signal) {
-        closedSignal = closedSignal ?? { note: `A web search suggests this business may have closed: "${ws.closed_signal}"` };
-        await insertClosedSignalNote(accountId, closedSignal.note);
-      }
     }
   }
 
   // ---- Apply the merged people against nb_contacts ----------------------
-  const merged = mergePeople(peopleGroups);
+  // A name with no role printed beside it is not a contact anyone can ask for.
+  const merged = mergePeople(peopleGroups).filter((p) => !!p.title && p.title.trim().length > 0);
   let contactsAdded = 0;
   let contactsUpdated = 0;
   const provAt2 = new Date().toISOString();
@@ -277,20 +273,6 @@ export async function runFindContacts(accountId: string): Promise<FindContactsRe
     }
   }
   if (Object.keys(sitePatch).length) await patchAccountBlankFill(accountId, sitePatch, siteProv);
-
-  // ---- The person to ask for carries a phone and an email ----------------
-  // The decision maker, else the strongest name found. With no direct line in
-  // hand they take the store's own number and address, stated as exactly that.
-  const people = await listContacts(accountId);
-  const lead = people.find((c) => c.is_decision_maker) ?? (merged[0] ? existingByName.get(normName(merged[0].name)) : undefined);
-  if (lead) {
-    const phone = account.phone || places.candidate?.phone || site.site_phone;
-    const email = account.email || site.site_email;
-    const prov = (what: string): { found_by: string; at: string; basis: string; source_tier: string } => ({
-      found_by: "find_contacts: the account's own record", at: provAt2, basis: `the store's main ${what}, no direct ${what} found for this person`, source_tier: "account",
-    });
-    if (await fillContactReach(lead.id, { phone, email }, { phone: prov("phone"), email: prov("email") })) contactsUpdated += 1;
-  }
 
   // ---- The marker, on every outcome, including "nobody found" -----------
   await stampSearchMarker(accountId, {

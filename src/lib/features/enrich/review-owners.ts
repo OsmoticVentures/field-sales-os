@@ -20,7 +20,7 @@ const FILLER =
 const NAME_THEN_ROLE = new RegExp(`\\b(${NAME})${FILLER}(${ROLE})\\b`, "g");
 const ROLE_THEN_NAME = new RegExp(`\\b(${ROLE})(?:\\s*(?:(?:${alt(["is", "named"])})\\s+|,\\s*|-\\s*)?)(${NAME})\\b`, "g");
 
-const NOT_NAME = new Set(("the our this that his her their its they she he we owner manager founder and but also great amazing very super store shop staff place everyone everything thank thanks love highly definitely best good nice friendly helpful knowledgeable customer service products product vitamin vitamins health natural market foods food clinic center office google yelp in at on of for to is was are as if when after before so my your a an new old previous former current not no yes call ask speak talk tell see meet contact email shout big huge special please recommend visit try go").split(" "));
+const NOT_NAME = new Set(("the our this that his her their its they she he we owner manager founder and but also great amazing very super store shop staff place everyone everything thank thanks love highly definitely best good nice friendly helpful knowledgeable customer service products product vitamin vitamins health natural market foods food clinic center office google yelp in at on of for to is was are as if when after before so my your a an new old previous former current not no yes call ask speak talk tell see meet contact email shout big huge special please recommend visit try go from along with mr mrs ms miss sir dear hi hello even both just only one").split(" "));
 
 export function sentences(text: string): string[] {
   return (text || "").split(/(?<!\bDr\.)(?<!\bMr\.)(?<!\bMs\.)(?<!\bMrs\.)(?<=[.!?\n])\s+/).map((s) => s.trim()).filter(Boolean);
