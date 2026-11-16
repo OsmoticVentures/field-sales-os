@@ -8,8 +8,8 @@
  * and the SDR queue, are not in it: readAccountLive() reads those fresh every
  * time a client opens.
  *
- * Bulk on purpose: the book is five paged reads (accounts, contacts,
- * activities, orders, lines) plus the priority book, never eight reads per
+ * Bulk on purpose: the book is six paged reads (accounts, contacts,
+ * activities, orders, lines, HQ brief) plus the priority book, never eight reads per
  * client.
  */
 import "server-only";
@@ -37,6 +37,21 @@ const book = async () => ({
 const ACTIVITY_CAP = 60;
 const ORDER_CAP = 500;
 
+/** What HQ's dashboard knows about one customer, from nb_hq_customer_detail.brief
+ *  (about 1 KB; the table's other columns are ~5 KB each and are never read). */
+export type HqBrief = {
+  as_of: string;
+  broker: string[];
+  base_year: number;
+  buys_total: number;
+  /** At most 6, sales descending. */
+  buys: { name: string; last: string | null; qty: number | null; sales: number | null; alert: string | null }[];
+  /** Top-10 products bought in base_year and nothing since. At most 6. */
+  dropped: { name: string; group: string }[];
+  /** HQ top-10 product groups this customer has never bought. At most 6. */
+  never: string[];
+};
+
 export type AccountPayload = {
   account: ClientAccount;
   contacts: ClientContact[];
@@ -48,6 +63,9 @@ export type AccountPayload = {
   score: number | null;
   warmth: string | null;
   leadStatus: string | null;
+  /** HQ's brief for this client; null when HQ has none. Payloads kept on the phone before this field
+   *  existed read as undefined, so readers treat a missing value as null. */
+  hq: HqBrief | null;
   /** When the server assembled it, ISO. */
   builtAt: string;
 };
@@ -188,7 +206,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
   const ids = accountRows.map((a) => String(a.id));
   if (ids.length === 0) return {};
 
-  const [contacts, activities, orders, lines, book] = await Promise.all([
+  const [contacts, activities, orders, lines, hqRows, book] = await Promise.all([
     sbGetAllFor<Row & { account_id: string }>(
       "nb_contacts",
       { select: CONTACT_SELECT, order: "account_id.asc,is_decision_maker.desc,last_name.asc,id.asc" },
@@ -220,6 +238,12 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
       },
       ids,
     ),
+    // Only the brief: the table's other columns are ~5 KB a row and the book download is metered.
+    sbGetAllFor<{ account_id: string; brief: HqBrief | null }>(
+      "nb_hq_customer_detail",
+      { select: "account_id,brief", order: "account_id.asc" },
+      ids,
+    ),
     getPriorityBook().catch(() => null),
   ]);
 
@@ -227,6 +251,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
   const activitiesBy = groupBy(activities);
   const ordersBy = groupBy(orders);
   const linesBy = groupBy(lines);
+  const hqBy = new Map(hqRows.map((r) => [r.account_id, r.brief]));
   const builtAt = new Date().toISOString();
 
   const out: Record<string, AccountPayload> = {};
@@ -253,6 +278,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
       score: prio?.score ?? null,
       warmth: (row.readiness as string | null | undefined) ?? null,
       leadStatus: (row.lead_status as string | null | undefined) ?? null,
+      hq: hqBy.get(id) ?? null,
       builtAt,
     };
   }

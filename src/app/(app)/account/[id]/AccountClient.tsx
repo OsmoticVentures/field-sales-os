@@ -115,6 +115,7 @@ export function AccountClient({ id, initial, initialLive }: { id: string; initia
         activities={payload.activities}
         orders={payload.orders}
         lines={payload.lines}
+        hq={payload.hq ?? null}
         routeDays={routeDays}
         routeDraftByDay={live?.routeDraftByDay ?? {}}
       />

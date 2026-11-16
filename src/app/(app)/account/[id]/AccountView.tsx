@@ -7,6 +7,7 @@ import { useOnPhone } from "@/lib/features/outbound/use-on-phone";
 import { apiFetch } from "../../../../lib/core/api";
 import { patchAccount, refreshAccount } from "../../../../lib/core/phone-sync";
 import { Card, Ico, SuccessNote, eyebrowCls } from "../../../../lib/core/ui";
+import type { HqBrief } from "../../../../lib/features/clients/account-payload";
 import type { ClientAccount, ClientActivity, ClientContact } from "../../../../lib/features/clients/dal";
 import {
   OpenBadge,
@@ -513,7 +514,129 @@ function DraftOutreachButton({ accountId }: { accountId: string }) {
   );
 }
 
-function Purchases({ orders, lines }: { orders: PurchaseOrder[]; lines: PurchaseLine[] }) {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-07" -> "Jul 2026". Null for anything that is not a year-month. */
+function monthYear(ym: string | null): string | null {
+  const m = ym ? /^(\d{4})-(\d{2})/.exec(ym) : null;
+  const name = m ? MONTHS[Number(m[2]) - 1] : undefined;
+  return m && name ? `${name} ${m[1]}` : null;
+}
+
+/** "2026-11-15" -> "Nov 15". */
+function monthDay(iso: string | null | undefined): string | null {
+  const m = iso ? /^\d{4}-(\d{2})-(\d{2})/.exec(iso) : null;
+  const name = m ? MONTHS[Number(m[1]) - 1] : undefined;
+  return m && name ? `${name} ${Number(m[2])}` : null;
+}
+
+/** HQ's own alert keys, in plain words: the visible text carries the meaning, a phone has no hover. */
+const HQ_ALERTS: Record<string, string> = {
+  inactive_3m: "Nothing in 3 months",
+  quarter_drop_prev: "Down vs prior 3 months",
+  quarter_drop_ly: "Down vs last year",
+  month_drop: "Down this month",
+  no_repeat_product: "Not reordered",
+};
+
+const hqGroupLabel = "text-[12px] text-[#8A928C]";
+const hqRows = "mt-1 flex flex-col divide-y divide-[#EDEBE3]";
+
+/** What HQ's dashboard knows about this client: what they stopped, what they have not bought since the base year, and
+ *  what they buy now. Each list is absent when it has no rows; the whole card is absent when none has. */
+function HqSection({ hq }: { hq: HqBrief }) {
+  const buys = (hq.buys ?? []).slice(0, 6);
+  const dropped = (hq.dropped ?? []).slice(0, 6);
+  const never = (hq.never ?? []).slice(0, 6);
+  const broker = (hq.broker ?? []).filter(Boolean);
+  if (!buys.length && !dropped.length && !never.length && broker.length === 0) return null;
+  const asOf = monthDay(hq.as_of);
+
+  // One alert on every row is said once in the group's meta, not repeated per row.
+  const first = buys[0]?.alert ? HQ_ALERTS[buys[0].alert] : undefined;
+  const shared = buys.length > 1 && first && buys.every((b) => b.alert === buys[0].alert) ? first : undefined;
+
+  return (
+    <Card>
+      <div className={`mb-3 flex items-baseline justify-between gap-3 ${eyebrowCls}`}>
+        <span>HQ</span>
+        {asOf && <span className="normal-case tracking-normal tabular-nums">As of {asOf}</span>}
+      </div>
+
+      <div className="flex flex-col gap-5">
+        {dropped.length > 0 && (
+          <div>
+            <div className={`flex items-baseline justify-between gap-3 ${hqGroupLabel}`}>
+              <span>Dropped</span>
+              {hq.base_year != null && <span className="tabular-nums">Bought in {hq.base_year}</span>}
+            </div>
+            <ul className={hqRows}>
+              {dropped.map((d) => (
+                <li key={d.name} className="py-1.5 text-[13.5px] leading-snug">
+                  {d.name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {never.length > 0 && (
+          <div>
+            <div className={hqGroupLabel}>{hq.base_year != null ? `None since ${hq.base_year}` : "Not bought"}</div>
+            <ul className={hqRows}>
+              {never.map((n) => (
+                <li key={n} className="py-1.5 text-[13.5px] leading-snug">
+                  {n}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {buys.length > 0 && (
+          <div>
+            <div className={`flex items-baseline justify-between gap-3 ${hqGroupLabel}`}>
+              <span>Buys</span>
+              {shared ? (
+                <span>{shared}</span>
+              ) : (
+                hq.buys_total > buys.length && <span className="tabular-nums">Top {buys.length} of {hq.buys_total}</span>
+              )}
+            </div>
+            <ul className={hqRows}>
+              {buys.map((b) => {
+                const alert = !shared && b.alert ? HQ_ALERTS[b.alert] : undefined;
+                const last = monthYear(b.last);
+                return (
+                  <li key={b.name} className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]">
+                    <span className="min-w-0">
+                      <span className="block leading-snug">{b.name}</span>
+                      {alert && (
+                        <span className="mt-1 inline-block rounded-full bg-[#F2F0E8] px-2 py-0.5 text-[11.5px] leading-tight text-[#5B6560]">
+                          {alert}
+                        </span>
+                      )}
+                    </span>
+                    {last && <span className="shrink-0 whitespace-nowrap tabular-nums text-[#5B6560]">{last}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {broker.length > 0 && (
+          <div>
+            <div className={hqGroupLabel}>Broker</div>
+            <p className="mt-1 text-[13.5px] leading-snug">{broker.join(", ")}</p>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function Purchases({ orders, lines, hasHq }: { orders: PurchaseOrder[]; lines: PurchaseLine[]; hasHq: boolean }) {
   const summary = summarizePurchases(orders, lines);
   if (!summary) return null;
   const items = [...summary.topItems, ...summary.smallItems];
@@ -531,7 +654,7 @@ function Purchases({ orders, lines }: { orders: PurchaseOrder[]; lines: Purchase
           <li key={t.name} className="flex items-baseline justify-between gap-3 py-1.5 text-[13.5px]">
             <span className="flex min-w-0 items-baseline gap-1.5">
               <span className="min-w-0 truncate">{t.name}</span>
-              {withinTrailing12mo(t.last) && (
+              {!hasHq && withinTrailing12mo(t.last) && (
                 <span className="shrink-0 rounded-full bg-[#B3452C] px-1.5 py-0.5 text-[9.5px] font-semibold tracking-wide text-white uppercase">
                   Recent
                 </span>
@@ -601,6 +724,7 @@ export function AccountView({
   activities,
   orders,
   lines,
+  hq,
   routeDays,
   routeDraftByDay,
 }: {
@@ -609,6 +733,8 @@ export function AccountView({
   activities: ClientActivity[];
   orders: PurchaseOrder[];
   lines: PurchaseLine[];
+  /** HQ's brief; absent on a payload kept before the field existed. */
+  hq?: HqBrief | null;
   routeDays: string[];
   routeDraftByDay: Record<string, RouteDraftEntry[]>;
 }) {
@@ -764,7 +890,8 @@ export function AccountView({
             </Card>
           )}
 
-          {orders.length > 0 && <Purchases orders={orders} lines={lines} />}
+          {hq && <HqSection hq={hq} />}
+          {orders.length > 0 && <Purchases orders={orders} lines={lines} hasHq={Boolean(hq)} />}
           {orders.length > 0 && <Orders orders={orders} lines={lines} />}
 
           <section>
