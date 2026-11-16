@@ -107,6 +107,17 @@ function PotentialGrade({ accountId, hq, juan, readiness }: { accountId: string;
 }
 
 /** The door counts, saved on the account as each slot is left. */
+/** HQ's net sales for this year and the two before, from the HQ dashboard mirror. Absent when HQ has no match. */
+function hqSales(a: ClientAccount): [string, string][] {
+  if (!a.hq_as_of) return [];
+  const y = Number(a.hq_as_of.slice(0, 4));
+  return [
+    [`Sales ${y}`, money(a.hq_sales_cy)],
+    [`Sales ${y - 1}`, money(a.hq_sales_cy1)],
+    [`Sales ${y - 2}`, money(a.hq_sales_cy2)],
+  ];
+}
+
 function StoreCounts({ account }: { account: ClientAccount }) {
   const [values, setValues] = useState(() => countsOf(account));
   const [saved, setSaved] = useState(() => countsOf(account));
@@ -615,6 +626,7 @@ export function AccountView({
   const stats = [
     ["State", realLifecycle(a.lifecycle)],
     ["Last order", a.last_order_at ? daysAgo(a.last_order_at) : "Never"],
+    ...hqSales(a),
     ["Lifetime", money(a.lifetime_revenue)],
     ["Trailing 12mo", money(a.trailing_12m_revenue)],
     ["Reorder due", a.expected_reorder_at],

@@ -197,6 +197,11 @@ export type ClientAccount = {
   shelf_units?: number | null;
   employee_count?: number | null;
   stores_per_decision_maker?: number | null;
+  /** HQ dashboard mirror (bridges/nutribiotic/hq_dashboard.py, migration 0107): HQ's net sales by calendar year. */
+  hq_sales_cy?: number | null;
+  hq_sales_cy1?: number | null;
+  hq_sales_cy2?: number | null;
+  hq_as_of?: string | null;
   /** Read off enrichment_status.dormant_fit (bridges/nutribiotic/dormant_fit.py), when tagged. */
   do_not_visit?: boolean | null;
   fit_verdict?: string | null;
@@ -206,7 +211,8 @@ export type ClientAccount = {
 const CLIENT_ACCOUNT_SELECT =
   "id,readiness,hubspot_owner_id,name,channel,street,city,postal,phone,website,email,instagram_url,facebook_url,linkedin_url," +
   "lifecycle,last_order_at,lifetime_revenue,trailing_12m_revenue,expected_reorder_at,quirks,current_state,future_state,impact," +
-  "business_hours,hubspot_company_id,potential_hq,potential_juan,shelf_units,employee_count,stores_per_decision_maker";
+  "business_hours,hubspot_company_id,potential_hq,potential_juan,shelf_units,employee_count,stores_per_decision_maker,"+
+  "hq_sales_cy,hq_sales_cy1,hq_sales_cy2,hq_as_of";
 
 export async function getClientAccount(id: string): Promise<ClientAccount | null> {
   const rows = await sbGet<ClientAccount>("nb_accounts", { select: CLIENT_ACCOUNT_SELECT, id: `eq.${id}`, limit: "1" });
