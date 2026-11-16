@@ -4,6 +4,7 @@
  */
 import { headers } from "next/headers";
 import { hasAccess } from "../../../../lib/core/devices";
+import { clientIp } from "../../../../lib/core/client-ip";
 import { nearestCheapest } from "../../../../lib/features/fuel/nearest";
 
 export const runtime = "nodejs";
@@ -23,7 +24,7 @@ function overBudget(ip: string): boolean {
 export async function POST(req: Request) {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   const h = await headers();
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const ip = clientIp(h, "local");
   if (overBudget(ip)) return Response.json({ ok: false, error: "Too many searches in a row. Try again in a few minutes." });
 
   let body: { origin?: { lat: number; lng: number } };

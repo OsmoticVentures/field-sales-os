@@ -8,6 +8,7 @@
  * out by an outage.
  */
 import "server-only";
+import { clientIp } from "./client-ip";
 import { LOCKOUT_MAX, LOCKOUT_MINUTES, lockRemainingMs, registerFailure, registerSuccess } from "./session";
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
@@ -31,7 +32,7 @@ async function rpc<T>(fn: string, body: unknown): Promise<T> {
 
 /** A short, one-way name for the caller's address. The address itself is never stored. */
 export async function addressKey(h: Headers): Promise<string> {
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "unknown";
+  const ip = clientIp(h);
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip)));
   return "ip:" + Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("");
 }

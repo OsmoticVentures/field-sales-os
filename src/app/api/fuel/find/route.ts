@@ -12,6 +12,7 @@
  */
 import { headers } from "next/headers";
 import { hasAccess } from "../../../../lib/core/devices";
+import { clientIp } from "../../../../lib/core/client-ip";
 import { resolveDestination, type Dest } from "../../../../lib/shared/places";
 import { RATE_CHEAPEST, RATE_QUICKEST } from "../../../../lib/features/fuel/constants";
 import { myVehicle } from "../../../../lib/features/fuel/vehicle";
@@ -93,7 +94,7 @@ export async function POST(req: Request) {
   }
 
   const h = await headers();
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const ip = clientIp(h, "local");
   if (overBudget(ip)) {
     return Response.json({ ok: false, error: "Too many searches in a row. Try again in a few minutes." });
   }
