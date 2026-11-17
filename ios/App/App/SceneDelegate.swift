@@ -30,6 +30,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         LocationAlways.ask()
     }
 
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        SdrResult.backgrounded()
+    }
+
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }

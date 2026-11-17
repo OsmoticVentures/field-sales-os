@@ -65,9 +65,18 @@ export async function GET(request: Request) {
       };
     }).filter((c) => c.name);
 
+    const todayLA = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+    const heading =
+      day === todayLA
+        ? "Today"
+        : new Date(`${day}T12:00:00Z`).getTime() - new Date(`${todayLA}T12:00:00Z`).getTime() === 86_400_000
+          ? "Tomorrow"
+          : new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+
     return Response.json({
       ok: true,
       day,
+      heading,
       generated_at: new Date().toISOString(),
       target: TARGET,
       done: tally.callsToday,

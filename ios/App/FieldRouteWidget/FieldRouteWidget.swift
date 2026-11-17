@@ -411,7 +411,209 @@ struct FieldRouteWidget: Widget {
     }
 }
 
+// MARK: SDR calls widget
+
+struct SdrEntry: TimelineEntry {
+    let date: Date
+    let data: SdrData?
+}
+
+struct SdrProvider: TimelineProvider {
+    func placeholder(in context: Context) -> SdrEntry { SdrEntry(date: Date(), data: nil) }
+    func getSnapshot(in context: Context, completion: @escaping (SdrEntry) -> Void) {
+        Task { completion(SdrEntry(date: Date(), data: await SdrAPI.fetch())) }
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<SdrEntry>) -> Void) {
+        Task {
+            let entry = SdrEntry(date: Date(), data: await SdrAPI.fetch())
+            completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60))))
+        }
+    }
+}
+
+/// Dial through the app, so the result sheet is waiting when the call ends.
+func sdrCallURL(_ c: SdrCall) -> URL {
+    var items = ["id": c.id, "name": c.name]
+    if let a = c.account_id { items["account"] = a }
+    if let t = c.tel_url { items["tel"] = t.replacingOccurrences(of: "tel:", with: "") }
+    return deepLink("sdrcall", items)
+}
+func sdrLogURL(_ c: SdrCall) -> URL {
+    deepLink("sdrlog", ["id": c.id, "name": c.name])
+}
+
+/// Five segments, one per call of the day's target.
+struct SdrProgress: View {
+    let done: Int
+    let target: Int
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<max(target, 1), id: \.self) { i in
+                Capsule().fill(i < done ? Pal.green : Pal.control).frame(height: 5)
+            }
+        }
+    }
+}
+
+struct SdrRow: View {
+    let call: SdrCall
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Link(destination: sdrLogURL(call)) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 5) {
+                        if call.priority == "high" {
+                            Circle().fill(Pal.amber).frame(width: 6, height: 6)
+                        }
+                        Text(readable(call.name)).font(.system(size: 14, weight: .semibold)).foregroundColor(Pal.ink).lineLimit(1)
+                    }
+                    if let line = call.reason ?? call.buying {
+                        Text(line).font(.system(size: 12)).foregroundColor(Pal.muted).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 4)
+            }
+            if call.tel_url != nil {
+                Link(destination: sdrCallURL(call)) {
+                    Image(systemName: "phone.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 40, height: 32)
+                        .background(Pal.green)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                }
+            }
+        }
+    }
+}
+
+struct SdrView: View {
+    let entry: SdrEntry
+    @Environment(\.widgetFamily) var family
+
+    var body: some View {
+        if let data = entry.data {
+            switch family {
+            case .accessoryRectangular: lock(data)
+            case .systemSmall: small(data)
+            default: list(data)
+            }
+        } else {
+            Button(intent: RefreshIntent()) {
+                Text("Calls unavailable").font(.system(size: 14, weight: .medium)).foregroundColor(Pal.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }.buttonStyle(.plain)
+        }
+    }
+
+    func count(_ d: SdrData) -> String { "\(min(d.done, d.target)) of \(d.target)" }
+    var finished: (SdrData) -> Bool { { $0.done >= $0.target || $0.calls.isEmpty } }
+
+    func header(_ d: SdrData) -> some View {
+        HStack(spacing: 6) {
+            Text(d.heading == nil || d.heading == "Today" ? "Calls" : "Calls · \(d.heading!)")
+                .font(.system(size: 13, weight: .semibold)).foregroundColor(Pal.ink).lineLimit(1)
+            Spacer(minLength: 4)
+            Button(intent: RefreshIntent()) {
+                HStack(spacing: 4) {
+                    Text(count(d)).font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                    Image(systemName: "arrow.clockwise").font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundColor(Pal.ink)
+                .padding(.horizontal, 9).frame(minHeight: 24)
+                .background(Pal.control)
+                .clipShape(Capsule())
+            }.buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder func doneState(_ d: SdrData) -> some View {
+        VStack(spacing: 3) {
+            Text(d.done > 0 ? "Calls done" : "No calls").font(.system(size: 16, weight: .semibold))
+                .foregroundColor(d.done > 0 ? Pal.green : Pal.ink)
+            if let r = d.reached_week, r > 0 {
+                Text("\(r) reached this week").font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.muted)
+            }
+        }.frame(maxWidth: .infinity)
+    }
+
+    func small(_ d: SdrData) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(count(d)).font(.system(size: 22, weight: .semibold)).monospacedDigit().foregroundColor(Pal.ink)
+                Spacer()
+            }
+            SdrProgress(done: d.done, target: d.target)
+            Spacer(minLength: 0)
+            if let c = d.calls.first, !finished(d) {
+                Text(readable(c.name)).font(.system(size: 14, weight: .semibold)).foregroundColor(Pal.ink).lineLimit(2)
+                if let line = c.reason ?? c.buying {
+                    Text(line).font(.system(size: 11.5)).foregroundColor(Pal.muted).lineLimit(1)
+                }
+            } else {
+                doneState(d)
+            }
+        }
+        .widgetURL(d.calls.first.map(sdrCallURL))
+    }
+
+    func list(_ d: SdrData) -> some View {
+        let large = family == .systemLarge
+        let rows = Array(d.calls.prefix(large ? 5 : 3))
+        return VStack(alignment: .leading, spacing: 0) {
+            header(d)
+            SdrProgress(done: d.done, target: d.target).padding(.top, 7)
+            if finished(d) && rows.isEmpty {
+                Spacer()
+                doneState(d)
+                Spacer()
+            } else {
+                VStack(alignment: .leading, spacing: large ? 10 : 6) {
+                    ForEach(rows) { SdrRow(call: $0) }
+                }.padding(.top, large ? 12 : 8)
+                Spacer(minLength: 0)
+                if large {
+                    HStack {
+                        if let r = d.reached_week {
+                            Text("\(r) reached this week").font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.muted)
+                        }
+                        Spacer()
+                        if d.remaining > rows.count {
+                            Text("\(d.remaining - rows.count) more queued").font(.system(size: 12)).monospacedDigit().foregroundColor(Pal.faint)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func lock(_ d: SdrData) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("\(count(d)) calls").font(.system(size: 14, weight: .semibold)).monospacedDigit()
+            if let c = d.calls.first, !finished(d) {
+                Text(readable(c.name)).font(.system(size: 13)).lineLimit(1)
+            }
+        }
+        .widgetURL(d.calls.first.map(sdrCallURL))
+    }
+}
+
+struct SdrCallsWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "SdrCallsWidget", provider: SdrProvider()) { entry in
+            SdrView(entry: entry)
+                .containerBackground(Pal.paper, for: .widget)
+        }
+        .configurationDisplayName("SDR Calls")
+        .description("The day's calls.")
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge, .accessoryRectangular])
+    }
+}
+
 @main
 struct FieldRouteBundle: WidgetBundle {
-    var body: some Widget { FieldRouteWidget() }
+    var body: some Widget {
+        FieldRouteWidget()
+        SdrCallsWidget()
+    }
 }

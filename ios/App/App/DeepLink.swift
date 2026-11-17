@@ -8,6 +8,9 @@ import WidgetKit
 ///   sdr?account=ID       the SDR page with that client loaded
 ///   call?account=ID&tel=N  the SDR page loaded for that client, then the dialer
 ///                        (no tel: red alert, nothing dials)
+///   sdrcall?id=ID&name=N&account=A&tel=T  the SDR page on that client, then the
+///                        dialer; the result sheet waits for the return
+///   sdrlog?id=ID&name=N  the result sheet for that call, now
 ///   route?day=D&stop=ID  the route view on that day, scrolled to the stop
 ///   account?id=ID        the account sheet
 ///   odo?kind=start|end   odometer prompt (photo stays on the phone), then
@@ -35,7 +38,7 @@ enum DeepLink {
     /// Runs on every tap, on every didBecomeActive, and on a short poll while
     /// a tap waits for the app to be ready.
     static func drain() {
-        guard let p = pending else { return }
+        guard let p = pending else { SdrResult.resumeIfDue(window); return }
         if Date().timeIntervalSince(p.at) > 60 { pending = nil; return }
         guard let w = window, w.windowScene?.activationState == .foregroundActive,
               let vc = w.rootViewController as? CAPBridgeViewController,
@@ -84,6 +87,16 @@ enum DeepLink {
                 return
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { UIApplication.shared.open(dial) }
+        case "sdrcall":
+            if let id = q["account"] { load(webView, "/prospect?account=\(id)") }
+            guard let call = q["id"], let tel = q["tel"], !tel.isEmpty, let dial = URL(string: "tel:\(tel)") else {
+                alert(vc, "No phone number", "This account has no phone on file.")
+                return
+            }
+            SdrResult.armed(call, name: q["name"] ?? "")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { UIApplication.shared.open(dial) }
+        case "sdrlog":
+            if let call = q["id"] { SdrResult.ask(call, name: q["name"] ?? "", vc: vc) }
         case "route":
             load(webView, "/route?day=\(q["day"] ?? "")&stop=\(q["stop"] ?? "")")
         case "account":
@@ -150,6 +163,80 @@ enum DeepLink {
         if let done, !day.isEmpty { await Outbox.send(["action": "done", "day": day, "id": done]) }
         if !day.isEmpty { await Outbox.send(["action": "odo", "kind": kind, "day": day]) }
         WidgetCenter.shared.reloadAllTimelines()
+    }
+}
+
+/// The call result sheet. A call dialed from the widget arms it; once the app
+/// has gone to the background (the call) and comes back, the sheet asks how
+/// it went. One tap files the result, then the next call is offered.
+@MainActor
+enum SdrResult {
+    private static let key = "sdrPendingCall"
+    private static var wentAway = false
+
+    static func armed(_ id: String, name: String) {
+        UserDefaults.standard.set(["id": id, "name": name, "at": String(Date().timeIntervalSince1970)], forKey: key)
+        wentAway = false
+    }
+
+    static func backgrounded() {
+        if UserDefaults.standard.dictionary(forKey: key) != nil { wentAway = true }
+    }
+
+    static func resumeIfDue(_ window: UIWindow?) {
+        guard wentAway, let d = UserDefaults.standard.dictionary(forKey: key) as? [String: String],
+              let id = d["id"], let at = Double(d["at"] ?? "") else { return }
+        if Date().timeIntervalSince1970 - at > 3 * 3600 { UserDefaults.standard.removeObject(forKey: key); return }
+        guard let vc = window?.rootViewController, vc.presentedViewController == nil else { return }
+        wentAway = false
+        UserDefaults.standard.removeObject(forKey: key)
+        ask(id, name: d["name"] ?? "", vc: vc)
+    }
+
+    static func ask(_ id: String, name: String, vc: UIViewController) {
+        let sheet = UIAlertController(title: readableName(name), message: nil, preferredStyle: .actionSheet)
+        for r in SdrAPI.results {
+            sheet.addAction(UIAlertAction(title: r.label, style: .default) { _ in
+                Task { await file(id, result: r.key, vc: vc) }
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Not now", style: .cancel))
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = vc.view
+            pop.sourceRect = CGRect(x: vc.view.bounds.midX, y: vc.view.bounds.maxY, width: 0, height: 0)
+        }
+        (vc.presentedViewController ?? vc).present(sheet, animated: true)
+    }
+
+    private static func file(_ id: String, result: String, vc: UIViewController) async {
+        await Outbox.send(["action": "call_result", "id": id, "result": result])
+        WidgetCenter.shared.reloadAllTimelines()
+        guard let data = await SdrAPI.fetch() else { return }
+        let next = data.calls.first { $0.id != id }
+        let title = "\(min(data.done, data.target)) of \(data.target) calls"
+        let a = UIAlertController(title: title, message: next.map { "Next: \(readableName($0.name))" }, preferredStyle: .alert)
+        if let next, next.tel_url != nil {
+            a.addAction(UIAlertAction(title: "Call", style: .default) { _ in
+                var c = URLComponents()
+                c.scheme = "fieldsalesos"; c.host = "sdrcall"
+                c.queryItems = [URLQueryItem(name: "id", value: next.id), URLQueryItem(name: "name", value: next.name),
+                                URLQueryItem(name: "tel", value: (next.tel_url ?? "").replacingOccurrences(of: "tel:", with: ""))]
+                    + (next.account_id.map { [URLQueryItem(name: "account", value: $0)] } ?? [])
+                if let u = c.url { DeepLink.receive(u, from: vc.view.window) }
+            })
+            a.addAction(UIAlertAction(title: "Later", style: .cancel))
+            (vc.presentedViewController ?? vc).present(a, animated: true)
+        } else {
+            (vc.presentedViewController ?? vc).present(a, animated: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { a.dismiss(animated: true) }
+        }
+    }
+
+    /// Names in capitals read in normal case.
+    static func readableName(_ s: String) -> String {
+        let letters = s.filter { $0.isLetter }
+        guard !letters.isEmpty, letters == letters.uppercased() else { return s }
+        return s.capitalized
     }
 }
 

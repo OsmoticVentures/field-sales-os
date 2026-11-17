@@ -82,6 +82,49 @@ enum RouteAPI {
     }
 }
 
+// MARK: SDR calls
+
+struct SdrCall: Codable, Identifiable {
+    let id: String
+    let name: String
+    let account_id: String?
+    let priority: String?
+    let phone: String?
+    let tel_url: String?
+    let reason: String?
+    let buying: String?
+}
+
+struct SdrData: Codable {
+    let ok: Bool
+    let day: String
+    let heading: String?
+    let generated_at: String
+    let target: Int
+    let done: Int
+    let reached_today: Int?
+    let reached_week: Int?
+    let remaining: Int
+    let calls: [SdrCall]
+}
+
+enum SdrAPI {
+    static func fetch() async -> SdrData? {
+        guard let (data, _) = try? await URLSession.shared.data(for: RouteAPI.request("/api/widget/sdr")) else { return nil }
+        return try? JSONDecoder().decode(SdrData.self, from: data)
+    }
+
+    /// The result choices the server accepts for action "call_result".
+    static let results: [(key: String, label: String)] = [
+        ("reached", "Reached"),
+        ("no_answer", "No answer"),
+        ("no_decision_maker", "No decision maker"),
+        ("declined", "Declined"),
+        ("call_back_tomorrow", "Call back tomorrow"),
+        ("call_back_next_week", "Call back next week"),
+    ]
+}
+
 extension Stop {
     var mapsURL: URL? {
         URL(string: maps_url.replacingOccurrences(of: "https://maps.apple.com/", with: "maps://"))
