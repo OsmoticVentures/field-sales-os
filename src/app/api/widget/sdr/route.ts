@@ -36,10 +36,18 @@ export async function GET(request: Request) {
   }
 
   const asked = new URL(request.url).searchParams.get("day");
-  const day = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : workingDayIso();
+  let day = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : workingDayIso();
 
   try {
-    const [schedule, tally] = await Promise.all([listSdrSchedule(6), getSdrTally(day)]);
+    const schedule = await listSdrSchedule(6);
+    /* A day with nothing left to dial shows the next day that has calls, so
+       the widget is never empty while a queue is waiting. */
+    const open = (d: string) => schedule.some((r) => r.kind === "call" && r.status === "pending" && r.scheduled_date === d);
+    if (!asked && !open(day)) {
+      const next = schedule.find((r) => r.kind === "call" && r.status === "pending" && r.scheduled_date > day);
+      if (next) day = next.scheduled_date;
+    }
+    const tally = await getSdrTally(day);
     const pending = schedule
       .filter((r) => r.kind === "call" && r.status === "pending" && r.scheduled_date === day)
       .sort((a, b) => (RANK[b.priority ?? ""] ?? 0) - (RANK[a.priority ?? ""] ?? 0) || a.created_at.localeCompare(b.created_at));
