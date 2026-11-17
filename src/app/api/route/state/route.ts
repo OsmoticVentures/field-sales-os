@@ -8,6 +8,7 @@
 import {
   getHomeEndpoint,
   getRouteEndpointsByDay,
+  getRouteMileageByDay,
   getRouteSchedulePrefs,
   getRouteStateByDay,
   isConfigured,
@@ -49,19 +50,28 @@ export async function GET() {
         version: "",
         logged: {},
         emails: {},
+        odo: {},
       },
       { headers: { "cache-control": "no-store" } },
     );
   }
 
   try {
-    const [accounts, home, prefs, state, endpoints] = await Promise.all([
+    const [accounts, home, prefs, state, endpoints, mileage] = await Promise.all([
       listOwnerAccounts(),
       getHomeEndpoint(),
       getRouteSchedulePrefs(),
       getRouteStateByDay(),
       getRouteEndpointsByDay(),
+      getRouteMileageByDay().catch(() => ({}) as Awaited<ReturnType<typeof getRouteMileageByDay>>),
     ]);
+    // Which odometer sides each day of the horizon has on record, so the
+    // end row's check knows whether the day is already closed.
+    const odo: Record<string, { start: boolean; end: boolean }> = {};
+    for (const d of days) {
+      const m = mileage[d];
+      if (m) odo[d] = { start: Boolean(m.start), end: Boolean(m.end) };
+    }
 
     // A visit or meeting logged today for one of today's stops marks it
     // done, kept with the rest of the day's done marks so every reader of
@@ -102,6 +112,7 @@ export async function GET() {
         version: state.version,
         logged: { [today]: logged },
         emails,
+        odo,
       },
       { headers: { "cache-control": "no-store" } },
     );

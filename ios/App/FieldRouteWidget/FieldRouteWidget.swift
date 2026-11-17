@@ -175,7 +175,6 @@ struct ActionIcon<Label: View>: View {
 struct NextStop: View {
     let stop: Stop
     let data: RouteData
-    let remaining: Int
     var compact = false
 
     var body: some View {
@@ -242,12 +241,61 @@ struct NextStop: View {
         .lineLimit(1)
     }
 
-    @ViewBuilder var doneControl: some View {
-        let check = ActionIcon { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundColor(Pal.green) }
-        if remaining == 1 && data.day_state != "ended" && data.day_state != "ahead" {
-            Link(destination: deepLink("odo", ["kind": "end", "day": data.day, "done": stop.id])) { check }
-        } else {
-            Button(intent: MarkDoneIntent(stopId: stop.id, day: data.day)) { check }.buttonStyle(.plain)
+    /// Checking a stop only crosses it off, the last one too. The end
+    /// odometer belongs to the end of the day: checking Home (or the hotel).
+    var doneControl: some View {
+        Button(intent: MarkDoneIntent(stopId: stop.id, day: data.day)) {
+            ActionIcon { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundColor(Pal.green) }
+        }.buttonStyle(.plain)
+    }
+}
+
+/// Every stop made: the drive home (or to the hotel) is the current row,
+/// Go and a check. The check is what asks for the end odometer.
+struct NextEnd: View {
+    let end: RouteEnd
+    let data: RouteData
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: compact ? 6 : 8) {
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: "house.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Pal.paper)
+                    .frame(width: 22, height: 22)
+                    .background(Pal.ink)
+                    .clipShape(RoundedRectangle(cornerRadius: 5.5))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(readable(end.label))
+                        .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                        .tracking(-0.2)
+                        .foregroundColor(Pal.ink)
+                        .lineLimit(1)
+                    if let back = clock12(data.schedule?.finish_clock) {
+                        Text("back \(back)").font(.system(size: 13, weight: .semibold)).monospacedDigit().foregroundColor(Pal.green)
+                    }
+                    if !compact, let a = end.address, !a.isEmpty {
+                        Text(readable(a)).font(.system(size: 12)).foregroundColor(Pal.muted).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 6) {
+                Link(destination: deepLink("go", ["day": data.day, "stop": "end", "maps": end.maps_url, "state": data.day_state])) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "arrow.triangle.turn.up.right.diamond.fill").font(.system(size: 13, weight: .semibold))
+                        Text("Go").font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .background(Pal.green)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                Link(destination: deepLink("odo", ["kind": "end", "day": data.day])) {
+                    ActionIcon { Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundColor(Pal.green) }
+                }
+            }
         }
     }
 }
@@ -326,13 +374,17 @@ struct RouteView: View {
         let later = Array(rows.dropFirst().prefix(large ? 3 : 0))
         return VStack(alignment: .leading, spacing: 0) {
             header(data, rows: rows.count, miles: miles)
-            if rows.isEmpty {
+            if rows.isEmpty, let end = data.end, data.day_state == "ready_to_end" || data.day_state == "in_progress" {
+                Spacer().frame(height: large ? 12 : 8)
+                NextEnd(end: end, data: data, compact: !large)
+                Spacer(minLength: 0)
+            } else if rows.isEmpty {
                 Spacer()
                 emptyState(data)
                 Spacer()
             } else {
                 Spacer().frame(height: large ? 12 : 8)
-                NextStop(stop: rows[0], data: data, remaining: rows.count, compact: !large)
+                NextStop(stop: rows[0], data: data, compact: !large)
                 if large {
                     if !later.isEmpty || data.end != nil {
                         Rectangle().fill(Pal.rule).frame(height: 1).padding(.top, 14).padding(.bottom, 6)

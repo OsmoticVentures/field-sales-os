@@ -381,9 +381,9 @@ async function handle(q, data) {
     return;
   }
   if (q.done) {
+    // Only crosses the stop off. The end odometer waits for the end of the
+    // day itself, the face's end row once every stop is made.
     await post("/api/widget/act", { action: "done", day: day, id: q.done });
-    const fresh = await fetchRoute();
-    if (fresh.day_state === "ready_to_end") await recordMileage("end", fresh.day);
     return;
   }
   if (q.end) {

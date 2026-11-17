@@ -16,6 +16,7 @@
  */
 
 import Link from "next/link";
+import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch, getJson, keepJson, peekJson, peekStoredJson, warmJson } from "@/lib/core/api";
@@ -70,6 +71,8 @@ type StatePayload = {
   logged?: Record<string, string[]>;
   /** The pending Outbound email for a logged stop's account, by account id. */
   emails?: Record<string, Draft>;
+  /** Odometer sides on record by day; an end on record closes the day. */
+  odo?: Record<string, { start: boolean; end: boolean }>;
 };
 
 function newKey(): string {
@@ -602,6 +605,43 @@ function RouteDay({
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">(() => (pointCount < 2 ? "ok" : "loading"));
   const [confirmingDone, setConfirmingDone] = useState<Set<string>>(new Set());
   const { arm: armDone, undo: undoDone } = useUndoWindow();
+
+  /* The end of the day: once every stop is made, Home (or the hotel) gets its
+     own check, and checking it is what asks for the end odometer. The last
+     stop's check only crosses that stop off. Same rule as the widget. */
+  const [endAsk, setEndAsk] = useState(false);
+  const [endNote, setEndNote] = useState(false);
+  const photoRef = useRef<HTMLInputElement | null>(null);
+  const dayClosed = Boolean(data.odo?.[activeDay]?.end);
+  const allMade =
+    stops.some((s) => !movedIds.has(s.id)) && stops.every((s) => movedIds.has(s.id) || doneIds.has(s.id));
+  const canEndDay = activeDay === laTodayIso() && allMade && !dayClosed;
+  function closeDay(day: string) {
+    setEndAsk(false);
+    setEndNote(true);
+    setTimeout(() => setEndNote(false), 1200);
+    setData((prev) => ({ ...prev, odo: { ...prev.odo, [day]: { start: true, ...prev.odo?.[day], end: true } } }));
+  }
+  function checkEnd() {
+    const day = activeDay;
+    // In the app, the phone's own odometer prompt (photo to the camera roll,
+    // or bypass), the one the widget opens.
+    if (Capacitor.isNativePlatform()) {
+      window.location.href = `fieldsalesos://odo?kind=end&day=${day}`;
+      closeDay(day);
+      return;
+    }
+    setEndAsk(true);
+  }
+  async function sendEndOdo(day: string, photo: File | null) {
+    const form = new FormData();
+    form.set("kind", "end");
+    form.set("day", day);
+    if (photo) form.set("photo", photo);
+    else form.set("bypass", "1");
+    closeDay(day);
+    await apiFetch("/api/widget/mileage", { method: "POST", body: form }).catch(() => {});
+  }
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
 
   const mapBoxRef = useRef<HTMLDivElement | null>(null);
@@ -1597,14 +1637,51 @@ function RouteDay({
                   )}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <a
-                  href={appleMapsUrl({ address: end.address, lat: end.lat, lng: end.lng })}
-                  className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
-                >
-                  GO
-                </a>
-              </div>
+              {endNote ? (
+                <div className="max-w-xs">
+                  <SuccessNote title="Day ended" />
+                </div>
+              ) : endAsk ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 text-[13px] font-medium text-[#14201B]">End odometer</span>
+                  <input
+                    ref={photoRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] ?? null;
+                      e.target.value = "";
+                      if (f) void sendEndOdo(activeDay, f);
+                    }}
+                  />
+                  <button type="button" onClick={() => photoRef.current?.click()} className={iconBtn}>
+                    Take photo
+                  </button>
+                  <button type="button" onClick={() => void sendEndOdo(activeDay, null)} className={iconBtn}>
+                    Bypass
+                  </button>
+                  <button type="button" onClick={() => setEndAsk(false)} aria-label="Cancel" className={sqBtn}>
+                    <Ico name="close" size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {canEndDay && (
+                    <button type="button" onClick={checkEnd} className={iconBtn}>
+                      <Ico name="check" size={13} />
+                      Mark done
+                    </button>
+                  )}
+                  <a
+                    href={appleMapsUrl({ address: end.address, lat: end.lat, lng: end.lng })}
+                    className="inline-flex min-h-11 items-center rounded-md bg-[#2C6A46] px-4 text-[13px] font-semibold text-white transition-transform active:scale-[0.97]"
+                  >
+                    GO
+                  </a>
+                </div>
+              )}
             </div>
           )}
         </div>
