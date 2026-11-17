@@ -103,13 +103,22 @@ export function periodBounds(dateStr: string): PeriodBounds {
 
 /** The "2026-09a" (first half) / "2026-09b" (second half) label a 14-day
  *  period is filed under: whichever month owns the period's 7th day. */
-function periodLabelParts(bounds: PeriodBounds): { year: number; month: number; half: "a" | "b" } {
+function periodLabelParts(bounds: PeriodBounds): { year: number; month: number; half: "a" | "b" | "c" } {
   const mid = new Date(bounds.start.getTime() + 6 * MS_PER_DAY);
-  return {
-    year: mid.getUTCFullYear(),
-    month: mid.getUTCMonth() + 1,
-    half: mid.getUTCDate() <= 15 ? "a" : "b",
-  };
+  const base = { year: mid.getUTCFullYear(), month: mid.getUTCMonth() + 1 };
+  if (bounds.start.getTime() < PERIOD_EPOCH_MS) {
+    return { ...base, half: mid.getUTCDate() <= 15 ? "a" : "b" };
+  }
+  // A month can own two or three 14-day midpoints, two of them on day <= 15
+  // (Oct 26 and Nov 9, 2026 both read "11a"). The letter is the ordinal among
+  // post-epoch periods owned by the same month. Mirrors _period_label_parts.
+  let n = 0;
+  let prev = bounds.start.getTime() - 14 * MS_PER_DAY;
+  while (prev >= PERIOD_EPOCH_MS && new Date(prev + 6 * MS_PER_DAY).getUTCMonth() === mid.getUTCMonth()) {
+    n += 1;
+    prev -= 14 * MS_PER_DAY;
+  }
+  return { ...base, half: (["a", "b", "c"] as const)[n] };
 }
 
 export function periodKey(dateStr: string): string {
