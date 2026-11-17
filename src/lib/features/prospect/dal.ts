@@ -367,6 +367,100 @@ export async function setSdrScheduleStatus(
   return row;
 }
 
+// ---------------------------------------------------------------------------
+// SDR widget: one call's result from the home screen, and the day's tally
+// ---------------------------------------------------------------------------
+
+/** UTC instant of 00:00 in Los Angeles on `iso` (YYYY-MM-DD), DST-correct. */
+export function laMidnightUtc(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const probe = new Date(Date.UTC(y, m - 1, d, 12));
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", timeZoneName: "shortOffset" })
+    .formatToParts(probe)
+    .find((p) => p.type === "timeZoneName")?.value ?? "GMT-8";
+  const hours = Number(name.replace("GMT", "") || "0");
+  return new Date(Date.UTC(y, m - 1, d, -hours)).toISOString();
+}
+
+export type SdrTally = { callsToday: number; reachedToday: number; reachedWeek: number };
+
+/**
+ * What the widget counts. A call made today is a call activity the rep
+ * logged today, or a row scheduled today that was checked off by hand with
+ * no activity behind it (the app's bare checkmark). Reached is the logged
+ * outcome, today and since Monday. Two narrow reads, a few hundred bytes.
+ */
+export async function getSdrTally(dayIso: string): Promise<SdrTally> {
+  const me = await currentUser();
+  const [y, m, d] = dayIso.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay();
+  const monday = new Date(Date.UTC(y, m - 1, d - ((dow + 6) % 7))).toISOString().slice(0, 10);
+  const [acts, checked] = await Promise.all([
+    sbGet<{ id: number; at: string; outcome: string | null }>(
+      "nb_activities",
+      new URLSearchParams({ select: "id,at,outcome", kind: "eq.call", actor: `eq.${me.id}`, at: `gte.${laMidnightUtc(monday)}` }),
+    ),
+    sbGet<{ id: string; account_id: string | null }>(
+      "nb_sdr_schedule",
+      new URLSearchParams({ select: "id,account_id", kind: "eq.call", status: "eq.done", scheduled_date: `eq.${dayIso}`, completed_activity_id: "is.null" }),
+    ),
+  ]);
+  const start = laMidnightUtc(dayIso);
+  const end = laMidnightUtc(new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10));
+  const today = acts.filter((a) => a.at >= start && a.at < end);
+  /* A hand-checked row is the rep's only when its account is in their book. */
+  const ids = checked.map((r) => r.account_id).filter((v): v is string => Boolean(v));
+  let mineChecked = checked.filter((r) => !r.account_id && me.id === DEFAULT_USER).length;
+  if (ids.length > 0) {
+    const owned = await sbGet<{ id: string }>(
+      "nb_accounts",
+      new URLSearchParams({ select: "id", id: `in.(${ids.join(",")})`, hubspot_owner_id: `eq.${me.ownerId}` }),
+    );
+    mineChecked += owned.length;
+  }
+  return {
+    callsToday: today.length + mineChecked,
+    reachedToday: today.filter((a) => a.outcome === "reached").length,
+    reachedWeek: acts.filter((a) => a.outcome === "reached" && a.at < end).length,
+  };
+}
+
+export async function getSdrScheduleItem(id: string): Promise<SdrScheduleItem | null> {
+  const rows = await sbGet<SdrScheduleItem>("nb_sdr_schedule", new URLSearchParams({ select: "*", id: `eq.${id}`, limit: "1" }));
+  return rows[0] ?? null;
+}
+
+/** True when `accountId` is in the signed-in rep's book. */
+export async function isInMyBook(accountId: string): Promise<boolean> {
+  const rows = await sbGet<{ id: string }>(
+    "nb_accounts",
+    new URLSearchParams({ select: "id", id: `eq.${accountId}`, hubspot_owner_id: `eq.${await myOwnerId()}`, limit: "1" }),
+  );
+  return Boolean(rows[0]);
+}
+
+/**
+ * Claim a pending row for one result, atomically. The PATCH only matches a
+ * row still pending on the date the caller saw, so of two taps racing on the
+ * same call exactly one gets the row back; the other gets null and writes
+ * nothing. `patch` is the done or the moved-date write.
+ */
+export async function claimPendingSdrRow(id: string, seenDate: string, patch: Record<string, unknown>): Promise<SdrScheduleItem | null> {
+  const [row] = await sbWrite<SdrScheduleItem>(
+    "nb_sdr_schedule",
+    "PATCH",
+    patch,
+    new URLSearchParams({ id: `eq.${id}`, status: "eq.pending", scheduled_date: `eq.${seenDate}` }),
+  );
+  return row ?? null;
+}
+
+/** Put a claimed row back exactly as it was, when the filing behind the
+ *  claim failed. */
+export async function restoreSdrRow(id: string, prior: Pick<SdrScheduleItem, "status" | "scheduled_date" | "rescheduled_at">): Promise<void> {
+  await sbWrite("nb_sdr_schedule", "PATCH", prior, new URLSearchParams({ id: `eq.${id}` }));
+}
+
 export type AccountCallCard = {
   name: string;
   phone: string | null;
