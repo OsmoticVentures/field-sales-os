@@ -290,6 +290,16 @@ export async function GET(request: Request) {
       Math.max(roads ? 1 : 4, likelyDriveMinutes(freeFlow[i], dateAtMinutes(departAtMinutes)));
 
     let t = dayStarted ? nowMin : future ? departMin : Math.max(departMin, nowMin);
+    // A first stop with a locked time sets the leave time: out the door its
+    // drive before the lock, so it is on time (never earlier than now).
+    const firstLock = !dayStarted ? remaining[0]?.locked_at : null;
+    if (firstLock && /^\d{1,2}:\d{2}$/.test(firstLock)) {
+      const [lh, lm] = firstLock.split(":").map(Number);
+      const at = lh * 60 + lm;
+      const lead = leg(0, at - leg(0, at - freeFlow[0]));
+      t = future ? at - lead : Math.max(nowMin, at - lead);
+    }
+    const leaveAt = t;
     // A calendar event's stop stays as long as the event runs.
     const eventMinutes = new Map(
       draft.flatMap((e) => (typeof e !== "string" && typeof e.minutes === "number" ? [[e.id, e.minutes] as const] : [])),
@@ -319,7 +329,7 @@ export async function GET(request: Request) {
     });
     t += leg(remaining.length, t);
     schedule = {
-      depart: dayDepart,
+      depart: dayStarted ? dayDepart : clock(leaveAt),
       finish_clock: clock(t),
       live: dayStarted,
       rough: true,

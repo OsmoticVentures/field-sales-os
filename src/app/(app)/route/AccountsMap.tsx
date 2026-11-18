@@ -14,7 +14,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Geolocation } from "@capacitor/geolocation";
 import { enablePinchZoom } from "@/lib/shared/map-pinch";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
@@ -350,7 +350,9 @@ type MapPayload = {
   displayPrefs?: MapDisplayPrefs;
 };
 
-export function AccountsMap({
+/** Memoized: the route list re-renders on every drag frame, and the map
+ *  only needs to redraw when its own inputs change. */
+export const AccountsMap = memo(function AccountsMap({
   accounts,
   days,
   activeDay,
@@ -972,7 +974,7 @@ export function AccountsMap({
       )}
     </div>
   );
-}
+});
 
 function FilterSection({ label, onClear, children }: { label: string; onClear?: () => void; children: React.ReactNode }) {
   return (

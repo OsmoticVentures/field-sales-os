@@ -178,3 +178,15 @@ export type DriveLeg = {
   freeFlowMinutes: number;
   miles: number;
 };
+
+/** A stop is on a day once. A second copy (two writers adding the same
+ *  account) is dropped on read and on every write, first one kept. */
+export function uniqueEntries(entries: RouteDraftEntry[]): RouteDraftEntry[] {
+  const seen = new Set<string>();
+  return entries.filter((e) => {
+    const id = typeof e === "string" ? e : e.id;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}

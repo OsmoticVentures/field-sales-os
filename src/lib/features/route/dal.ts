@@ -14,7 +14,7 @@
 import "server-only";
 import { currentUser, myOwnerId } from "../../core/user";
 import { whileOwnedRowsUnchanged } from "../../shared/owned-fingerprint";
-import { DEFAULT_DEPART } from "./types";
+import { DEFAULT_DEPART, uniqueEntries } from "./types";
 import type {
   CalendarEvent,
   CallEntry,
@@ -240,10 +240,11 @@ function asDraftByDay(stored: unknown): Record<string, RouteDraftEntry[]> {
   const out: Record<string, RouteDraftEntry[]> = {};
   for (const [day, entries] of Object.entries(stored as Record<string, unknown>)) {
     if (!Array.isArray(entries)) continue;
-    out[day] = entries.map(asDraftEntry).filter((e): e is RouteDraftEntry => e !== null);
+    out[day] = uniqueEntries(entries.map(asDraftEntry).filter((e): e is RouteDraftEntry => e !== null));
   }
   return out;
 }
+
 
 function asCallsByDay(stored: unknown): Record<string, CallEntry[]> {
   if (!stored || typeof stored !== "object") return {};
@@ -327,7 +328,8 @@ export async function getRouteVersion(): Promise<string> {
 }
 
 export async function setRouteDraft(byDay: Record<string, RouteDraftEntry[]>): Promise<void> {
-  await prefsPatch({ route_draft: byDay });
+  const clean = Object.fromEntries(Object.entries(byDay).map(([d, es]) => [d, uniqueEntries(es)]));
+  await prefsPatch({ route_draft: clean });
 }
 
 export async function setRouteCalls(byDay: Record<string, CallEntry[]>): Promise<void> {

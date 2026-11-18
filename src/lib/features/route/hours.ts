@@ -108,3 +108,14 @@ export function hoursStatusNow(businessHours: BusinessHours | null | undefined):
   }
   return { open: false, label: "Closed" };
 }
+
+/** A planned day's hours, judged for that day, not for right now:
+ *  "Wed 10AM to 4PM", "Closed Wed", or null when nothing is on file. */
+export function hoursOnDay(businessHours: BusinessHours | null | undefined, dayIso: string): HoursStatus | null {
+  const windows = businessHours?.[dayKeyOf(dayIso)];
+  if (!businessHours || Object.keys(businessHours).length === 0 || windows === undefined) return null;
+  const key = dayKeyOf(dayIso);
+  const day = `${key[0].toUpperCase()}${key.slice(1)}`;
+  if (windows.length === 0) return { open: false, label: `Closed ${day}` };
+  return { open: true, label: `${day} ${windows.map(([s, e]) => `${fmtHour(s)} to ${fmtHour(e)}`).join(", ")}` };
+}

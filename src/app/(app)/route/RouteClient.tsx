@@ -18,17 +18,17 @@
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
 import { Geolocation } from "@capacitor/geolocation";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { apiFetch, getJson, keepJson, peekJson, peekStoredJson, warmJson } from "@/lib/core/api";
 import { useUndoWindow } from "@/lib/core/undo";
 import { loadGoogleMaps } from "@/lib/shared/google-maps-loader";
 import { Ico, SuccessNote, ghostBtn, inputCls } from "@/lib/core/ui";
 import { AccountsMap } from "./AccountsMap";
 import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/lib/features/route/field-week";
-import { pushToOpenWindow, hoursStatusNow } from "@/lib/features/route/hours";
+import { pushToOpenWindow, hoursOnDay, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, movedToSdr, sdrMovedKey } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, movedToSdr, sdrMovedKey, uniqueEntries } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -101,9 +101,64 @@ const routeSync: {
 };
 const SYNC_MS = 30_000;
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  routeSync.inFlight++;
-  routeSync.saves++;
+/**
+ * Every route write goes through one line, in order: the screen changes the
+ * moment the rep acts and the saves follow behind it. Two saves of the same
+ * day's list never race (the later one could land first and undo the
+ * newer order), and a save still waiting its turn is replaced by the newer
+ * one for the same day, so a burst of drags is one write.
+ */
+type QueuedWrite = {
+  path: string;
+  body: unknown;
+  merge: string | null;
+  waiters: { resolve: (v: unknown) => void; reject: (e: unknown) => void }[];
+};
+const writeQueue: QueuedWrite[] = [];
+let writing = false;
+const WHOLE_DAY_PATHS = new Set(["/api/route/draft", "/api/route/stop-times", "/api/route/done", "/api/route/calls"]);
+
+function postJson<T>(path: string, body: unknown): Promise<T> {
+  const day = (body as { day?: unknown } | null)?.day;
+  const merge = WHOLE_DAY_PATHS.has(path) && typeof day === "string" ? `${path}|${day}` : null;
+  return new Promise<T>((resolve, reject) => {
+    const waiter = { resolve: resolve as (v: unknown) => void, reject };
+    routeSync.saves++;
+    const waiting = merge ? writeQueue.find((w) => w.merge === merge) : undefined;
+    if (waiting) {
+      waiting.body = body;
+      waiting.waiters.push(waiter);
+      return;
+    }
+    routeSync.inFlight++;
+    writeQueue.push({ path, body, merge, waiters: [waiter] });
+    void drainWrites();
+  });
+}
+
+async function drainWrites(): Promise<void> {
+  if (writing) return;
+  writing = true;
+  try {
+    while (writeQueue.length > 0) {
+      const w = writeQueue.shift()!;
+      try {
+        const res = await sendJson(w.path, w.body);
+        w.waiters.forEach((x) => x.resolve(res));
+      } catch (e) {
+        w.waiters.forEach((x) => x.reject(e));
+      } finally {
+        routeSync.inFlight--;
+      }
+    }
+  } finally {
+    writing = false;
+    // The saves moved the version: read it now rather than on the next tick.
+    if (routeSync.inFlight === 0) routeSync.resync();
+  }
+}
+
+async function sendJson<T>(path: string, body: unknown): Promise<T> {
   try {
     const res = await apiFetch(path, {
       method: "POST",
@@ -118,10 +173,6 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     const msg = e instanceof TypeError ? "No signal. That change didn't save." : e instanceof Error ? e.message : "Couldn't save that change.";
     routeSync.failed(msg);
     throw e;
-  } finally {
-    routeSync.inFlight--;
-    // The save moved the version: read it now rather than on the next tick.
-    if (routeSync.inFlight === 0) routeSync.resync();
   }
 }
 
@@ -183,6 +234,33 @@ function hhmmOf(mins: number): string {
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 }
 
+/** Road legs already priced this visit, by the pair of points they join.
+ *  A reorder mostly reuses pairs it has seen, so its times show at once and
+ *  only the new pairs wait on the road network. */
+const legCache = new Map<string, DriveLeg>();
+const LEG_CACHE_MAX = 400;
+const pairKey = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => `${a.lat},${a.lng}>${b.lat},${b.lng}`;
+function rememberLegs(points: { lat: number; lng: number }[], legs: DriveLeg[]) {
+  legs.forEach((leg, i) => {
+    const a = points[i];
+    const b = points[i + 1];
+    if (!a || !b) return;
+    legCache.delete(pairKey(a, b));
+    legCache.set(pairKey(a, b), leg);
+  });
+  // Bounded: the oldest pairs go first.
+  while (legCache.size > LEG_CACHE_MAX) legCache.delete(legCache.keys().next().value!);
+}
+/** Until the road network answers: the pair's known road leg, else a
+ *  straight-line guess on the widget's same circuity and speeds. */
+function quickLeg(a: { lat: number; lng: number }, b: { lat: number; lng: number }): DriveLeg {
+  const known = legCache.get(pairKey(a, b));
+  if (known) return known;
+  const miles = haversineMiles(a, b) * 1.28;
+  const freeFlowMinutes = (miles / (miles >= 6 ? 42 : 21)) * 60;
+  return { miles, freeFlowMinutes, minutes: freeFlowMinutes * 1.35 };
+}
+
 type ScheduleRow = { arrive: number; leave: number; stay: number };
 type Schedule = {
   rows: ScheduleRow[];
@@ -190,6 +268,9 @@ type Schedule = {
   toFirst: DriveLeg | null;
   end: DriveLeg | null;
   priced: DriveLeg[];
+  /** When the day leaves: the saved time, or, when the first stop has a
+   *  locked time, its drive before that lock. */
+  depart: number;
   missedAnchors: Set<string>;
   closedToday: Set<string>;
   /** Where the day's Lunch stop goes, after the stop at this index, while
@@ -218,6 +299,8 @@ function buildSchedule(
   dayStops: RouteStopView[] = stops,
   /** Calendar time with no place: no stop is put inside it. */
   holds: CalendarHold[] = [],
+  /** Today: the day cannot leave before now. */
+  notBefore = 0,
 ): Schedule {
   const price = (leg: DriveLeg | undefined, atMinutes: number): DriveLeg | null => {
     if (!leg) return null;
@@ -227,7 +310,19 @@ function buildSchedule(
   };
 
   const priced: DriveLeg[] = new Array(legs.length);
-  const depart = minutesOfDay(prefs.depart);
+  let depart = minutesOfDay(prefs.depart);
+  // A locked first stop sets the leave time: out the door its drive before
+  // the lock (priced for that hour), so the first stop of the day is on time.
+  const firstLock = stops[0] ? anchors[stops[0].id] : undefined;
+  if (hasStart && legs[0] && firstLock && /^\d{1,2}:\d{2}$/.test(firstLock)) {
+    const at = minutesOfDay(firstLock);
+    const guess = price(legs[0], at - legs[0].minutes)?.minutes ?? 0;
+    const lead = price(legs[0], at - guess)?.minutes ?? guess;
+    let leave = Math.floor(at - lead);
+    // The traffic curve moves with the hour: step back until the drive lands on time.
+    for (let k = 0; k < 15 && leave + (price(legs[0], leave)?.minutes ?? 0) > at + 0.49; k++) leave--;
+    depart = Math.max(notBefore, leave);
+  }
   const toFirst = hasStart ? price(legs[0], depart) : null;
   if (hasStart && toFirst) priced[0] = toFirst;
 
@@ -287,7 +382,7 @@ function buildSchedule(
   if (hasEnd && endLeg) priced[legs.length - 1] = endLeg;
   for (let i = 0; i < legs.length; i++) if (!priced[i]) priced[i] = legs[i];
 
-  return { rows, finish: t + (endLeg?.minutes ?? 0), toFirst, end: endLeg, priced, missedAnchors, closedToday, lunch };
+  return { rows, finish: t + (endLeg?.minutes ?? 0), toFirst, end: endLeg, priced, depart, missedAnchors, closedToday, lunch };
 }
 
 const dayBtn = (active: boolean) =>
@@ -563,6 +658,9 @@ function RouteDay({
     () => stops.filter((s) => !movedIds.has(s.id) && !(live && doneIds.has(s.id))),
     [live, stops, doneIds, movedIds],
   );
+  // One array per change of the day, not per render: the map redraws every
+  // pin when this changes, so a new array on each drag frame froze the drag.
+  const drivenStops = useMemo(() => stops.filter((s) => !movedIds.has(s.id)), [stops, movedIds]);
   const routedIndex = useMemo(() => new Map(routed.map((s, i) => [s.id, i])), [routed]);
   const stopNumber = useMemo(
     () => new Map(stops.filter((s) => !movedIds.has(s.id)).map((s, i) => [s.id, i + 1])),
@@ -600,6 +698,9 @@ function RouteDay({
 
   const [busy, setBusy] = useState(false);
   const [legs, setLegs] = useState<DriveLeg[] | null>(null);
+  // The path the road legs were priced for: legs from an older order are
+  // never read against a newer one.
+  const [legsKey, setLegsKey] = useState<string | null>(null);
   const [coords, setCoords] = useState<[number, number][] | null>(null);
   const pointCount = routed.length === 0 ? 0 : (routeStart ? 1 : 0) + routed.length + (end ? 1 : 0);
   const [legState, setLegState] = useState<"loading" | "ok" | "unavailable">(() => (pointCount < 2 ? "ok" : "loading"));
@@ -650,6 +751,10 @@ function RouteDay({
   // lands; the array reorders once, on drop.
   const listRef = useRef<HTMLUListElement>(null);
   const [drag, setDrag] = useState<{ id: string; dropIndex: number } | null>(null);
+  // The order the rep last dragged the day into. The automatic placement
+  // below never moves a stop in an order he set by hand; a late stop there
+  // shows late and stays where he put it.
+  const handOrder = useRef<{ day: string; ids: string } | null>(null);
   function dropIndexAt(clientY: number, excludeId: string): number {
     const items = listRef.current ? Array.from(listRef.current.querySelectorAll<HTMLLIElement>("li[data-stop-id]")) : [];
     for (let i = 0; i < items.length; i++) {
@@ -681,7 +786,10 @@ function RouteDay({
     insertAt = Math.max(0, Math.min(filtered.length, insertAt));
     filtered.splice(insertAt, 0, drag.id);
     setDrag(null);
-    if (filtered.some((id, i) => id !== ids[i])) reorder(filtered);
+    if (filtered.some((id, i) => id !== ids[i])) {
+      handOrder.current = { day: activeDay, ids: filtered.join("|") };
+      reorder(filtered);
+    }
   }
 
   const pathKey = useMemo(
@@ -708,9 +816,13 @@ function RouteDay({
     }
   }
 
+  const points = useMemo(
+    () => [...(routeStart ? [routeStart] : []), ...routed, ...(end ? [end] : [])],
+    [routeStart, routed, end],
+  );
   useEffect(() => {
     if (pointCount < 2) return;
-    const points = [...(routeStart ? [routeStart] : []), ...routed, ...(end ? [end] : [])];
+    const key = pathKey;
     let live = true;
     apiFetch("/api/route/drive", {
       method: "POST",
@@ -720,7 +832,9 @@ function RouteDay({
       .then((r) => r.json())
       .then((j: { ok: boolean; legs: DriveLeg[] | null; coords?: [number, number][] | null }) => {
         if (!live) return;
+        if (j.ok && j.legs) rememberLegs(points, j.legs);
         setLegs(j.ok ? j.legs : null);
+        setLegsKey(key);
         setCoords(j.ok ? (j.coords ?? null) : null);
         setLegState(j.ok && j.legs ? "ok" : "unavailable");
       })
@@ -737,12 +851,22 @@ function RouteDay({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathKey]);
 
+  // The road legs when they are for this exact order; until then, known
+  // pairs and a straight-line guess, so a reorder shows its times at once.
+  const roadLegs = legs && legsKey === pathKey ? legs : null;
+  const dayLegs = useMemo<DriveLeg[] | null>(
+    () => roadLegs ?? (points.length < 2 ? null : points.slice(1).map((p, i) => quickLeg(points[i], p))),
+    [roadLegs, points],
+  );
+  const notBefore = activeDay === laTodayIso() ? minutesOfDay(nowHHMM()) : 0;
   const schedule = useMemo(
     () =>
-      legs && routed.length > 0
-        ? buildSchedule(routed, legs, routeStart !== null, end !== null, prefs, activeDay, stopTimes, lunchOff, stops, calDay.holds)
+      dayLegs && routed.length > 0
+        ? buildSchedule(routed, dayLegs, routeStart !== null, end !== null, prefs, activeDay, stopTimes, lunchOff, stops, calDay.holds, notBefore)
         : null,
-    [legs, routed, routeStart, end, prefs, activeDay, stopTimes, lunchOff, stops, calDay.holds],
+    // notBefore is read when the day changes shape, not every minute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dayLegs, routed, routeStart, end, prefs, activeDay, stopTimes, lunchOff, stops, calDay.holds],
   );
 
   // The calendar's stops follow the calendar: an event with a place goes in
@@ -797,6 +921,8 @@ function RouteDay({
     if (!settled || !lateKey || legState !== "ok" || activeDay < laTodayIso()) return;
     const late = new Set(lateKey.split("|"));
     const idOf = (e: RouteDraftEntry) => (typeof e === "string" ? e : e.id);
+    const hand = handOrder.current;
+    if (hand && hand.day === activeDay && hand.ids === stops.map((x) => x.id).join("|")) return;
     const now = activeDay === laTodayIso() ? minutesOfDay(nowHHMM()) : 0;
     const timed = draft
       .filter((e) => late.has(idOf(e)) && !doneIds.has(idOf(e)) && stopTimes[idOf(e)])
@@ -866,7 +992,18 @@ function RouteDay({
     patchTimes(activeDay, { ...stopTimes, [sdrMovedKey(id)]: SDR_KEPT });
   }
 
-  const shownLegs = schedule?.priced ?? legs;
+  const shownLegs = schedule?.priced ?? dayLegs;
+
+  // Stable handles for the memoized map, always calling this render's code.
+  const mapHandlers = useRef({ onAddToRouteOnDay, moveAccountToDay });
+  useLayoutEffect(() => {
+    mapHandlers.current = { onAddToRouteOnDay, moveAccountToDay };
+  });
+  const stableAddToDay = useCallback(
+    (id: string, day: string, lat: number, lng: number) => mapHandlers.current.onAddToRouteOnDay(id, day, lat, lng),
+    [],
+  );
+  const stableMoveToDay = useCallback((id: string, day: string) => mapHandlers.current.moveAccountToDay(id, day), []);
 
   async function costMatrix(points: { lat: number; lng: number }[]): Promise<Matrix> {
     try {
@@ -901,12 +1038,13 @@ function RouteDay({
   }
 
   function patchDraft(day: string, raw: RouteDraftEntry[]) {
-    const entries = followLunch(raw);
-    setData({ ...data, draft: { ...data.draft, [day]: entries } });
+    const entries = uniqueEntries(followLunch(raw));
+    setData((prev) => ({ ...prev, draft: { ...prev.draft, [day]: entries } }));
     postJson("/api/route/draft", { day, entries }).catch(() => {});
   }
   /** One state update for both, so neither overwrites the other on screen. */
   function patchDraftAndTimes(day: string, entries: RouteDraftEntry[], times: Record<string, string>) {
+    entries = uniqueEntries(entries);
     setData((prev) => ({ ...prev, draft: { ...prev.draft, [day]: entries }, times: { ...prev.times, [day]: times } }));
     postJson("/api/route/draft", { day, entries }).catch(() => {});
     postJson("/api/route/stop-times", { day, times }).catch(() => {});
@@ -921,15 +1059,15 @@ function RouteDay({
     return at && /^\d{1,2}:\d{2}$/.test(at) ? minutesOfDay(at) : null;
   }
   function patchCalls(day: string, next: CallEntry[]) {
-    setData({ ...data, calls: { ...data.calls, [day]: next } });
+    setData((prev) => ({ ...prev, calls: { ...prev.calls, [day]: next } }));
     postJson("/api/route/calls", { day, calls: next }).catch(() => {});
   }
   function patchDone(day: string, next: string[]) {
-    setData({ ...data, done: { ...data.done, [day]: next } });
+    setData((prev) => ({ ...prev, done: { ...prev.done, [day]: next } }));
     postJson("/api/route/done", { day, done: next }).catch(() => {});
   }
   function patchTimes(day: string, next: Record<string, string>) {
-    setData({ ...data, times: { ...data.times, [day]: next } });
+    setData((prev) => ({ ...prev, times: { ...prev.times, [day]: next } }));
     postJson("/api/route/stop-times", { day, times: next }).catch(() => {});
   }
   function patchPrefs(next: RouteSchedulePrefs) {
@@ -941,11 +1079,16 @@ function RouteDay({
   }
   function patchEndpoint(day: string, which: "start" | "end", ep: RouteEndpoint | null) {
     const key = which === "start" ? "startByDay" : "endByDay";
-    setData({ ...data, [key]: { ...data[key], ...(ep ? { [day]: ep } : {}) , ...(ep ? {} : Object.fromEntries(Object.entries(data[key]).filter(([d]) => d !== day))) } });
+    setData((prev) => {
+      const rest = Object.fromEntries(Object.entries(prev[key]).filter(([d]) => d !== day));
+      return { ...prev, [key]: ep ? { ...rest, [day]: ep } : rest };
+    });
     postJson("/api/route/endpoints", { day, [which]: ep }).catch(() => {});
   }
 
   async function addEntry(entry: RouteDraftEntry, lat: number, lng: number) {
+    const id = typeof entry === "string" ? entry : entry.id;
+    if (draft.some((e) => (typeof e === "string" ? e : e.id) === id)) return;
     if (stops.length === 0) {
       patchDraft(activeDay, [entry]);
       return;
@@ -1101,7 +1244,8 @@ function RouteDay({
     const entry = draft.find((e) => (typeof e === "string" ? e === id : e.id === id));
     if (!entry) return;
     const fromEntries = draft.filter((e) => (typeof e === "string" ? e !== id : e.id !== id));
-    const targetEntries = [...(data.draft[targetDay] ?? []), entry];
+    const already = (data.draft[targetDay] ?? []).some((e) => (typeof e === "string" ? e === id : e.id === id));
+    const targetEntries = already ? (data.draft[targetDay] ?? []) : [...(data.draft[targetDay] ?? []), entry];
     setData((prev) => ({ ...prev, draft: { ...prev.draft, [activeDay]: fromEntries, [targetDay]: targetEntries } }));
     // Sequential: each write reads the whole draft and rewrites it, so two in flight at once can undo each other.
     postJson("/api/route/draft", { day: activeDay, entries: fromEntries })
@@ -1216,14 +1360,14 @@ function RouteDay({
           days={days}
           activeDay={activeDay}
           draftByDay={data.draft}
-          stops={stops.filter((s) => !movedIds.has(s.id))}
+          stops={drivenStops}
           start={routeStart}
           end={end}
           coords={coords}
           doneIds={doneIds}
           focus={focus}
-          onAddToRouteOnDay={onAddToRouteOnDay}
-          onMoveToDay={moveAccountToDay}
+          onAddToRouteOnDay={stableAddToDay}
+          onMoveToDay={stableMoveToDay}
         />
       </div>
 
@@ -1287,7 +1431,8 @@ function RouteDay({
           {routeStart && (
             <div className="flex items-center justify-between border-b border-[#EEECE3] bg-[#FAF9F5] px-4 py-2 text-[12.5px] text-[#5B6560]">
               <span>
-                Leave {routeStart.label} <span className="font-medium tabular-nums text-[#3D4A44]">{prefs.depart}</span>
+                Leave {routeStart.label}{" "}
+                <span className="font-medium tabular-nums text-[#3D4A44]">{clock(schedule?.depart ?? minutesOfDay(prefs.depart))}</span>
               </span>
               {schedule?.toFirst && (
                 <span className="tabular-nums text-[#8A928C]">
@@ -1307,7 +1452,8 @@ function RouteDay({
               const leg = ri === undefined ? null : legBetween(ri);
               const prev = ri !== undefined && ri > 0 ? routed[ri - 1] : null;
               const email = isDone && data.logged?.[activeDay]?.includes(s.id) ? data.emails?.[s.id] : undefined;
-              const hours = a ? hoursStatusNow(a.business_hours) : null;
+              // Today reads open or closed right now; a planned day reads that day's hours.
+              const hours = a ? (activeDay === laTodayIso() ? hoursStatusNow(a.business_hours) : hoursOnDay(a.business_hours, activeDay)) : null;
               const closed = schedule?.closedToday.has(s.id);
               const missedAnchor = schedule?.missedAnchors.has(s.id);
               const dropBefore = drag && drag.dropIndex === i && drag.id !== s.id;
@@ -1389,7 +1535,7 @@ function RouteDay({
                           <span className="text-[17px] font-bold tabular-nums text-[#14201B]">{clock(row.arrive)}</span>
                         )}
                         {closed && (
-                          <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">closed the rest of the day</span>
+                          <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">{activeDay === laTodayIso() ? "closed the rest of the day" : "closed by then"}</span>
                         )}
                         {c?.kind !== "event" && schedule && ri !== undefined && (schedule.rows[ri]?.leave ?? 0) > FINISH_BY_MINUTES && (
                           <span className="rounded bg-[#F6E4DF] px-1.5 py-0.5 text-[10.5px] font-medium text-[#8A3B2E]">past 3 PM</span>
