@@ -32,7 +32,9 @@ export function windowsFor(businessHours: BusinessHours | null | undefined, dayI
   const key = dayKeyOf(dayIso);
   const ranges = businessHours[key];
   if (ranges === undefined) return null;
-  return ranges.map(([s, e]) => [toMinutes(s), toMinutes(e)]);
+  // A close at or before the open runs past midnight: open the rest of the
+  // day, never read as a window that is always shut.
+  return ranges.map(([s, e]) => [toMinutes(s), toMinutes(e) <= toMinutes(s) ? 24 * 60 : toMinutes(e)]);
 }
 
 export type HourPush =

@@ -359,6 +359,15 @@ export function extractJsonLd(html: string): JsonLdFacts {
   return facts;
 }
 
+/** "9-7" printed without am/pm reads 09:00-07:00: a daytime open with a
+ *  morning close before it is a PM close (19:00). A close after midnight
+ *  (a 5AM grocery open until 1AM) opens before 7 and stays as written. */
+export function pmClose(open: string | null, close: string | null): string | null {
+  if (!open || !close || close >= open || open < "07:00" || close >= "12:00") return close;
+  const [h, m] = close.split(":").map(Number);
+  return `${String(h + 12).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 /** Keeps only well-formed days and HH:MM pairs, whoever produced them (a
  *  model's tool output or a site's JSON-LD). Null when nothing survives. */
 export function sanitizeHours(raw: unknown): BusinessHours | null {
@@ -372,7 +381,7 @@ export function sanitizeHours(raw: unknown): BusinessHours | null {
     for (const p of v) {
       if (!Array.isArray(p) || p.length !== 2) continue;
       const o = hhmm(String(p[0]));
-      const c = hhmm(String(p[1]));
+      const c = pmClose(o, hhmm(String(p[1])));
       if (!o || !c || o === c || seen.has(`${o}-${c}`)) continue;
       seen.add(`${o}-${c}`);
       pairs.push([o, c]);
