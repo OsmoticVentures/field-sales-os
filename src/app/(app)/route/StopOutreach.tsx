@@ -6,7 +6,8 @@
  * door as the account panel's Open in SDR), and Email only finds the angle
  * and files one draft on Outbound, never in Outlook Drafts
  * (lib/features/outbound/email-only.ts). Account stops only; a lunch or a
- * hotel has no account to call or write to.
+ * hotel has no account to call or write to. Email only carries no icon and a
+ * tighter pad so it fits beside the remove button at 402px, where he asked.
  */
 import Link from "next/link";
 import { useState } from "react";
@@ -50,9 +51,13 @@ export function EmailOnlyButton({ accountId, title, className }: { accountId: st
 
   if (result?.status === "drafted" || result?.status === "already_queued") {
     return (
-      <Link href={`/outbound?account=${encodeURIComponent(accountId)}`} className={`${className} text-[#2C6A46]`}>
+      <Link
+        href={`/outbound?account=${encodeURIComponent(accountId)}`}
+        aria-label={`${title}'s email is on Outbound`}
+        className={`${className} !px-2.5 text-[#2C6A46]`}
+      >
         <Ico name="check" size={13} />
-        In Outbound
+        Drafted
       </Link>
     );
   }
@@ -64,9 +69,8 @@ export function EmailOnlyButton({ accountId, title, className }: { accountId: st
         onClick={run}
         disabled={busy}
         aria-label={`Draft an email to ${title} on Outbound`}
-        className={`${className} disabled:opacity-60`}
+        className={`${className} !px-2.5 disabled:opacity-60`}
       >
-        <Ico name="mail" size={13} />
         {busy ? "Drafting" : "Email only"}
       </button>
       {reason && <p className="basis-full text-[13px] font-medium text-[#8A2E2E]">{reason}</p>}
