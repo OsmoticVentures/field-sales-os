@@ -220,6 +220,8 @@ export async function insertAskDraft(input: {
   urgency?: { level: 0 | 1 | 2; reason: string };
   /** The promised follow-up (nb_directives) this draft keeps. */
   source_directive_id?: string;
+  /** Which play wrote it, when not a customer ask (EMAIL_ONLY_PLAY stays out of Outlook Drafts). */
+  play_key?: string;
 }): Promise<Draft | null> {
   const c = input.composed;
   // An ask that could not be written as an email is not an outbound item.
@@ -237,7 +239,7 @@ export async function insertAskDraft(input: {
     to_email: c.toEmail,
     to_name: c.toName,
     bcc_email: null,
-    play_key: ASK_COMPOSED_PLAY,
+    play_key: input.play_key ?? ASK_COMPOSED_PLAY,
     ...(input.source_directive_id ? { source_directive_id: input.source_directive_id } : {}),
     source_ask: normalizeAsk(input.ask),
     campaign_id: null,
@@ -245,6 +247,30 @@ export async function insertAskDraft(input: {
     origin: "manual",
   });
   return row;
+}
+
+/** One meeting or call on an account: when, what kind, and what was said. */
+export type Conversation = { at: string; kind: string; outcome: string | null; detail: string | null };
+
+/**
+ * The account's meetings and calls since a day, newest first, at most six.
+ * Read off nb_v_activities_effective (corrections applied, retractions out),
+ * the same view the SDR score reads its touches from.
+ */
+export async function listRecentConversations(accountId: string, sinceIso: string, kinds: readonly string[]): Promise<Conversation[]> {
+  const rows = await sbGet<{ at: string; effective_kind: string; outcome: string | null; detail: string | null }>(
+    "nb_v_activities_effective",
+    new URLSearchParams({
+      select: "at,effective_kind,outcome,detail",
+      account_id: `eq.${accountId}`,
+      retracted: "is.false",
+      effective_kind: `in.(${kinds.join(",")})`,
+      at: `gte.${sinceIso}`,
+      order: "at.desc",
+      limit: "6",
+    }),
+  );
+  return rows.map((r) => ({ at: r.at, kind: r.effective_kind, outcome: r.outcome, detail: r.detail }));
 }
 
 /** Where a promised follow-up email waits for its day. Not Route's inbox

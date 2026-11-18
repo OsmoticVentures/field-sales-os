@@ -48,6 +48,8 @@ import { HUBSPOT_COMPANY_URL, lastTouchLabel } from "@/lib/features/prospect/for
 import type { Draft } from "@/lib/features/outbound/dal";
 import { OpenEmailButtons } from "@/lib/features/outbound/open-email";
 import { useAccountPanel } from "../account/[id]/useAccountPanel";
+import { EmailOnlyButton, SdrStopButton } from "./StopOutreach";
+import { useFlag } from "@/lib/core/me";
 
 type StatePayload = {
   ok: boolean;
@@ -586,6 +588,7 @@ function RouteDay({
 }) {
   const days = data.days;
   const accountPanel = useAccountPanel();
+  const stopOutreach = useFlag("route-stop-outreach");
   const accountsById = useMemo(() => new Map(data.accounts.map((a) => [a.id, a])), [data.accounts]);
 
   const draft = data.draft[activeDay] ?? [];
@@ -1722,6 +1725,7 @@ function RouteDay({
                           className={sqBtn}
                         />
                       )}
+                      {a && stopOutreach && <SdrStopButton accountId={a.id} title={title} className={iconBtn} />}
                       {a && (
                         <Link
                           href={{ pathname: "/visit", query: { account: a.id, name: a.name } }}
@@ -1747,6 +1751,7 @@ function RouteDay({
                       >
                         <Ico name="close" size={14} />
                       </button>
+                      {a && stopOutreach && <EmailOnlyButton accountId={a.id} title={title} className={iconBtn} />}
                     </div>
                   )}
                 </li>

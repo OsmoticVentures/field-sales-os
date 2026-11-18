@@ -37,6 +37,11 @@ export const REP_FLAGS: Record<string, RepFlag> = {
     asked: "juan for kyle 2026-10-07",
     on: ["kyle"],
   },
+  "route-stop-outreach": {
+    about: "Each route stop carries SDR (opens the account in SDR, filled in) and Email only (an angle-found draft on Outbound, never Outlook Drafts)",
+    asked: "juan 2026-11-17",
+    on: ["juan"],
+  },
 };
 
 /** Is this switch on for this rep, by this file alone? An unknown name is

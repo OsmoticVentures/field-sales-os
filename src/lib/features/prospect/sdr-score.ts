@@ -59,6 +59,10 @@ export type GradeFrom = "My grade" | "Order history" | "Fit" | "HQ" | "OS" | nul
 const ERP_12M = ["2025-07-01", "2026-06-30"] as const;
 const NOTE_DAYS = 120;
 const IN_PERSON = new Set(["visit", "meeting", "sample_drop", "staff_training"]);
+/** The oldest touch that still counts as recent: past it, an account needs reviving. */
+export const RECENT_TOUCH_DAYS = 60;
+/** The touches that are a conversation with them: in person, or a call. */
+export const CONVERSATION_KINDS: readonly string[] = [...IN_PERSON, "call"];
 const EMAILISH = new Set(["email_out", "email_in", "text"]);
 /** Every activity kind buildSignals reads from the touch list; the rest it
  *  skips, so the read asks only for these. */
@@ -259,7 +263,7 @@ export function potentialRaw(a: ScoreInput, s: Signals, grade: string | null, fr
   if (s.ordersMe) n += 8;
   if (s.lastTouch) {
     const age = dayDiff(today, s.lastTouch);
-    n += age <= 21 ? 4 : age <= 60 ? 2 : 0;
+    n += age <= 21 ? 4 : age <= RECENT_TOUCH_DAYS ? 2 : 0;
   }
   // Only A to C reach the line; D, E and not graded stop at 49.
   if (grade !== "A" && grade !== "B" && grade !== "C") n = Math.min(n, LINE - 1);
