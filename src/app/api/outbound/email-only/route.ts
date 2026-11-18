@@ -10,6 +10,8 @@ import { draftEmailOnly } from "../../../../lib/features/outbound/email-only";
 import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
+// Up to two compose attempts, each on the laptop (up to two minutes) or the key.
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });

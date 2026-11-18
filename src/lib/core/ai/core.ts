@@ -336,6 +336,8 @@ export type AiRequest<S extends z.ZodType | undefined> = {
   deadline?: number;
   /** Who asked (the rep id), for the run record. */
   actor?: string | null;
+  /** Ask Juan's laptop on the Max plan first when it is open (./mac.ts), the key only on a miss. */
+  preferMac?: boolean;
 };
 
 export type AiResult<T> = {

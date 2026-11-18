@@ -72,6 +72,8 @@ export type ComposeAskInput = {
   /** An earlier draft of this same email that was never sent, when one is being rewritten.
    *  Shown to the model for who and what; never a source: the number check does not see it. */
   reference?: { body: string; today: string };
+  /** Write it on his laptop's Max plan when it is open, the metered key only on a miss. */
+  onMac?: boolean;
 };
 
 /** The rep an email is written for: the name it is signed with and the territory it speaks from. */
@@ -248,6 +250,7 @@ async function askModel(input: ComposeAskInput, rep: Rep, correction: string | n
       system: { cached: systemPrompt(rep) },
       messages,
       schema: ComposeSchema,
+      preferMac: input.onMac,
     });
     return data;
   } catch (err) {

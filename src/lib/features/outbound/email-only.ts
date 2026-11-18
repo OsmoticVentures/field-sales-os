@@ -13,7 +13,8 @@
  *
  * Same composer and the same grounding gate as every other draft
  * (compose.ts): the email may only reword the angle and the notes given.
- * Filed under EMAIL_ONLY_PLAY, which bridges/nutribiotic/order_watch.py
+ * Written on his laptop's Max plan when it is open (core/ai/mac.ts), the
+ * app's key otherwise. Filed under EMAIL_ONLY_PLAY, which bridges/nutribiotic/order_watch.py
  * holds out of Outlook Drafts. Nothing here sends.
  */
 import "server-only";
@@ -85,6 +86,7 @@ export async function draftEmailOnly(accountId: string): Promise<EmailOnlyResult
     account: { id: account.id, name: account.name, city: account.city, email: account.email },
     contacts,
     voice,
+    onMac: true,
   });
   if (!composed.written) return { status: "not_written", angle, reason: composed.reason };
   await insertAskDraft({ account_id: accountId, ask, composed, play_key: EMAIL_ONLY_PLAY });

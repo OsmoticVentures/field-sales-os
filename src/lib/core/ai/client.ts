@@ -50,6 +50,17 @@ export async function ai<S extends z.ZodType | undefined = undefined>(
     const { createViaCli } = await import("./cli");
     return runAi({ create: (params) => createViaCli(params), log: writeRunRecord }, { ...req, actor });
   }
+  if (req.preferMac) {
+    // His Max plan first when his laptop is open; any miss asks the key below.
+    const { macAwake, createViaMac } = await import("./mac");
+    if (await macAwake()) {
+      try {
+        return await runAi({ create: (params) => createViaMac(params), log: writeRunRecord }, { ...req, actor });
+      } catch {
+        // the metered key
+      }
+    }
+  }
   const c = getClient();
   if (!c) throw new AiError("unconfigured", "No model is configured on this deployment.");
   try {
