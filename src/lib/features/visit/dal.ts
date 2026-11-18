@@ -100,6 +100,22 @@ export async function listAccountsForMatching(): Promise<AccountCandidate[]> {
 /** Manual match search (AccountMatchResolver's "New client" box, simplified
  *  to search Juan's own book rather than Google Places, see the port's
  *  handback note): name contains the query, case-insensitive. */
+async function accountsByPerson(term: string, owner: string): Promise<AccountCandidate[]> {
+  const t = term.split(" ").filter((w) => w.length >= 2);
+  if (t.length === 0) return [];
+  const clause = t.flatMap((w) => [`first_name.ilike.*${w}*`, `last_name.ilike.*${w}*`]).join(",");
+  const people = await query<{ account_id: string }>("nb_contacts", { select: "account_id", or: `(${clause})`, limit: "30" });
+  const ids = [...new Set(people.map((p) => p.account_id))];
+  if (ids.length === 0) return [];
+  return query<AccountCandidate>("nb_accounts", {
+    select: "id,name,city",
+    id: `in.(${ids.join(",")})`,
+    hubspot_owner_id: `eq.${owner}`,
+    closed_at: "is.null",
+    limit: "8",
+  });
+}
+
 export async function searchAccounts(q: string): Promise<AccountCandidate[]> {
   // PostgREST reads * , ( ) as syntax inside a filter value; a store name
   // with one of them must not break the search.
@@ -116,6 +132,9 @@ export async function searchAccounts(q: string): Promise<AccountCandidate[]> {
     });
   const whole = await byName(term);
   if (whole.length > 0) return whole;
+  // A person's name ("Ramiro") finds the business they run.
+  const byPerson = await accountsByPerson(term, owner);
+  if (byPerson.length > 0) return byPerson;
   // "CDM drugs" when the book says "CDM Pharmacy": fall back to the longest
   // distinctive word, so a near miss still offers the store.
   const words = term

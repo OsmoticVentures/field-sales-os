@@ -26,7 +26,8 @@ import { useMemo, useState } from "react";
 import { apiFetch } from "@/lib/core/api";
 import { Ico, SuccessNote, inputCls } from "@/lib/core/ui";
 import { dayLabel } from "@/lib/features/route/field-week";
-import { rankMatches } from "@/lib/features/route/search-match";
+import { searchAccountsAndPeople } from "@/lib/features/search/account-search";
+import { useBookPeople } from "@/lib/features/search/use-book-people";
 import { CUSTOM_STOP_LABEL } from "@/lib/features/route/types";
 import type { CustomStop, RouteAccount } from "@/lib/features/route/types";
 
@@ -112,11 +113,12 @@ export function AddStop({
   const [places, setPlaces] = useState<{ q: string; hits: PlaceHit[] | null } | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
 
+  const people = useBookPeople();
   const searchable = useMemo(() => accounts.filter((a) => a.lifecycle !== "waypoint"), [accounts]);
   const results = useMemo(() => {
     if ((kind !== "client" && kind !== "sdr") || query.trim().length < 2) return [];
-    return rankMatches(query, searchable, (a) => ({ name: a.name, also: [a.city, a.state] }), 8);
-  }, [kind, query, searchable]);
+    return searchAccountsAndPeople(query, searchable, people, 8);
+  }, [kind, query, searchable, people]);
 
   function reset() {
     setQuery("");
@@ -299,7 +301,7 @@ export function AddStop({
           {query.trim().length >= 2 && (
             <ul className="mt-1.5 max-h-64 overflow-auto rounded-md border border-[#E2DFD5]">
               {results.length === 0 && <li className="px-3 py-2 text-[13px] text-[#8A928C]">No account by that name.</li>}
-              {results.map((a) => {
+              {results.map(({ account: a, person }) => {
                 const already = inRoute.has(a.id);
                 const where = [a.city, a.state].filter(Boolean).join(", ");
                 return (
@@ -316,6 +318,7 @@ export function AddStop({
                     >
                       <span className="min-w-0">
                         <span className="block truncate font-medium text-[#14201B]">{a.name}</span>
+                        {person && <span className="block truncate text-[12px] text-[#3D4A44]">{person}</span>}
                         {where && <span className="block truncate text-[12px] text-[#8A928C]">{where}</span>}
                       </span>
                       {already && <span className="shrink-0 text-[12px] text-[#8A928C]">on this day</span>}
@@ -399,7 +402,7 @@ export function AddStop({
               {query.trim().length >= 2 && (
                 <ul className="mt-1.5 max-h-64 overflow-auto rounded-md border border-[#E2DFD5]">
                   {results.length === 0 && <li className="px-3 py-2 text-[13px] text-[#8A928C]">No account by that name.</li>}
-                  {results.map((a) => {
+                  {results.map(({ account: a, person }) => {
                     const where = [a.city, a.state].filter(Boolean).join(", ");
                     return (
                       <li key={a.id}>
@@ -410,6 +413,7 @@ export function AddStop({
                         >
                           <span className="min-w-0">
                             <span className="block truncate font-medium text-[#14201B]">{a.name}</span>
+                            {person && <span className="block truncate text-[12px] text-[#3D4A44]">{person}</span>}
                             {where && <span className="block truncate text-[12px] text-[#8A928C]">{where}</span>}
                           </span>
                         </button>

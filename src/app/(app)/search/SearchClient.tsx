@@ -30,7 +30,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch, getJson, peekJson } from "@/lib/core/api";
 import { Ico, SuccessNote } from "../../../lib/core/ui";
 import { dayLabel, planningHorizonDates, workingDayIso } from "../../../lib/features/route/field-week";
-import { rankMatches } from "../../../lib/features/search/search-match";
+import { groupPeople, searchAccountsAndPeople } from "../../../lib/features/search/account-search";
 import { AreaPicker, mapsUrl, type Pin } from "./AreaPicker";
 
 /* ------------------------------------------------------------------ *
@@ -1657,7 +1657,8 @@ function BookSearch() {
 
   const results = useMemo(() => {
     if (q.trim().length < 2) return [];
-    return rankMatches(q, book, (r) => ({ name: r.name || "", also: [r.company, r.city, r.state, r.area] }), BOOK_RESULT_LIMIT);
+    const companies = book.filter((r) => r.kind !== "person");
+    return searchAccountsAndPeople(q, companies, groupPeople(book), BOOK_RESULT_LIMIT);
   }, [book, q]);
 
   return (
@@ -1697,16 +1698,19 @@ function BookSearch() {
           {results.length === 0 && (
             <PlaceFallback q={q.trim()} />
           )}
-          {results.map((r) => (
+          {results.map(({ account: r, person }) => (
             <Link
-              key={`${r.kind}-${r.id}-${r.name}`}
+              key={r.id}
               href={{ pathname: "/prospect", query: { account: r.id } }}
               onMouseDown={(e) => e.preventDefault()}
               className="flex min-h-11 w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-[13px] transition-colors hover:bg-[#FAF9F5]"
             >
-              <span className="truncate font-medium text-[#14201B]">{r.name}</span>
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-[#14201B]">{r.name}</span>
+                {person && <span className="block truncate text-[12px] text-[#3D4A44]">{person}</span>}
+              </span>
               <span className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[#8A928C]">
-                {r.kind === "person" ? r.company : (r.city ?? r.area)}
+                {r.city ?? r.area}
                 <Ico name="external" size={12} />
               </span>
             </Link>
