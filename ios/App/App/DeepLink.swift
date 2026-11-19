@@ -5,7 +5,8 @@ import WidgetKit
 /// fieldsalesos:// links from the home-screen widget.
 ///   go?day=D&stop=ID&maps=U&state=S  the route view on that stop, then Maps to it;
 ///                        a day not started asks for the start odometer first
-///   sdr?account=ID       the SDR page with that client loaded
+///   sdr?account=ID&call=C&to=notes  the SDR page with that client (or that
+///                        queued call) loaded; to=notes lands on the call notes
 ///   call?account=ID&tel=N  the SDR page loaded for that client, then the dialer
 ///                        (no tel: red alert, nothing dials)
 ///   sdrcall?id=ID&name=N&account=A&tel=T  the SDR page on that client, then the
@@ -79,7 +80,9 @@ enum DeepLink {
                 Task { await resolveAndOpen(day: day, stop: stop, vc: vc) }
             }
         case "sdr":
-            if let id = q["account"] { load(webView, "/prospect?account=\(id)") }
+            var c = URLComponents()
+            c.queryItems = ["account", "call", "to"].compactMap { k in q[k].map { URLQueryItem(name: k, value: $0) } }
+            if !(c.queryItems ?? []).isEmpty, let query = c.percentEncodedQuery { load(webView, "/prospect?\(query)") }
         case "call":
             if let id = q["account"] { load(webView, "/prospect?account=\(id)") }
             guard let tel = q["tel"], !tel.isEmpty, let dial = URL(string: "tel:\(tel)") else {

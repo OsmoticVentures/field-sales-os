@@ -493,6 +493,12 @@ func sdrCallURL(_ c: SdrCall) -> URL {
 func sdrLogURL(_ c: SdrCall) -> URL {
     deepLink("sdrlog", ["id": c.id, "name": c.name])
 }
+/// The name opens that client's SDR page, landed on the call notes.
+func sdrNotesURL(_ c: SdrCall) -> URL {
+    var items = ["call": c.id, "to": "notes"]
+    if let a = c.account_id { items["account"] = a }
+    return deepLink("sdr", items)
+}
 
 /// Five segments, one per call of the day's target.
 struct SdrProgress: View {
@@ -511,7 +517,7 @@ struct SdrRow: View {
     let call: SdrCall
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
-            Link(destination: sdrLogURL(call)) {
+            Link(destination: sdrNotesURL(call)) {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 5) {
                         if call.priority == "high" {
@@ -524,6 +530,15 @@ struct SdrRow: View {
                     }
                 }
                 Spacer(minLength: 4)
+            }
+            // How the call went, without dialing from here.
+            Link(destination: sdrLogURL(call)) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Pal.ink)
+                    .frame(width: 36, height: 32)
+                    .background(Pal.control)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             if call.tel_url != nil {
                 Link(destination: sdrCallURL(call)) {

@@ -1079,6 +1079,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
       )}
 
       {item.account_id && (
+        <div id="sdr-notes" className="scroll-mt-3">
         <Card>
           <div className="mb-2 text-[11.5px] tracking-[0.1em] text-[#8A928C] uppercase">{item.kind === "visit" ? "Log this visit" : "Log this call"}</div>
           {/* Keyed per account so the opening line is right for whoever is
@@ -1099,6 +1100,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
             }}
           />
         </Card>
+        </div>
       )}
 
       {showSuccess ? (
@@ -1148,6 +1150,33 @@ function TierFold({ id, label, count, children }: { id: string; label: string | 
   );
 }
 
+/** Keep the call notes at the top of the screen while the account above
+ *  them is still loading in, until the rep touches or scrolls the page or a
+ *  few seconds pass. Without notes (a prospect with no account), the
+ *  account itself. Returns the cleanup. */
+function holdOnNotes(panel: HTMLElement | null): () => void {
+  const target = () => document.getElementById("sdr-notes") ?? panel;
+  const land = () => target()?.scrollIntoView({ behavior: "auto", block: "start" });
+  let stopped = false;
+  const ro = typeof ResizeObserver !== "undefined" && panel ? new ResizeObserver(() => !stopped && land()) : null;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    ro?.disconnect();
+    clearTimeout(timer);
+    window.removeEventListener("touchstart", stop);
+    window.removeEventListener("wheel", stop);
+    window.removeEventListener("keydown", stop);
+  };
+  const timer = setTimeout(stop, 4000);
+  window.addEventListener("touchstart", stop, { passive: true });
+  window.addEventListener("wheel", stop, { passive: true });
+  window.addEventListener("keydown", stop);
+  if (panel) ro?.observe(panel);
+  requestAnimationFrame(land);
+  return stop;
+}
+
 /** The card to open for a focused account: its pending card from the
  *  schedule, else an unscheduled call card when the name is known. */
 function focusTarget(
@@ -1157,7 +1186,10 @@ function focusTarget(
   focusAccountName: string | null | undefined,
   focusAccountPhone: string | null | undefined,
   focus: FocusRecord = {},
+  focusCallId?: string | null,
 ): ScheduleItem | null {
+  const byCall = focusCallId ? initialItems.find((it) => it.id === focusCallId) : undefined;
+  if (byCall) return byCall;
   if (!focusAccountId) return null;
   const existing = initialItems.find((it) => it.account_id === focusAccountId && it.status === "pending");
   if (existing) return existing;
@@ -1191,7 +1223,7 @@ type FocusRecord = {
 
 
 export function ProspectClient({
-  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority,
+  initialItems, todayIso, days, areas, focusAccountId, focusAccountName, focusAccountPhone, focusAccountArea, focusAccountHours, focusAccountPriority, focusCallId, scrollTo,
 }: {
   initialItems: ScheduleItem[];
   todayIso: string;
@@ -1203,16 +1235,26 @@ export function ProspectClient({
   focusAccountArea?: string | null;
   focusAccountHours?: BusinessHours | null;
   focusAccountPriority?: FocusRecord["priority"];
+  /** The queue row to open (the widget's call id), ahead of the account. */
+  focusCallId?: string | null;
+  /** "notes": land on the call notes rather than the top of the account. */
+  scrollTo?: "notes" | null;
 }) {
   const focusRecord: FocusRecord = { area: focusAccountArea, hours: focusAccountHours, priority: focusAccountPriority };
   const [items, setItems] = useState(initialItems);
   const [active, setActive] = useState<ScheduleItem | null>(() =>
-    focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord),
+    focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord, focusCallId),
   );
   const panelRef = useRef<HTMLDivElement>(null);
+  /* Opened at the notes (the widget's name tap): the first card lands there
+     instead of at the top of the account. */
+  const notesFor = useRef(scrollTo === "notes" ? (active?.id ?? null) : null);
 
   useEffect(() => {
-    if (active) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!active) return;
+    if (notesFor.current === active.id) return holdOnNotes(panelRef.current);
+    notesFor.current = null;
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
 
@@ -1222,7 +1264,7 @@ export function ProspectClient({
   const [focusedFor, setFocusedFor] = useState(focusAccountId);
   if (focusedFor !== focusAccountId) {
     setFocusedFor(focusAccountId);
-    const target = focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord);
+    const target = focusTarget(initialItems, todayIso, focusAccountId, focusAccountName, focusAccountPhone, focusRecord, focusCallId);
     if (target) setActive(target);
   }
 

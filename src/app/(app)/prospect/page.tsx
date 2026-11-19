@@ -27,9 +27,12 @@ export const metadata = { title: "Prospect · ClientOS" };
 
 const DAYS_AHEAD = 6;
 
-export default async function ProspectPage({ searchParams }: { searchParams: Promise<{ account?: string }> }) {
+export default async function ProspectPage({ searchParams }: { searchParams: Promise<{ account?: string; call?: string; to?: string }> }) {
   await requireAccess();
-  const focusAccountId = (await searchParams).account?.trim() || null;
+  const sp = await searchParams;
+  const focusAccountId = sp.account?.trim() || null;
+  const focusCallId = sp.call?.trim() || null;
+  const scrollTo = sp.to === "notes" ? "notes" : null;
 
   if (!isConfigured()) {
     return (
@@ -89,6 +92,8 @@ export default async function ProspectPage({ searchParams }: { searchParams: Pro
         focusAccountArea={focusAccountId ? (cards[focusAccountId]?.area ?? null) : null}
         focusAccountHours={focusAccountId ? (cards[focusAccountId]?.businessHours ?? null) : null}
         focusAccountPriority={focusPriority}
+        focusCallId={focusCallId}
+        scrollTo={scrollTo}
       />
     </>
   );
