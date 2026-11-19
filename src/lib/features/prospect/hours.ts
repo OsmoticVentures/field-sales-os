@@ -49,6 +49,22 @@ export function fmtHour(hhmm: string): string {
   return m ? `${h12}:${String(m).padStart(2, "0")}${period}` : `${h12}${period}`;
 }
 
+const WEEK_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/** Hours entries in week order, Monday to Sunday. */
+export function weekOrderedHours(h: BusinessHours): Array<[string, string[][]]> {
+  const rank = (d: string) => {
+    const i = WEEK_ORDER.indexOf(d.toLowerCase().slice(0, 3));
+    return i < 0 ? 99 : i;
+  };
+  return Object.entries(h).sort((a, b) => rank(a[0]) - rank(b[0]));
+}
+
+/** [["08:00","15:00"]] -> "8AM to 3PM". */
+export function fmtRanges(ranges: string[][]): string {
+  return ranges.map((r) => r.map(fmtHour).join(" to ")).join(", ");
+}
+
 export type HoursStatus = { open: boolean; label: string };
 
 /**

@@ -30,7 +30,7 @@ import { FindContacts } from "../../../lib/features/enrich/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
 import { dayLabel as routeDayLabel, workingDayIso } from "../../../lib/features/route/field-week";
 import { useAddToRoute } from "../../../lib/features/route/use-add-to-route";
-import { hoursStatus, laTodayKey, type BusinessHours } from "../../../lib/features/prospect/hours";
+import { fmtRanges, hoursStatus, laTodayKey, weekOrderedHours, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { orderWindowLabel } from "../../../lib/features/prospect/purchases";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
 import { withinTrailing12mo } from "../../../lib/features/clients/ui";
@@ -1006,7 +1006,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
             {panel.businessHours && (
               <FoldSection id="hours" label="Hours">
               <div className="flex flex-col gap-1">
-                {Object.entries(panel.businessHours).map(([day, ranges]) => {
+                {weekOrderedHours(panel.businessHours).map(([day, ranges]) => {
                   const isToday = mounted && day === laTodayKey();
                   return (
                     <div key={day} className={`flex items-baseline justify-between gap-3 text-[14px] ${isToday ? "font-medium" : ""}`}>
@@ -1014,7 +1014,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                         {day}
                         {isToday ? " (today)" : ""}
                       </span>
-                      <span className={`tabular-nums ${isToday ? "text-[#14201B]" : "text-[#3D4A44]"}`}>{ranges.length ? ranges.map((r) => r.join(" to ")).join(", ") : "closed"}</span>
+                      <span className={`tabular-nums ${isToday ? "text-[#14201B]" : "text-[#3D4A44]"}`}>{ranges.length ? fmtRanges(ranges) : "closed"}</span>
                     </div>
                   );
                 })}

@@ -1,5 +1,6 @@
 "use client";
 
+import { fmtRanges, weekOrderedHours } from "../../../../lib/features/prospect/hours";
 import { collapseEmailSignature } from "@/lib/shared/email-signature";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -971,11 +972,11 @@ export function AccountView({
                 <OpenBadge businessHours={a.business_hours} />
               </div>
               <dl className="flex flex-col gap-1 text-[13px]">
-                {Object.entries(a.business_hours).map(([day, ranges]) => (
+                {weekOrderedHours(a.business_hours).map(([day, ranges]) => (
                   <div key={day} className="flex justify-between gap-3">
                     <dt className="w-9 shrink-0 text-[#8A928C] capitalize">{day}</dt>
                     <dd className="min-w-0 flex-1 text-right break-words tabular-nums">
-                      {ranges.length ? ranges.map((r) => r.join(" to ")).join(", ") : "Closed"}
+                      {ranges.length ? fmtRanges(ranges) : "Closed"}
                     </dd>
                   </div>
                 ))}
