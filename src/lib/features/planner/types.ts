@@ -16,6 +16,8 @@ export type PlanAccount = {
   lat: number;
   lng: number;
   businessHours: Record<string, string[][]> | null;
+  /** "tue,thu,fri@09:00": days the account asked for and a time (either half optional). */
+  visitPreference?: string | null;
   reason: string;
   score: number | null;
 };

@@ -88,7 +88,7 @@ async function ownedRows(): Promise<AccountRow[]> {
   return whileOwnedRowsUnchanged("route-owned", owner, () =>
     raw<AccountRow>(
       "nb_accounts",
-      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness,source,erp_customer_code,scout_grade:enrichment_status->lead_scout->>grade" +
+      "select=id,name,street,city,state,lat,lng,phone,website,hubspot_company_id,lifecycle,last_order_at,trailing_12m_revenue,lifetime_revenue,business_hours,visit_preference,channel,area,lead_status,chain_excluded,practice_excluded,do_not_visit,readiness,source,erp_customer_code,scout_grade:enrichment_status->lead_scout->>grade" +
         `&hubspot_owner_id=eq.${owner}&lat=not.is.null&closed_at=is.null&order=name.asc`,
     ),
   );

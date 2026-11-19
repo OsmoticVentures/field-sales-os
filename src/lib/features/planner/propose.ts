@@ -164,6 +164,7 @@ export async function proposeWeek(daysCount: number = DEFAULT_HORIZON_DAYS): Pro
       lat: geo.lat,
       lng: geo.lng,
       businessHours: geo.business_hours,
+      visitPreference: geo.visit_preference ?? null,
       reason: result.reason,
       score: result.score,
     });
@@ -207,6 +208,7 @@ export async function proposeWeek(daysCount: number = DEFAULT_HORIZON_DAYS): Pro
       lat: geo.lat,
       lng: geo.lng,
       businessHours: geo.business_hours,
+      visitPreference: geo.visit_preference ?? null,
       reason: "",
       score: null,
     });

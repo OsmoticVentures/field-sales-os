@@ -143,6 +143,7 @@ export type RouteAccount = {
   trailing_12m_revenue: number | null;
   lifetime_revenue: number | null;
   business_hours: Record<string, string[][]> | null;
+  visit_preference?: string | null;
   /** Everything below is additional to the Route feature's original slice,
    *  added to draw every account as a map pin with the source's filters and
    *  pin card (portfolio's map/AccountsMap.tsx, MapAccount type). */

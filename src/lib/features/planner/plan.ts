@@ -45,6 +45,30 @@ export function minutesToHHMM(mins: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+/** An account's own stated visit preference, grammar "tue,thu,fri@09:00".
+ *  Days restrict which dates it may be seated on; a time makes it an anchor. */
+export function parseVisitPreference(pref: string | null | undefined): { days: string[] | null; time: string | null } {
+  if (!pref) return { days: null, time: null };
+  const [d, t] = pref.split("@");
+  const days = d ? d.split(",").filter(Boolean) : [];
+  return { days: days.length ? days : null, time: t && /^\d{2}:\d{2}$/.test(t) ? t : null };
+}
+
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+export function weekdayOf(dateIso: string): string {
+  return WEEKDAYS[new Date(`${dateIso}T12:00:00Z`).getUTCDay()];
+}
+
+/** RFC3339 for a local LA wall-clock time on a date (offset found by checking
+ *  which of the two LA offsets reads back as the same clock). */
+export function laIso(dateIso: string, hhmm: string): string {
+  for (const off of ["-08:00", "-07:00"]) {
+    const iso = `${dateIso}T${hhmm}:00${off}`;
+    if (minutesToHHMM(laClockMinutesFromIso(iso)) === hhmm) return iso;
+  }
+  return `${dateIso}T${hhmm}:00-08:00`;
+}
+
 /** A directive's "Stated time: <RFC3339>" read as LA wall-clock minutes,
  *  since that's the clock the rest of the day is built on. */
 export function laClockMinutesFromIso(iso: string): number {
@@ -318,10 +342,20 @@ export function buildWeekPlan(input: {
   for (const date of builds.keys()) {
     const build = builds.get(date)!;
     const dayAnchors = anchors.filter((a) => a.date === date && accountsById.has(a.accountId));
-    const timed = dayAnchors
+    const withPrefTime = dayAnchors.map((a) => {
+      const t = parseVisitPreference(accountsById.get(a.accountId)?.visitPreference).time;
+      return a.statedTimeIso === null && t ? { ...a, statedTimeIso: laIso(date, t) } : a;
+    });
+    const timed = withPrefTime
       .filter((a) => a.statedTimeIso !== null)
       .sort((a, b) => laClockMinutesFromIso(a.statedTimeIso!) - laClockMinutesFromIso(b.statedTimeIso!));
-    const untimed = dayAnchors.filter((a) => a.statedTimeIso === null);
+    const untimed = withPrefTime.filter((a) => a.statedTimeIso === null);
+    for (const a of dayAnchors) {
+      const pref = parseVisitPreference(accountsById.get(a.accountId)?.visitPreference);
+      if (pref.days && !pref.days.includes(weekdayOf(date))) {
+        build.warnings.push(`${accountsById.get(a.accountId)!.name} asked for ${pref.days.join(", ")}, not ${weekdayOf(date)}`);
+      }
+    }
 
     for (const a of timed) {
       const src = accountsById.get(a.accountId)!;
@@ -382,7 +416,9 @@ export function buildWeekPlan(input: {
     let bestGap = 0;
     let bestCost = Infinity;
 
+    const pref = parseVisitPreference(c.visitPreference);
     for (const [date, build] of builds) {
+      if (pref.days && !pref.days.includes(weekdayOf(date))) continue;
       if (build.order.length >= options.maxStopsPerDay) continue;
       if (dayElapsedMinutes(build, options, legMinutes) >= options.maxDayMinutes) continue;
 
@@ -406,6 +442,7 @@ export function buildWeekPlan(input: {
     }
 
     if (bestDate) {
+      if (pref.time) stop.statedTimeIso = laIso(bestDate, pref.time);
       insertAt(builds.get(bestDate)!, stop, bestGap);
     }
   }
