@@ -767,18 +767,57 @@ function RouteDay({
     }
     return items.length;
   }
+  // Edge autoscroll: while a stop is held in the top or bottom quarter of
+  // the screen the page scrolls that way, faster the closer to the edge, so
+  // stop 6 reaches slot 1 in one motion.
+  const edgeScroll = useRef<{ y: number; raf: number | null }>({ y: 0, raf: null });
+  function retarget(y: number) {
+    setDrag((d) => {
+      if (!d) return d;
+      const next = dropIndexAt(y, d.id);
+      return next === d.dropIndex ? d : { ...d, dropIndex: next };
+    });
+  }
+  function edgeTick() {
+    const s = edgeScroll.current;
+    const h = window.innerHeight;
+    const zone = h / 4;
+    let v = 0;
+    if (s.y < zone) v = -(3 + 22 * Math.min(1, 1 - s.y / zone) ** 2);
+    else if (s.y > h - zone) v = 3 + 22 * Math.min(1, 1 - (h - s.y) / zone) ** 2;
+    if (v !== 0) {
+      const before = window.scrollY;
+      window.scrollBy(0, v);
+      if (window.scrollY !== before) retarget(s.y);
+    }
+    s.raf = requestAnimationFrame(edgeTick);
+  }
+  function stopEdgeScroll() {
+    const s = edgeScroll.current;
+    if (s.raf !== null) cancelAnimationFrame(s.raf);
+    s.raf = null;
+  }
+  useEffect(() => stopEdgeScroll, []);
+  function cancelDrag() {
+    stopEdgeScroll();
+    setDrag(null);
+  }
   function handleGripDown(e: PointerEvent<HTMLButtonElement>, id: string, index: number) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({ id, dropIndex: index });
+    edgeScroll.current.y = e.clientY;
+    stopEdgeScroll();
+    edgeScroll.current.raf = requestAnimationFrame(edgeTick);
   }
   function handleGripMove(e: PointerEvent<HTMLButtonElement>) {
     if (!drag) return;
     e.preventDefault();
-    const next = dropIndexAt(e.clientY, drag.id);
-    if (next !== drag.dropIndex) setDrag({ ...drag, dropIndex: next });
+    edgeScroll.current.y = e.clientY;
+    retarget(e.clientY);
   }
   function handleGripUp(e: PointerEvent<HTMLButtonElement>) {
+    stopEdgeScroll();
     if (!drag) return;
     e.currentTarget.releasePointerCapture(e.pointerId);
     const ids = stops.map((s) => s.id);
@@ -1507,13 +1546,26 @@ function RouteDay({
                         </span>
                       </button>
                     ) : (
-                      <span
-                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[12px] font-semibold tabular-nums text-white ${
-                          c ? "rounded-[4px] bg-[#A0762C]" : "rounded-full bg-[#14201B]"
-                        }`}
+                      // The number is a drag handle too: hold it and move.
+                      <button
+                        type="button"
+                        onPointerDown={(e) => handleGripDown(e, s.id, i)}
+                        onPointerMove={handleGripMove}
+                        onPointerUp={handleGripUp}
+                        onPointerCancel={cancelDrag}
+                        onContextMenu={(e) => e.preventDefault()}
+                        aria-label={`Drag ${title} to reorder`}
+                        style={{ touchAction: "none", WebkitTouchCallout: "none" }}
+                        className="-mx-2 -mb-2 -mt-1.5 flex h-11 w-11 shrink-0 cursor-grab select-none items-center justify-center active:cursor-grabbing"
                       >
-                        {stopNumber.get(s.id) ?? i + 1}
-                      </span>
+                        <span
+                          className={`flex h-7 w-7 items-center justify-center text-[12px] font-semibold tabular-nums text-white ${
+                            c ? "rounded-[4px] bg-[#A0762C]" : "rounded-full bg-[#14201B]"
+                          }`}
+                        >
+                          {stopNumber.get(s.id) ?? i + 1}
+                        </span>
+                      </button>
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -1702,7 +1754,7 @@ function RouteDay({
                         onPointerDown={(e) => handleGripDown(e, s.id, i)}
                         onPointerMove={handleGripMove}
                         onPointerUp={handleGripUp}
-                        onPointerCancel={() => setDrag(null)}
+                        onPointerCancel={cancelDrag}
                         aria-label={`Drag ${title} to reorder`}
                         style={{ touchAction: "none" }}
                         className={`${sqBtn} cursor-grab active:cursor-grabbing`}
