@@ -3,6 +3,13 @@
  * browser half (outbox.ts) hands it a store and a transport; the tests hand
  * it fakes. Kept import-free so `node --experimental-strip-types` can load it.
  *
+ * JUAN'S NOTES (2026-11-23): the touchpoint stage is the whole send. The
+ * server keeps the note in its inbox in that one request (no model, no
+ * laptop) and answers `accepted`; the Mac reads and files it from there and
+ * HubSpot retries on its own schedule. The item then needs only its photo,
+ * sent against the note key, and leaves as Sent. The other rep's notes still
+ * file here stage by stage, as below.
+ *
  * One item is one visit note, from the tap on Log until HubSpot has said yes.
  * Its stages run in order and each one is recorded on the item the moment it
  * lands, so a restart resumes at the next unfinished stage:
@@ -99,6 +106,10 @@ export type OutboxItem = {
   storeType?: StoreType | null;
   /** The email the server decided this visit leaves owing, once filed. */
   outbound?: OutboundNotice | null;
+  /** The server's inbox has it (Juan's notes): sent, read and filed there. */
+  accepted?: boolean;
+  /** The key the inbox holds it under, for a photo sent after it. */
+  noteKey?: string | null;
 
   attempts: number;
   nextAt: number;
@@ -176,7 +187,7 @@ export type Req = {
   key?: string;
   json?: unknown;
   /** Multipart for the photo; the transport builds the FormData. */
-  form?: { touchpoint_id: string; idempotency_key: string; photo: NonNullable<OutboxItem["photo"]> };
+  form?: { touchpoint_id?: string; note_key?: string; idempotency_key: string; photo: NonNullable<OutboxItem["photo"]> };
 };
 
 export type Step = { stage: Stage; req: Req };
@@ -197,6 +208,17 @@ export const waitsForType = (it: OutboxItem): boolean =>
 
 /** The next stage to run, skipping the ones that already failed this pass.
  *  Null when the item is complete, parked, or waiting on a filed note. */
+/** What the inbox keeps beside the note (Juan's notes): the door reads and
+ *  where the phone was, for a store New company has to create. */
+function doorRead(it: OutboxItem) {
+  return {
+    grade: it.grade ?? undefined,
+    readiness: it.readiness ?? undefined,
+    counts: it.counts ?? undefined,
+    near: it.near ?? undefined,
+  };
+}
+
 export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): Step | null {
   if (it.parked) return null;
   const kindOverride = it.kind ?? undefined;
@@ -216,7 +238,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
         req: {
           path: "/api/visit/touchpoint",
           key: `${it.id}:${it.pickedAccountId}`,
-          json: { text: it.text, occurredAt: new Date(it.createdAt).toISOString(), accountIdHint: it.pickedAccountId, kindOverride, parsed: it.parsed ?? undefined, replaces: it.replaces ?? undefined },
+          json: { text: it.text, occurredAt: new Date(it.createdAt).toISOString(), accountIdHint: it.pickedAccountId, kindOverride, parsed: it.parsed ?? undefined, replaces: it.replaces ?? undefined, ...doorRead(it) },
         },
       };
     }
@@ -225,7 +247,7 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
       req: {
         path: "/api/visit/touchpoint",
         key: it.id,
-        json: { text: it.text, occurredAt: new Date(it.createdAt).toISOString(), accountIdHint: it.accountIdHint ?? undefined, kindOverride, forceNewAccount: it.newCompany, replaces: it.replaces ?? undefined },
+        json: { text: it.text, occurredAt: new Date(it.createdAt).toISOString(), accountIdHint: it.accountIdHint ?? undefined, kindOverride, forceNewAccount: it.newCompany, replaces: it.replaces ?? undefined, ...doorRead(it) },
       },
     };
   }
@@ -243,13 +265,14 @@ export function nextStep(it: OutboxItem, skip: ReadonlySet<Stage> = new Set()): 
       },
     };
   }
-  if (!it.photoDone && !skip.has("photo") && it.photo && it.touchpointId) {
+  if (!it.photoDone && !skip.has("photo") && it.photo && (it.touchpointId || (it.accepted && it.noteKey))) {
+    const target = it.touchpointId ? { touchpoint_id: it.touchpointId } : { note_key: it.noteKey! };
     return {
       stage: "photo",
       req: {
         path: "/api/visit/attach",
         key: `${it.id}:photo`,
-        form: { touchpoint_id: it.touchpointId, idempotency_key: `${it.id}:photo`, photo: it.photo },
+        form: { ...target, idempotency_key: `${it.id}:photo`, photo: it.photo },
       },
     };
   }
@@ -333,6 +356,26 @@ export function applyOutcome(it: OutboxItem, step: Step, out: Outcome, ctx: Appl
       };
     }
     case "touchpoint": {
+      const accepted = out.result as { accepted?: boolean; key?: string; accountId?: string | null; accountName?: string | null };
+      if (accepted?.accepted) {
+        // In the server's inbox: sent. The read, the account and HubSpot are
+        // the server's now; only a photo is left to send from here.
+        return {
+          item: {
+            ...base,
+            filed: true,
+            accepted: true,
+            noteKey: accepted.key ?? it.id,
+            needsAccount: null,
+            accountId: accepted.accountId ?? it.pickedAccountId ?? it.accountIdHint ?? null,
+            accountName: accepted.accountName ?? it.accountName,
+            hubspot: "n/a",
+            hubspotRefused: null,
+            readDone: true,
+          },
+          ok: true,
+        };
+      }
       const r = out.result as FiledShape | NeedsShape;
       if (r.needsAccount) {
         const needs: NeedsAccount = {

@@ -321,6 +321,25 @@ function enqueue(world: ReturnType<typeof fakeWorld>, over: Partial<Parameters<t
   t("11 another rep's store holds in red with the reason, not retried", d2.parked === "rejected" && Boolean(d2.lastError?.includes("may already be in HubSpot")) && !isDue(d2, w2.now() + 3_600_000));
 }
 
+// 12. Juan's notes: the server's inbox accepts the note in one request; the
+// item leaves as Sent with no read, HubSpot or account stage, and a photo
+// goes up against the note key.
+{
+  const w = fakeWorld(() => ok({ accepted: true, key: "k-1", accountId: "acc-n", accountName: "NHC GROUP", status: "waiting" }));
+  const it = enqueue(w, { grade: "B" });
+  const r = await advance(it, w.deps);
+  const tp = w.sent[0];
+  t("12 the send carries the door read", (tp.json as { grade?: string }).grade === "B");
+  t("12 one request, then gone as sent", w.sent.length === 1 && r.removed && r.item.accepted === true && r.item.accountId === "acc-n");
+
+  const w2 = fakeWorld((req) => ok(req.path === "/api/visit/touchpoint" ? { accepted: true, key: "k-2", accountId: null, accountName: null, status: "waiting" } : { attachments: [] }));
+  const it2 = enqueue(w2, { photo: { bytes: new ArrayBuffer(4), type: "image/jpeg", name: "p.jpg" } });
+  const r2 = await advance(it2, w2.deps);
+  const ph = w2.sent[1];
+  t("12 the photo goes up against the note key", w2.sent.length === 2 && ph.path === "/api/visit/attach" && ph.form?.note_key === "k-2" && !ph.form?.touchpoint_id);
+  t("12 then the item leaves", r2.removed);
+}
+
 if (failures) {
   console.error(`outbox: ${failures} failing`);
   process.exitCode = 1;

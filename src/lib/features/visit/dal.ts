@@ -709,10 +709,12 @@ export type TouchpointAttachment = { name: string; url: string; uploaded_at: str
 
 /** Uploads to Drive (same folder tree as the source app), then appends the
  *  link onto the touchpoint's attachments. */
-export async function attachTouchpointPhoto(
-  touchpointId: string,
+/** Upload one visit photo to Drive, named after what it belongs to (a
+ *  touchpoint, or a note still in the inbox). Returns the attachment line. */
+export async function uploadVisitPhoto(
+  prefix: string,
   photo: { bytes: ArrayBuffer; mimeType: string; filename: string },
-): Promise<{ attachments: TouchpointAttachment[] }> {
+): Promise<TouchpointAttachment> {
   if (!isConfigured()) throw new Error("Cannot attach a photo: no data source configured.");
   const { ensureFolder, uploadFile, asOwnerLink } = await import("../../shared/gdrive");
   // Each rep's photos in a folder of their own; Juan's keeps its original name.
@@ -720,18 +722,23 @@ export async function attachTouchpointPhoto(
   const root = await ensureFolder(me.id === DEFAULT_USER ? "NutriBiotic Field Notes" : `NutriBiotic Field Notes · ${me.name}`, null);
   const day = await ensureFolder(new Date().toISOString().slice(0, 10), root.id);
   const ext = photo.filename.includes(".") ? photo.filename.slice(photo.filename.lastIndexOf(".")) : ".jpg";
-  const name = `${touchpointId}_${Date.now().toString(36)}${ext}`;
+  const name = `${prefix.replace(/[^A-Za-z0-9_-]/g, "")}_${Date.now().toString(36)}${ext}`;
   const uploaded = await uploadFile(photo.bytes, photo.mimeType, day.id, name);
+  return { name, url: asOwnerLink(uploaded.webViewLink), uploaded_at: new Date().toISOString() };
+}
 
+/** Add attachment lines to a filed touchpoint, skipping any it already has. */
+export async function appendTouchpointAttachments(
+  touchpointId: string,
+  add: TouchpointAttachment[],
+): Promise<{ attachments: TouchpointAttachment[] }> {
   const rows = await query<{ attachments: TouchpointAttachment[] | null }>("nb_touchpoints", {
     select: "attachments",
     id: `eq.${touchpointId}`,
     limit: "1",
   });
-  const attachments: TouchpointAttachment[] = [
-    ...(rows[0]?.attachments ?? []),
-    { name, url: asOwnerLink(uploaded.webViewLink), uploaded_at: new Date().toISOString() },
-  ];
+  const have = rows[0]?.attachments ?? [];
+  const attachments: TouchpointAttachment[] = [...have, ...add.filter((a) => !have.some((h) => h.name === a.name))];
   const [row] = await mutate<{ attachments: TouchpointAttachment[] }>(
     "nb_touchpoints",
     "PATCH",
@@ -739,4 +746,12 @@ export async function attachTouchpointPhoto(
     { id: `eq.${touchpointId}` },
   );
   return row;
+}
+
+export async function attachTouchpointPhoto(
+  touchpointId: string,
+  photo: { bytes: ArrayBuffer; mimeType: string; filename: string },
+): Promise<{ attachments: TouchpointAttachment[] }> {
+  const att = await uploadVisitPhoto(touchpointId, photo);
+  return appendTouchpointAttachments(touchpointId, [att]);
 }

@@ -19,6 +19,22 @@ import { getRouteStateByDay, isConfigured as routeConfigured } from "../route/da
 import { dayLabel } from "../route/field-week";
 import type { RouteDraftEntry } from "../route/types";
 import type { ClientAccount, ClientActivity, ClientContact } from "./dal";
+import { unfiledFor } from "../visit/waiting";
+
+/** A note sent but not read yet, as a history line: a negative id that can
+ *  never collide with a real activity, his own words, the time he wrote it. */
+function sentLine(n: { key: string; text: string; kind_override: string | null; occurred_at: string | null; created_at: string }): ClientActivity {
+  let h = 0;
+  for (const ch of n.key) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return {
+    id: -Math.abs(h || 1),
+    at: n.occurred_at ?? n.created_at,
+    kind: n.kind_override === "call" ? "call" : n.kind_override === "email" ? "email" : "visit note",
+    direction: null,
+    outcome: null,
+    detail: n.text,
+  };
+}
 
 const SB_URL = process.env.NB_SUPABASE_URL ?? "";
 const SB_KEY = process.env.NB_SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -206,7 +222,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
   const ids = accountRows.map((a) => String(a.id));
   if (ids.length === 0) return {};
 
-  const [contacts, activities, orders, lines, hqRows, book] = await Promise.all([
+  const [contacts, activities, orders, lines, hqRows, book, unfiled] = await Promise.all([
     sbGetAllFor<Row & { account_id: string }>(
       "nb_contacts",
       { select: CONTACT_SELECT, order: "account_id.asc,is_decision_maker.desc,last_name.asc,id.asc" },
@@ -245,10 +261,13 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
       ids,
     ),
     getPriorityBook().catch(() => null),
+    unfiledFor(ids).catch(() => []),
   ]);
 
   const contactsBy = groupBy(contacts);
-  const activitiesBy = groupBy(activities);
+  const sent: (ClientActivity & { account_id: string })[] = [];
+  for (const n of unfiled) if (n.account_id) sent.push({ ...sentLine(n), account_id: n.account_id });
+  const activitiesBy = groupBy<ClientActivity & { account_id: string }>([...sent, ...activities]);
   const ordersBy = groupBy(orders);
   const linesBy = groupBy(lines);
   const hqBy = new Map(hqRows.map((r) => [r.account_id, r.brief]));
@@ -265,6 +284,7 @@ async function assemble(accountRows: Row[]): Promise<Record<string, AccountPaylo
       account,
       contacts: (contactsBy.get(id) ?? []).map((c) => pick<ClientContact>(c, CONTACT_KEYS)),
       activities: (activitiesBy.get(id) ?? [])
+        .sort((x, y) => (y.at > x.at ? 1 : y.at < x.at ? -1 : 0))
         .slice(0, ACTIVITY_CAP)
         .map(({ id, at, kind, direction, outcome, detail }) => ({ id, at, kind, direction, outcome, detail })),
       orders: accOrders,

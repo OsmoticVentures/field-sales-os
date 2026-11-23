@@ -46,6 +46,8 @@ export type { OutboxItem } from "./outbox-core";
 export type OutboxDone = {
   id: string;
   label: string;
+  /** In the server's inbox: sent, the read and HubSpot follow there. */
+  sent: boolean;
   accountId: string | null;
   hubspot: OutboxItem["hubspot"];
   outbound: OutboxItem["outbound"];
@@ -131,7 +133,8 @@ async function send(req: Req): Promise<Outcome> {
     let init: RequestInit;
     if (req.form) {
       const form = new FormData();
-      form.set("touchpoint_id", req.form.touchpoint_id);
+      if (req.form.touchpoint_id) form.set("touchpoint_id", req.form.touchpoint_id);
+      if (req.form.note_key) form.set("note_key", req.form.note_key);
       form.set("idempotency_key", req.form.idempotency_key);
       const p = req.form.photo;
       form.set("photo", new Blob([p.bytes], { type: p.type || "image/jpeg" }), p.name || "photo.jpg");
@@ -176,7 +179,7 @@ function label(it: OutboxItem): string {
 
 function beat(it: OutboxItem) {
   const outbound = it.outbound ?? null;
-  state = { ...state, done: [...state.done, { id: it.id, label: label(it), accountId: it.accountId ?? it.accountIdHint ?? null, hubspot: it.hubspot, outbound }] };
+  state = { ...state, done: [...state.done, { id: it.id, label: label(it), sent: Boolean(it.accepted), accountId: it.accountId ?? it.accountIdHint ?? null, hubspot: it.hubspot, outbound }] };
   emit();
   // An email that was owed and could not be written stays until he clears it.
   if (outbound?.status === "not_written") return;

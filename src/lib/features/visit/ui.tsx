@@ -451,6 +451,107 @@ export function TouchpointCapture({
       </div>
 
       <OutboxList onTakeBack={restore} />
+      <InboxAlerts />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// notes the server has not filed: red, with what he can do about each
+// ---------------------------------------------------------------------------
+
+type InboxNote = { key: string; label: string; status: string; error: string | null; sentAt: string; picks: AccountPick[] };
+type InboxHubspot = { activityId: number; label: string; error: string | null };
+
+function sinceWord(iso: string): string {
+  const h = Math.floor((Date.now() - Date.parse(iso)) / 3600_000);
+  return h >= 24 ? `${Math.floor(h / 24)}d` : `${Math.max(h, 1)}h`;
+}
+
+/** Read when the Visit screen opens and after each send, never polled. */
+function InboxAlerts() {
+  const { done } = useOutbox();
+  const [notes, setNotes] = useState<InboxNote[]>([]);
+  const [hubspot, setHubspot] = useState<InboxHubspot[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<Record<string, string>>({});
+  const sends = done.length;
+
+  useEffect(() => {
+    let live = true;
+    apiFetch("/api/visit/inbox")
+      .then((res) => res.json())
+      .then((data: { ok?: boolean; result?: { notes: InboxNote[]; hubspot: InboxHubspot[] } }) => {
+        if (!live || !data?.ok || !data.result) return;
+        setNotes(data.result.notes);
+        setHubspot(data.result.hubspot);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [sends]);
+
+  async function act(key: string, body: Record<string, unknown>) {
+    setBusy(key);
+    const res = await apiFetch("/api/visit/inbox", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key, ...body }),
+    }).catch(() => null);
+    const data = (await res?.json().catch(() => null)) as { ok?: boolean; error?: string; result?: { accountId?: string | null } } | null;
+    setBusy(null);
+    if (!data?.ok) {
+      setErr((e) => ({ ...e, [key]: data?.error ?? "No connection. Try again." }));
+      return;
+    }
+    if (data.result?.accountId) void refreshAccount(data.result.accountId);
+    setNotes((n) => n.filter((x) => x.key !== key));
+  }
+
+  if (notes.length === 0 && hubspot.length === 0) return null;
+  const lineCls = "flex min-h-11 items-center justify-between gap-3 text-[13px]";
+
+  return (
+    <div className="mt-3 flex flex-col divide-y divide-[#EDEBE3] rounded-xl border border-[#E2DFD5] bg-[#FAF9F5] px-4">
+      {notes.map((n) => (
+        <div key={n.key} className="py-1">
+          <div className={lineCls}>
+            <span className="min-w-0 truncate text-[#3D4A44]">{n.label}</span>
+            <span className="flex shrink-0 items-center gap-1.5 font-medium text-[#8A2E2E]">
+              {busy === n.key && <Spinner light={false} />}
+              {n.status === "needs_account" ? "Needs a store" : `Not filed, ${sinceWord(n.sentAt)}`}
+            </span>
+          </div>
+          <ErrorLine
+            message={err[n.key] ?? n.error ?? "Not read yet. The laptop reads it once it is online."}
+            picks={n.picks}
+            busy={busy === n.key}
+            onPick={(a) => void act(n.key, { action: "place", account_id: a.id })}
+            onRetry={n.status === "needs_account" ? null : () => void act(n.key, { action: "retry" })}
+          />
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={busy === n.key}
+              onClick={() => void act(n.key, { action: "discard" })}
+              className="inline-flex min-h-11 items-center gap-1.5 px-2 text-[13px] text-[#5B6560] disabled:opacity-50"
+            >
+              <Ico name="close" size={13} />
+              Discard
+            </button>
+          </div>
+        </div>
+      ))}
+      {hubspot.map((h) => (
+        <div key={h.activityId} className="py-1">
+          <div className={lineCls}>
+            <span className="min-w-0 truncate text-[#3D4A44]">{h.label}</span>
+            <span className="shrink-0 font-medium text-[#8A2E2E]">Filed, not in HubSpot</span>
+          </div>
+          {h.error && <ErrorLine message={h.error} picks={[]} busy={false} onPick={() => {}} onRetry={null} />}
+        </div>
+      ))}
     </div>
   );
 }
@@ -481,7 +582,7 @@ function standing(it: OutboxItem, running: boolean): { word: string; alert: bool
     if (it.offline && !running) return { word: "Filed, no connection, retrying", alert: false };
     return { word: "Filed, waiting for HubSpot", alert: false };
   }
-  if (!it.photoDone) return { word: "Filed, photo pending", alert: false };
+  if (!it.photoDone) return { word: it.accepted ? "Sent, photo sending" : "Filed, photo pending", alert: false };
   return { word: "Filed", alert: false };
 }
 
@@ -611,7 +712,7 @@ function OutboxList({ onTakeBack }: { onTakeBack: (it: OutboxItem) => void }) {
             <span className="min-w-0 truncate text-[#3D4A44]">{d.label}</span>
             <span className="flex shrink-0 items-center gap-1.5 font-medium text-[#2C6A46]">
               <Ico name="check" size={13} />
-              {d.hubspot === "done" ? "Filed to HubSpot" : d.hubspot === "off" ? "Filed, CRM filing off" : "Filed"}
+              {d.sent ? "Sent" : d.hubspot === "done" ? "Filed to HubSpot" : d.hubspot === "off" ? "Filed, CRM filing off" : "Filed"}
             </span>
           </div>
           {d.outbound?.status === "drafted" && (
