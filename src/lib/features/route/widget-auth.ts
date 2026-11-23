@@ -4,6 +4,10 @@
  * that sitting in a script on a phone would be a session-minting key left in
  * a pocket, this one grants exactly the widget's own two reads/writes and
  * rotates in Vercel without signing Juan out of anything.
+ *
+ * Since 2026-11-23 it is also the pass of the app's native note copy
+ * (ios/App/App/NoteOutbox.swift), which may only put one of Juan's notes in
+ * the server's inbox (api/visit/touchpoint), nothing more.
  */
 import "server-only";
 import { timingSafeEqual } from "../../core/session";

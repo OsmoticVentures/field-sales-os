@@ -25,7 +25,14 @@ export type DoorRead = {
   counts?: Record<string, number> | null;
 };
 
-export type WaitingStatus = "waiting" | "filing" | "filed" | "needs_account" | "failed";
+export type WaitingStatus = "waiting" | "filing" | "filed" | "needs_account" | "failed" | "raw_filed" | "enriching";
+
+/** The daily canary's synthetic, closed account (migration 0115). */
+export const CANARY_ACCOUNT = "a_canary";
+
+/** Filed, as far as he is concerned: in the OS and on its way to HubSpot. */
+export const FILED_STATUSES = ["filed", "raw_filed", "enriching"] as const;
+export const isFiled = (s: string): boolean => (FILED_STATUSES as readonly string[]).includes(s);
 
 export type WaitingNote = {
   key: string;
@@ -52,6 +59,10 @@ export type WaitingNote = {
   attempts: number;
   error: string | null;
   touchpoint_id: string | null;
+  activity_id: number | null;
+  raw_filed_at: string | null;
+  read_attempts: number;
+  report: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };
@@ -191,7 +202,7 @@ export async function addAttachment(key: string, att: TouchpointAttachment): Pro
 export async function settleWaiting(
   key: string,
   status: WaitingStatus,
-  extra: Partial<Pick<WaitingNote, "error" | "touchpoint_id" | "needs" | "account_id" | "account_name" | "attempts">> & { next_at?: string } = {},
+  extra: Partial<Pick<WaitingNote, "error" | "touchpoint_id" | "needs" | "account_id" | "account_name" | "attempts" | "activity_id" | "raw_filed_at" | "report">> & { next_at?: string } = {},
 ): Promise<void> {
   await must(
     await sb(`nb_waiting_notes?key=eq.${encodeURIComponent(key)}`, {
@@ -219,7 +230,7 @@ export async function withdrawWaiting(id: string): Promise<void> {
  *  screen. Small: unfiled rows only, the text cut to what a line shows. */
 export async function listUnfiled(rep: string): Promise<WaitingNote[]> {
   const res = await sb(
-    `nb_waiting_notes?rep=eq.${encodeURIComponent(rep)}&status=neq.filed&select=key,text,account_id,account_name,status,attempts,error,needs,created_at,updated_at&order=created_at.asc&limit=50`,
+    `nb_waiting_notes?rep=eq.${encodeURIComponent(rep)}&status=not.in.(${FILED_STATUSES.join(",")})&select=key,text,account_id,account_name,status,attempts,error,needs,created_at,updated_at&order=created_at.asc&limit=50`,
   );
   if (!res.ok) return [];
   return (await res.json()) as WaitingNote[];
@@ -231,7 +242,7 @@ export async function unfiledFor(accountIds: string[]): Promise<Pick<WaitingNote
   if (accountIds.length === 0) return [];
   const ids = accountIds.length > 200 ? null : accountIds.map((i) => `"${i}"`).join(",");
   const res = await sb(
-    `nb_waiting_notes?status=neq.filed&account_id=${ids ? `in.(${ids})` : "not.is.null"}&select=key,account_id,text,kind_override,occurred_at,created_at&order=created_at.desc&limit=200`,
+    `nb_waiting_notes?status=not.in.(${FILED_STATUSES.join(",")})&account_id=${ids ? `in.(${ids})` : "not.is.null"}&select=key,account_id,text,kind_override,occurred_at,created_at&order=created_at.desc&limit=200`,
   ).catch(() => null);
   if (!res?.ok) return [];
   return await res.json();

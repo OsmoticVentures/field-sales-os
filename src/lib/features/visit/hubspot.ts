@@ -69,7 +69,7 @@ export class ScopeError extends Error {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type RequestOpts = {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   path: string;
   body?: unknown;
   entity?: string;

@@ -11,6 +11,7 @@
 		1E112E21652887A1D1DEFFCC /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4B31C898129EF2B3097944AF /* Foundation.framework */; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		3DADDA2B955D43BC0DEB493E /* DeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAAA21415C7DBE776D71A894 /* DeepLink.swift */; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* NoteOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4F5A6B7C8D9E0F1A2 /* NoteOutbox.swift */; };
 		4673630EAE0FC4AAF38E088E /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FEB2C1EE0A86620030872D /* Secrets.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		4FEF8A6BA2C99676931B5BE6 /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FEB2C1EE0A86620030872D /* Secrets.swift */; };
@@ -75,6 +76,7 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A83A04EDC0C6754BE76181AE /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BAAA21415C7DBE776D71A894 /* DeepLink.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeepLink.swift; sourceTree = "<group>"; };
+		B1C2D3E4F5A6B7C8D9E0F1A2 /* NoteOutbox.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NoteOutbox.swift; sourceTree = "<group>"; };
 		DEE874EA9A9ABE657812BF39 /* FieldRouteWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FieldRouteWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -155,6 +157,7 @@
 				2FAD9762203C412B000D30F8 /* config.xml */,
 				50B271D01FEDC1A000F3C39B /* public */,
 				BAAA21415C7DBE776D71A894 /* DeepLink.swift */,
+				B1C2D3E4F5A6B7C8D9E0F1A2 /* NoteOutbox.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -291,6 +294,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				3DADDA2B955D43BC0DEB493E /* DeepLink.swift in Sources */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* NoteOutbox.swift in Sources */,
 				189ABA6400881303DCFE8AD8 /* RouteAPI.swift in Sources */,
 				4FEF8A6BA2C99676931B5BE6 /* Secrets.swift in Sources */,
 			);

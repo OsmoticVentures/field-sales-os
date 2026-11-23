@@ -560,3 +560,103 @@ export async function runEngagement(
   }
   return { ...base, companyId, lines, matchedNames, alreadyFiledId: filed.wrote ? null : filed.noteId, wrote: filed.wrote, noteId: filed.noteId };
 }
+
+/** The same HubSpot record, rewritten from the read (migration 0115): a note
+ *  filed raw by the server carries his own words; once the Mac's read has
+ *  enriched the activity, its body, outcome and people are put on that one
+ *  record. Never a create: an activity with no record yet is left to the
+ *  regular filing, which will build the enriched body on its own. */
+export async function refreshEngagement(activityId: number, feature: HubspotFeature = "visit"): Promise<{ updated: boolean; noteId: string | null }> {
+  const activity = await getActivityById(activityId);
+  if (!activity?.hubspot_engagement_id) return { updated: false, noteId: null };
+  if (activity.origin === "synthetic") throw new Blocked(`activity ${activityId} is seeded data; it never crosses into the portal.`);
+  const etype = engagementType(activity.kind || "note");
+  const account = await getAccountForEngagement(activity.account_id);
+  if (!account?.hubspot_company_id) throw new Blocked(`activity ${activityId} has no portal company.`);
+  const me = await currentUser();
+  if ((account.owner_name ?? "") !== me.ownerName) throw new Blocked(`account ${account.id} is not in ${me.ownerName}'s book.`);
+  const scope = await assertOwnBook([account.hubspot_company_id]);
+  if (!scope.allowed.includes(account.hubspot_company_id)) throw new Blocked(`portal company ${account.hubspot_company_id} is not in ${me.ownerName}'s book.`);
+
+  // The record keeps the type it was filed as; only its words and people change.
+  const id = activity.hubspot_engagement_id;
+  const objectType = await recordTypeOf(id, effectiveType(etype));
+  const otype = (Object.keys(ENGAGEMENT_OBJECT) as EngagementType[]).find((t) => ENGAGEMENT_OBJECT[t] === objectType) ?? "NOTE";
+  const contacts = await listContacts(account.id);
+  const tp = await getTouchpointForEngagement(activityId);
+  const { matched } = matchPeople(contacts, activity, { people: tp.people as ParsedPerson[] });
+  await ensureHubspotContacts(scope.survivor[account.hubspot_company_id] ?? account.hubspot_company_id, matched, feature);
+  const lines = noteLines(activity, matched, etype, otype, tp.hubspotSummary, tp.nextStep);
+  const props = typedProperties(otype, activity, noteBody(lines, activityId), lines.join("\n"), me.ownerId);
+  const body = Object.fromEntries(Object.entries(props).filter(([k, v]) => v !== null && k !== "hubspot_owner_id"));
+  await request({ method: "PATCH", path: `/crm/v3/objects/${objectType}/${id}`, body: { properties: body }, entity: objectType, operation: "update", feature });
+  const contactIds = (await listContacts(account.id))
+    .filter((c) => matched.some((m) => m.contact.id === c.id))
+    .map((c) => c.hubspot_contact_id)
+    .filter((v): v is string => Boolean(v));
+  for (const cid of contactIds) {
+    await request({
+      method: "PUT",
+      path: `/crm/v4/objects/${objectType}/${id}/associations/default/contacts/${cid}`,
+      entity: objectType,
+      operation: "associate",
+      feature,
+    }).catch(() => null);
+  }
+  return { updated: true, noteId: id };
+}
+
+/** Which object a record id lives under: the type the activity's kind maps to
+ *  first, then the others. A raw visit filed as a meeting stays a meeting. */
+async function recordTypeOf(id: string, guess: EngagementType): Promise<string> {
+  const order = [ENGAGEMENT_OBJECT[guess], ...new Set(Object.values(ENGAGEMENT_OBJECT))].filter((v, i, a) => a.indexOf(v) === i);
+  for (const objectType of order) {
+    try {
+      await request({ method: "GET", path: `/crm/v3/objects/${objectType}/${id}?properties=hs_timestamp`, entity: objectType, operation: "read", retries: 1 });
+      return objectType;
+    } catch {
+      /* not this type */
+    }
+  }
+  throw new Blocked(`HubSpot record ${id} was not found.`);
+}
+
+/** The canary's HubSpot step (bridges/nutribiotic/note_canary.py): the latest
+ *  real record filed from his book, read back from the portal by id. A read
+ *  only: the shared portal never gets a test record. */
+export async function readBackLatestEngagement(activityId: number): Promise<{ id: string; objectType: string; hasMarker: boolean }> {
+  const activity = await getActivityById(activityId);
+  if (!activity?.hubspot_engagement_id) throw new Blocked(`activity ${activityId} has no HubSpot record.`);
+  const etype = engagementType(activity.kind || "note");
+  const objectType = await recordTypeOf(activity.hubspot_engagement_id, effectiveType(etype));
+  const prop = objectType === "calls" ? "hs_call_body" : objectType === "meetings" ? "hs_meeting_body" : objectType === "emails" ? "hs_email_html" : "hs_note_body";
+  const res = await request<{ id?: string; properties?: Record<string, string | null> }>({
+    method: "GET",
+    path: `/crm/v3/objects/${objectType}/${activity.hubspot_engagement_id}?properties=${prop}`,
+    entity: objectType,
+    operation: "read",
+  });
+  return { id: res.id ?? activity.hubspot_engagement_id, objectType, hasMarker: (res.properties?.[prop] ?? "").includes(marker(activityId)) };
+}
+
+/** Two kinds that file as the same HubSpot record type (a visit and a meeting
+ *  are both meetings): the read may move a raw note between them, never
+ *  across, since a filed record cannot change its type. */
+export function sameRecordType(a: string, b: string): boolean {
+  if (NEVER_FILED.has(a) || NEVER_FILED.has(b)) return false;
+  return effectiveType(engagementType(a)) === effectiveType(engagementType(b));
+}
+
+/** A raw-filed note its read says was a note to self: the record leaves the
+ *  shared portal (archived, HubSpot's own recycle bin), scoped to his book. */
+export async function archiveEngagement(activityId: number, feature: HubspotFeature = "visit"): Promise<string | null> {
+  const activity = await getActivityById(activityId);
+  const id = activity?.hubspot_engagement_id;
+  if (!activity || !id) return null;
+  const account = await getAccountForEngagement(activity.account_id);
+  const me = await currentUser();
+  if (!account || (account.owner_name ?? "") !== me.ownerName) throw new Blocked(`activity ${activityId} is not in ${me.ownerName}'s book.`);
+  const objectType = await recordTypeOf(id, effectiveType(ACTIVITY_KIND_MAP[activity.kind] ?? "NOTE"));
+  await request({ method: "DELETE", path: `/crm/v3/objects/${objectType}/${id}`, entity: objectType, operation: "archive", feature });
+  return id;
+}

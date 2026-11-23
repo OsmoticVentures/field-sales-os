@@ -549,3 +549,32 @@ export function pickType(it: OutboxItem, channel: string | null, now: number): O
 /** "Try now": due at once, but never before a held write has finished. */
 export const wake = (it: OutboxItem, now: number): OutboxItem =>
   it.parked === "needs-account" ? it : { ...it, parked: null, nextAt: Math.max(now, it.holdUntil) };
+
+// ---------------------------------------------------------------------------
+// the phone's native copy (ios/App/App/NoteOutbox.swift)
+// ---------------------------------------------------------------------------
+
+export type NativeNote = { key: string; rep: string | null; json: Record<string, unknown> };
+
+/** What the app's native copy should hold: every note not yet in the
+ *  server's inbox whose next step is the note door itself, under the same key
+ *  the page sends, plus the keys it held before that are now done (sent,
+ *  discarded, taken back). A note waiting on New company's store, or carrying
+ *  a parse back with a pick, stays the page's alone. */
+export function nativeHandoff(
+  items: readonly OutboxItem[],
+  before: ReadonlySet<string>,
+  signedIn: string | null,
+): { notes: NativeNote[]; done: string[] } {
+  const notes: NativeNote[] = [];
+  for (const it of items) {
+    // Juan's notes only: the native copy's pass files into his inbox alone.
+    if (it.filed || it.parked || (it.rep ?? signedIn ?? "juan") !== "juan") continue;
+    const step = nextStep(it);
+    const json = step?.req.json as Record<string, unknown> | undefined;
+    if (step?.stage !== "touchpoint" || !step.req.key || !json || json.parsed) continue;
+    notes.push({ key: step.req.key, rep: "juan", json: JSON.parse(JSON.stringify(json)) as Record<string, unknown> });
+  }
+  const now = new Set(notes.map((n) => n.key));
+  return { notes, done: [...before].filter((k) => !now.has(k)) };
+}

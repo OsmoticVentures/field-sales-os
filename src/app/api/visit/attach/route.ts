@@ -7,7 +7,7 @@
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { appendTouchpointAttachments, attachTouchpointPhoto, uploadVisitPhoto } from "../../../../lib/features/visit/dal";
-import { addAttachment, getWaiting } from "../../../../lib/features/visit/waiting";
+import { addAttachment, getWaiting, isFiled } from "../../../../lib/features/visit/waiting";
 import { captureError } from "@/lib/core/errors";
 
 export const runtime = "nodejs";
@@ -43,12 +43,12 @@ export async function POST(req: Request) {
       const note = await getWaiting(noteKey as string);
       if (!note) throw new Error("That note is no longer in the inbox.");
       // Filed already: straight onto its touchpoint.
-      if (note.status === "filed" && note.touchpoint_id) return attachTouchpointPhoto(note.touchpoint_id, file);
+      if (isFiled(note.status) && note.touchpoint_id) return attachTouchpointPhoto(note.touchpoint_id, file);
       const att = await uploadVisitPhoto(note.key, file);
       const kept = await addAttachment(note.key, att);
       // Filed while it uploaded: finish() may have run before the line was kept.
       const now = await getWaiting(note.key);
-      if (now?.status === "filed" && now.touchpoint_id) return appendTouchpointAttachments(now.touchpoint_id, [att]);
+      if (now && isFiled(now.status) && now.touchpoint_id) return appendTouchpointAttachments(now.touchpoint_id, [att]);
       return { attachments: kept?.attachments ?? [att] };
     });
     return Response.json({ ok: true, result, replayed });

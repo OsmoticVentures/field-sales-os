@@ -28,6 +28,7 @@ import {
   advance,
   isComplete,
   isDue,
+  nativeHandoff,
   newItem,
   pickAccount,
   pickType,
@@ -75,7 +76,30 @@ let timer: ReturnType<typeof setTimeout> | null = null;
 let channel: BroadcastChannel | null = null;
 const filedListeners = new Set<(accountId: string) => void>();
 
+/** The keys the app's native copy holds (NoteOutbox.swift), as last told. */
+let handedOff = new Set<string>();
+
+/** Hand every unsent note to the app's native copy, which keeps it in a file
+ *  iOS does not clear and sends it in the background (ios/App/App/
+ *  NoteOutbox.swift). A no-op in a browser. Starts empty on each launch, so a
+ *  note is only ever dropped from the native copy by this page having seen it
+ *  done, never by a page whose store was cleared. */
+function handOff() {
+  const native = (window as Window & { webkit?: { messageHandlers?: { noteOutbox?: { postMessage(m: unknown): void } } } }).webkit
+    ?.messageHandlers?.noteOutbox;
+  if (!native) return;
+  const { notes, done } = nativeHandoff([...cache.values()], handedOff, currentRep());
+  if (!notes.length && !done.length) return;
+  try {
+    native.postMessage({ notes, done });
+    handedOff = new Set(notes.map((n) => n.key));
+  } catch {
+    /* the next change tries again */
+  }
+}
+
 function emit() {
+  if (typeof window !== "undefined") handOff();
   state = {
     items: [...cache.values()].sort((a, b) => a.createdAt - b.createdAt),
     done: state.done,

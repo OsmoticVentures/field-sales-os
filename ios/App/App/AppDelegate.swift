@@ -7,7 +7,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // The phone's own copy of every unsent note sends on a background
+        // refresh too (NoteOutbox.swift); iOS wants the handler before launch ends.
+        NoteOutbox.register()
         return true
     }
 

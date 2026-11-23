@@ -8,12 +8,13 @@
  * PORTING.md (no Server Actions in this repo).
  */
 import { hasAccess } from "../../../../lib/core/devices";
+import { hasWidgetToken } from "../../../../lib/features/route/widget-auth";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
 import { recordTouchpoint, type ParsedTouchpoint } from "../../../../lib/features/visit/touchpoint";
 import { withdrawUnfiledVisit } from "../../../../lib/features/visit/dal";
 import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
 import { AI_CAP_STATUS, isAiCap } from "../../../../lib/core/ai/client";
-import { acceptNote, type DoorRead } from "../../../../lib/features/visit/waiting";
+import { acceptNote, CANARY_ACCOUNT, type DoorRead } from "../../../../lib/features/visit/waiting";
 import { currentUser, DEFAULT_USER } from "../../../../lib/core/user";
 import { looksLikeTestFiling, TEST_FILING_ERROR } from "../../../../lib/features/visit/test-filing";
 
@@ -21,7 +22,11 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  if (!(await hasAccess())) {
+  // The app's native copy of an unsent note (ios/App/App/NoteOutbox.swift)
+  // sends in the background with the widget's bearer and no cookie. It may
+  // only put a note in Juan's inbox, below; nothing else in this door.
+  const native = !req.headers.get("cookie")?.includes("nb_session") && (await hasWidgetToken(req));
+  if (!native && !(await hasAccess())) {
     return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
   }
   // A new touch moves the priority score; the next read recomputes it.
@@ -50,11 +55,19 @@ export async function POST(req: Request) {
   // JUAN'S NOTES: saved here in this one request, no model and no laptop, and
   // the phone item clears on this answer (Juan, 2026-11-23). The Mac reads it
   // on the Max plan from this copy and files it (waiting.ts, note_reader.py);
-  // HubSpot is its own scheduled step after that (hubspot_sweep.py). A pick
+  // with the laptop away, the server files it raw in his words after 20
+  // minutes and the read enriches it later (note-drain.ts). A pick
   // sent back with a parse is the other rep's flow and still files here.
-  const me = await currentUser().catch(() => null);
+  const me = native ? { id: DEFAULT_USER } : await currentUser().catch(() => null);
+  if (native && (parsed || req.headers.get("x-nb-as") && req.headers.get("x-nb-as") !== DEFAULT_USER)) {
+    return Response.json({ ok: false, error: "The phone's native copy only sends Juan's notes." }, { status: 400 });
+  }
   if (me?.id === DEFAULT_USER && !parsed) {
-    if (looksLikeTestFiling(text)) return Response.json({ ok: false, error: TEST_FILING_ERROR }, { status: 400 });
+    // The daily canary (bridges/nutribiotic/note_canary.py) comes through this
+    // same door onto its own synthetic, closed account, kept apart as rep
+    // "canary": never in his lists, never in the shared portal.
+    const canary = accountIdHint === CANARY_ACCOUNT;
+    if (!canary && looksLikeTestFiling(text)) return Response.json({ ok: false, error: TEST_FILING_ERROR }, { status: 400 });
     try {
       const n = body?.near as { lat?: unknown; lng?: unknown } | undefined;
       const near = typeof n?.lat === "number" && typeof n?.lng === "number" ? { lat: n.lat, lng: n.lng } : null;
@@ -64,7 +77,7 @@ export async function POST(req: Request) {
           : null;
       const result = await acceptNote({
         key,
-        rep: me.id,
+        rep: canary ? "canary" : me.id,
         text,
         accountIdHint,
         kindOverride: kindOverride ?? null,

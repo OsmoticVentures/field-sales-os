@@ -451,6 +451,41 @@ export async function insertActivity(input: NewActivity): Promise<Activity> {
   return row;
 }
 
+/** A note filed raw by the server, before any read (waiting-file.ts). The
+ *  canary's own note lands on its synthetic account as seeded data, which
+ *  never crosses into HubSpot and which its run deletes after itself. */
+export async function insertRawActivity(input: NewActivity, opts: { canary?: boolean } = {}): Promise<Activity> {
+  if (!opts.canary && looksLikeTestFiling(input.detail)) throw new Error(TEST_FILING_ERROR);
+  const origin = opts.canary ? { origin: "synthetic", synthetic_dataset_id: "canary" } : { origin: "manual" };
+  const [row] = await mutate<Activity>("nb_activities", "POST", { ...input, actor: (await currentUser()).id, ...origin });
+  return row;
+}
+
+/** The one sanctioned rewrite of an activity (migration 0115): a raw-filed
+ *  note, enriched once by its read. The database refuses any other. */
+export async function enrichActivity(activityId: number, a: { kind: string; direction: string; outcome: string | null; detail: string }): Promise<void> {
+  const res = await fetch(`${SB_URL}/rest/v1/rpc/nb_enrich_activity`, {
+    method: "POST",
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_activity_id: activityId, p_kind: a.kind, p_direction: a.direction, p_outcome: a.outcome, p_detail: a.detail }),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Could not enrich activity ${activityId}: ${res.status} ${(await res.text()).slice(0, 300)}`);
+}
+
+export async function patchTouchpoint(id: string, patch: { status?: string; parsed?: unknown; account_match_confidence?: string | null }): Promise<void> {
+  await mutate("nb_touchpoints", "PATCH", patch, { id: `eq.${id}` });
+}
+
+export async function retractActivity(activityId: number, reason: string, archivedEngagementId: string | null): Promise<void> {
+  await mutate("nb_activity_retractions", "POST", {
+    activity_id: activityId,
+    reason,
+    retracted_by: "clientos",
+    archived_engagement_id: archivedEngagementId,
+  });
+}
+
 export type EngagementActivity = {
   id: number;
   account_id: string;

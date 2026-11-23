@@ -38,6 +38,9 @@ import {
   insertReturnDirectives,
   findFiledTouchpoint,
   insertTouchpoint,
+  enrichActivity,
+  patchTouchpoint,
+  retractActivity,
   listAccountsForMatching,
   listContacts,
   patchContact,
@@ -46,7 +49,7 @@ import {
   type AccountFactsReport,
   type Contact,
 } from "./dal";
-import { Blocked, isNeverFiledKind, runEngagement } from "./hubspot-engagement";
+import { archiveEngagement, Blocked, isNeverFiledKind, refreshEngagement, runEngagement, sameRecordType } from "./hubspot-engagement";
 import { writeEnabled, type HubspotFeature } from "./hubspot";
 import { draftFromVisit, givenEmails, type VisitOutbound } from "../outbound/from-visit";
 import { ai, aiConfigured, AiError, hashInput, isAiCap } from "../../core/ai/client";
@@ -625,6 +628,67 @@ async function fileTouchpoint(input: FinishInput): Promise<FiledTouchpoint> {
     accountFacts,
     outbound,
   };
+}
+
+export type RawFiled = { activityId: number; touchpointId: string; accountId: string; accountName: string | null; kind: string };
+
+/**
+ * The read of a note the server already filed raw (waiting-file.ts): the same
+ * activity and touchpoint take the read, and the same HubSpot record is
+ * rewritten (migration 0115). What filing a read note does beyond that, the
+ * people, the account facts, the return visit and the email he owes, runs here
+ * exactly as fileTouchpoint runs it. A read that says the note was to himself
+ * retracts the activity and takes the record out of the shared portal.
+ */
+export async function enrichRawTouchpoint(raw: RawFiled, rawText: string, parsed: ParsedTouchpoint): Promise<FiledTouchpoint> {
+  const { activityId, touchpointId, accountId, accountName } = raw;
+  const base = {
+    ok: true as const, touchpoint_id: touchpointId, accountName, accountId, needsAccount: false as const,
+    summary: parsed.activity.detail, peopleAdded: 0, peopleUpdated: 0, accountFacts: null,
+  };
+  if (parsed.activity.kind === "field_note") {
+    const archived = await archiveEngagement(activityId).catch(() => null);
+    await retractActivity(activityId, "A note to himself, filed raw before it was read.", archived);
+    await patchTouchpoint(touchpointId, { status: "parsed", parsed });
+    const fieldNote = await insertFieldNote({ account_id: accountId, touchpoint_id: touchpointId, detail: parsed.activity.detail, raw_text: rawText });
+    await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, fieldNote?.id ?? null, accountId, accountName)).catch(() => {});
+    return { ...base, activityId: null, isFieldNote: true, hubspotFiled: false, hubspotNoteId: null, hubspotError: null };
+  }
+
+  const kind = sameRecordType(raw.kind, parsed.activity.kind) ? parsed.activity.kind : raw.kind;
+  parsed.activity.kind = kind as ParsedTouchpoint["activity"]["kind"];
+  let accountFacts: AccountFactsReport | null = null;
+  try {
+    if (accountId !== "a_canary") accountFacts = await applyAccountFacts(accountId, parsed.account_facts);
+  } catch {
+    accountFacts = null;
+  }
+  await enrichActivity(activityId, { kind, direction: parsed.activity.direction, outcome: parsed.activity.outcome ?? null, detail: parsed.activity.detail });
+  await patchTouchpoint(touchpointId, { status: "parsed", parsed });
+  // The canary proves the rewrite and stops: no people, no email, no portal.
+  if (accountId === "a_canary") {
+    return { ...base, activityId, hubspotFiled: false, hubspotNoteId: null, hubspotError: null };
+  }
+
+  const existing = await listContacts(accountId);
+  let peopleAdded = 0;
+  let peopleUpdated = 0;
+  for (const p of parsed.people ?? []) {
+    const outcome = await reconcileContact(accountId, existing, p).catch(() => "none" as const);
+    if (outcome === "added") peopleAdded += 1;
+    else if (outcome === "updated") peopleUpdated += 1;
+  }
+  await insertReturnDirectives(returnVisitDirectiveRows(parsed.calendar_actions, null, accountId, accountName)).catch(() => {});
+
+  const [hubspot, outbound] = await Promise.all([
+    refreshEngagement(activityId)
+      .then(async (r): Promise<HubspotFilingReport> =>
+        r.updated ? { hubspotFiled: true, hubspotNoteId: r.noteId, hubspotError: null } : autoFileEngagement(activityId),
+      )
+      .catch((e: unknown): HubspotFilingReport => ({ hubspotFiled: false, hubspotNoteId: null, hubspotError: e instanceof Error ? e.message : "Not updated in HubSpot." })),
+    draftFromVisit(visitNote(touchpointId, accountId, rawText, parsed)),
+  ]);
+  return { ...base, activityId, peopleAdded, peopleUpdated, accountFacts, ...hubspot, outbound };
 }
 
 function visitNote(touchpointId: string, accountId: string, rawText: string, parsed: ParsedTouchpoint) {

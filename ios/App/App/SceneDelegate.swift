@@ -32,6 +32,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         SdrResult.backgrounded()
+        NoteOutbox.sendOnLeaving()
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
@@ -44,8 +45,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 /// instead of handing it to the browser, so Route is loaded over the first page.
 final class BridgeViewController: CAPBridgeViewController, UIGestureRecognizerDelegate {
     private static let log = Logger(subsystem: "com.osmoticventures.fieldsalesos", category: "pinch")
+    private let noteOutbox = NoteOutboxHandler()
     override func viewDidLoad() {
         super.viewDidLoad()
+        webView?.configuration.userContentController.add(noteOutbox, name: "noteOutbox")
         guard ProcessInfo.processInfo.isiOSAppOnMac, let webView else { return }
         webView.configuration.userContentController.addUserScript(
             WKUserScript(source: Self.largerText, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
