@@ -30,6 +30,8 @@ import { FindContacts } from "../../../lib/features/enrich/ui";
 import { TouchpointCapture } from "../../../lib/features/visit/ui";
 import { dayLabel as routeDayLabel, workingDayIso } from "../../../lib/features/route/field-week";
 import { useAddToRoute } from "../../../lib/features/route/use-add-to-route";
+import { useFlag } from "../../../lib/core/me";
+import { SdrStopButton, type QueuedSdr } from "../route/StopOutreach";
 import { fmtRanges, hoursStatus, laTodayKey, weekOrderedHours, type BusinessHours } from "../../../lib/features/prospect/hours";
 import { orderWindowLabel } from "../../../lib/features/prospect/purchases";
 import { HUBSPOT_COMPANY_URL, daysAgo, dueInDays, exactDaysAgo, fullAddress, googleMapsUrl, money } from "../../../lib/features/prospect/format";
@@ -694,11 +696,53 @@ function PhoneEditable({ accountId, phone }: { accountId: string; phone: string 
 }
 
 /** Add to route on the call card: a tap opens the planning horizon's days,
- *  a pick appends this client to that day. Once on a day it names the day
- *  and opens Route. */
+ *  a pick appends this client to that day. Once on a day it names the day;
+ *  with the move switch a tap opens the same days to move it (one server
+ *  write, /api/route/move, the same path the Route screen and the client
+ *  panel use), with Route one tap away. */
 function AddToRouteButton({ accountId }: { accountId: string }) {
-  const { days, scheduledDay, busy, failed, add } = useAddToRoute(accountId);
+  const { days, scheduledDay, busy, failed, add, move } = useAddToRoute(accountId);
   const [open, setOpen] = useState(false);
+  const canMove = useFlag("prospect-card-sdr-move");
+  if (scheduledDay && canMove) {
+    const on = routeDayLabel(scheduledDay);
+    return (
+      <div className="relative">
+        <button type="button" onClick={() => setOpen((o) => !o)} disabled={busy} aria-expanded={open} aria-label={`Move from ${on.weekday} ${on.short}`} className={`${ghostBtn} inline-flex items-center gap-1.5 whitespace-nowrap`}>
+          <Ico name="check" size={13} />
+          {busy ? "Moving" : `On route ${on.weekday} ${on.short}`}
+        </button>
+        {open && (
+          <div className="absolute top-full left-0 z-20 mt-2 flex max-h-[60vh] min-w-[220px] flex-col gap-1 overflow-auto rounded-lg border border-[#E2DFD5] bg-white p-2 shadow-[0_8px_24px_rgba(20,32,27,0.12)]">
+            {days.map((d) => {
+              const { weekday, short } = routeDayLabel(d);
+              const current = d === scheduledDay;
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  disabled={current}
+                  aria-current={current ? "date" : undefined}
+                  onClick={() => {
+                    setOpen(false);
+                    void move(d);
+                  }}
+                  className={`flex min-h-11 items-center justify-between gap-3 rounded-md px-2 text-left text-[13px] ${current ? "bg-[#EEECE3] font-semibold text-[#14201B]" : "text-[#14201B] hover:bg-[#F2F0E8]"}`}
+                >
+                  {weekday}
+                  <span className="text-[11.5px] tabular-nums text-[#8A928C]">{short}</span>
+                </button>
+              );
+            })}
+            <Link href="/route" className="flex min-h-11 items-center rounded-md border-t border-[#ECEAE1] px-2 text-[13px] font-medium text-[#3D6B4A] hover:bg-[#F2F0E8]">
+              Open Route
+            </Link>
+          </div>
+        )}
+        {failed && <p className="absolute top-full left-0 mt-1 text-[12px] whitespace-nowrap text-[#8A2E2E]">Not moved. Try again.</p>}
+      </div>
+    );
+  }
   if (scheduledDay) {
     const { weekday, short } = routeDayLabel(scheduledDay);
     return (
@@ -738,6 +782,29 @@ function AddToRouteButton({ accountId }: { accountId: string }) {
       {failed && <p className="absolute top-full right-0 mt-1 text-[12px] whitespace-nowrap text-[#8A2E2E]">Not saved. Try again.</p>}
     </div>
   );
+}
+
+/** Add to SDR on the call card, the same urgency-then-day picker the route
+ *  stops use, writing the same SDR queue. An account already queued shows
+ *  its chip, and a tap moves that call instead of queuing a second. */
+function ProspectSdrButton({ accountId, title }: { accountId: string; title: string }) {
+  const [queued, setQueued] = useState<{ for: string; q: QueuedSdr | null } | null>(null);
+  useEffect(() => {
+    let live = true;
+    apiFetch(`/api/prospect/schedule?accounts=${encodeURIComponent(accountId)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { items?: { id: string; account_id: string | null; scheduled_date: string; priority: QueuedSdr["priority"] | null }[] }) => {
+        if (!live) return;
+        const r = (j.items ?? []).find((x) => x.account_id === accountId);
+        setQueued({ for: accountId, q: r ? { id: r.id, priority: r.priority, day: r.scheduled_date } : null });
+      })
+      .catch(() => live && setQueued({ for: accountId, q: null }));
+    return () => {
+      live = false;
+    };
+  }, [accountId]);
+  if (queued?.for !== accountId) return null;
+  return <SdrStopButton key={accountId} accountId={accountId} title={title} initial={queued.q} className={`${ghostBtn} inline-flex items-center gap-1.5 whitespace-nowrap`} />;
 }
 
 function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean; onUndo?: () => void }) {
@@ -861,6 +928,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
   }
 
   const phone = panel?.phone ?? item.displayPhone;
+  const sdrOnCard = useFlag("prospect-card-sdr-move");
   const address = panel ? fullAddress({ street: panel.street, city: panel.city, state: panel.state, postal: panel.postal }) : null;
   const area = panel?.area ? (areas.find((a) => a.id === panel.area) ?? null) : null;
 
@@ -888,6 +956,7 @@ function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: Sche
                 Call {phone}
               </a>
             )}
+            {item.account_id && sdrOnCard && <ProspectSdrButton accountId={item.account_id} title={item.displayName} />}
             {item.account_id && <AddToRouteButton accountId={item.account_id} />}
             {item.account_id && (
               <button type="button" onClick={handleEnrich} disabled={enriching} className={`${ghostBtn} whitespace-nowrap`}>

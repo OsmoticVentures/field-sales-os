@@ -42,6 +42,11 @@ export const REP_FLAGS: Record<string, RepFlag> = {
     asked: "juan 2026-11-17",
     on: ["juan"],
   },
+  "prospect-card-sdr-move": {
+    about: "The Prospect account card carries Add to SDR beside Call, and its On route chip opens the days to move that stop",
+    asked: "juan 2026-11-23",
+    on: ["juan"],
+  },
 };
 
 /** Is this switch on for this rep, by this file alone? An unknown name is
