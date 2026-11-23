@@ -9,7 +9,7 @@
  */
 import { hasAccess } from "../../../../lib/core/devices";
 import { idempotencyKey, withIdempotency } from "../../../../lib/core/idempotency";
-import { getAccountCallCards, getPriorityBook, insertSdrScheduleItem, isConfigured, listAreas, listSdrSchedule, todayStartLA } from "../../../../lib/features/prospect/dal";
+import { getAccountCallCards, getPriorityBook, insertSdrScheduleItem, isConfigured, listAreas, listPendingSdrFor, listSdrSchedule, todayStartLA } from "../../../../lib/features/prospect/dal";
 import { sortAreasByProspects } from "../../../../lib/features/prospect/priority";
 import { captureError } from "@/lib/core/errors";
 
@@ -17,8 +17,14 @@ export const runtime = "nodejs";
 
 const DAYS_AHEAD = 6;
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!(await hasAccess())) return Response.json({ ok: false, error: "Unauthorized." }, { status: 401 });
+  /* ?accounts=a,b: just the pending calls for those stops, for the route. */
+  const accounts = new URL(req.url).searchParams.get("accounts");
+  if (accounts !== null) {
+    const rows = await listPendingSdrFor(accounts.split(",")).catch(() => []);
+    return Response.json({ ok: true, items: rows });
+  }
   if (!isConfigured()) return Response.json({ ok: true, items: [], areas: [], todayIso: todayStartLA().slice(0, 10) });
 
   const schedule = await listSdrSchedule(DAYS_AHEAD);

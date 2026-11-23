@@ -19,7 +19,7 @@ export async function POST(req: Request) {
   const body = await req.json();
   if (!body.id || !body.scheduled_date) return Response.json({ ok: false, error: "Missing id or date." }, { status: 400 });
   try {
-    const { result, replayed } = await withIdempotency(`prospect:reschedule:${key}`, () => rescheduleSdrScheduleItem(body.id, body.scheduled_date));
+    const { result, replayed } = await withIdempotency(`prospect:reschedule:${key}`, () => rescheduleSdrScheduleItem(body.id, body.scheduled_date, body.priority));
     return Response.json({ ok: true, result, replayed });
   } catch (err) {
     captureError(err, "/api/prospect/reschedule");

@@ -42,10 +42,24 @@ function dayText(iso: string): string {
   return `${weekday} ${short}`;
 }
 
-export function SdrStopButton({ accountId, title, className }: { accountId: string; title: string; className: string }) {
+export type QueuedSdr = { id: string | null; priority: SdrPriority | null; day: string };
+
+export function SdrStopButton({
+  accountId,
+  title,
+  className,
+  initial,
+}: {
+  accountId: string;
+  title: string;
+  className: string;
+  /** The call already pending for this account, if any. */
+  initial?: QueuedSdr | null;
+}) {
   const [step, setStep] = useState<"closed" | "urgency" | "day">("closed");
   const [priority, setPriority] = useState<SdrPriority | null>(null);
-  const [queued, setQueued] = useState<{ priority: SdrPriority; day: string } | null>(null);
+  const [moved, setQueued] = useState<QueuedSdr | null>(null);
+  const queued = moved ?? initial ?? null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,14 +68,21 @@ export function SdrStopButton({ accountId, title, className }: { accountId: stri
     setBusy(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/prospect/schedule", {
+      /* Once queued, the same picker moves that one call (new day, new
+         urgency) instead of queuing a second. */
+      const moving = queued?.id;
+      const res = await apiFetch(moving ? "/api/prospect/reschedule" : "/api/prospect/schedule", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ account_id: accountId, kind: "call", scheduled_date: day, priority }),
+        body: JSON.stringify(
+          moving
+            ? { id: moving, scheduled_date: day, priority }
+            : { account_id: accountId, kind: "call", scheduled_date: day, priority },
+        ),
       });
-      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (!res.ok || j.ok === false) throw new Error(j.error ?? "Not added. Try again.");
-      setQueued({ priority, day });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; result?: { id?: string } };
+      if (!res.ok || j.ok === false) throw new Error(j.error ?? (moving ? "Not moved. Try again." : "Not added. Try again."));
+      setQueued({ id: moving ?? j.result?.id ?? null, priority, day });
       setStep("closed");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Not added. Try again.");
@@ -76,13 +97,30 @@ export function SdrStopButton({ accountId, title, className }: { accountId: stri
     setError(null);
   }
 
-  if (queued) {
+  if (queued && step === "closed") {
     const label = SDR_PRIORITIES.find((p) => p.value === queued.priority)?.label;
-    return (
-      <span className={`${className} pointer-events-none text-[#2C6A46]`} aria-label={`${title} is on SDR`}>
+    const chip = (
+      <>
         <Ico name="check" size={13} />
-        On SDR &middot; {label} &middot; {dayText(queued.day)}
-      </span>
+        On SDR{label && <> &middot; {label}</>} &middot; {dayText(queued.day)}
+      </>
+    );
+    if (!queued.id) {
+      return (
+        <span className={`${className} pointer-events-none text-[#2C6A46]`} aria-label={`${title} is on SDR`}>
+          {chip}
+        </span>
+      );
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => setStep("urgency")}
+        aria-label={`Move ${title}'s SDR call`}
+        className={`${className} text-[#2C6A46]`}
+      >
+        {chip}
+      </button>
     );
   }
 

@@ -48,7 +48,7 @@ import { HUBSPOT_COMPANY_URL, lastTouchLabel } from "@/lib/features/prospect/for
 import type { Draft } from "@/lib/features/outbound/dal";
 import { OpenEmailButtons } from "@/lib/features/outbound/open-email";
 import { useAccountPanel } from "../account/[id]/useAccountPanel";
-import { EmailOnlyButton, SdrStopButton } from "./StopOutreach";
+import { EmailOnlyButton, SdrStopButton, type QueuedSdr } from "./StopOutreach";
 import { useFlag } from "@/lib/core/me";
 
 type StatePayload = {
@@ -628,6 +628,31 @@ function RouteDay({
     [draft, accountsById],
   );
   const inRoute = useMemo(() => new Set(stops.map((s) => s.id)), [stops]);
+
+  // Stops already on SDR show their chip, so the call moves instead of doubling.
+  const stopAccountKey = useMemo(
+    () => stops.flatMap((s) => (s.type === "account" ? [s.id] : [])).sort().join(","),
+    [stops],
+  );
+  const [sdrQueued, setSdrQueued] = useState<Record<string, QueuedSdr>>({});
+  useEffect(() => {
+    if (!stopOutreach || !stopAccountKey) return;
+    let live = true;
+    apiFetch(`/api/prospect/schedule?accounts=${encodeURIComponent(stopAccountKey)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { items?: { id: string; account_id: string | null; scheduled_date: string; priority: QueuedSdr["priority"] | null }[] }) => {
+        if (!live) return;
+        const next: Record<string, QueuedSdr> = {};
+        for (const r of j.items ?? []) {
+          if (r.account_id && !next[r.account_id]) next[r.account_id] = { id: r.id, priority: r.priority, day: r.scheduled_date };
+        }
+        setSdrQueued(next);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [stopOutreach, stopAccountKey]);
 
   const dayIndex = days.indexOf(activeDay);
   const prevDay = dayIndex > 0 ? days[dayIndex - 1] : null;
@@ -1777,7 +1802,7 @@ function RouteDay({
                           className={sqBtn}
                         />
                       )}
-                      {a && stopOutreach && <SdrStopButton accountId={a.id} title={title} className={iconBtn} />}
+                      {a && stopOutreach && <SdrStopButton accountId={a.id} title={title} className={iconBtn} initial={sdrQueued[a.id] ?? null} />}
                       {a && (
                         <Link
                           href={{ pathname: "/visit", query: { account: a.id, name: a.name } }}

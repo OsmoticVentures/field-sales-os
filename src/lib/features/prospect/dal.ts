@@ -310,6 +310,24 @@ export async function listAccountSdrQueue(accountId: string): Promise<SdrSchedul
   );
 }
 
+/** Pending calls from today on for these accounts, soonest first. The
+ *  route reads it so a stop already on SDR shows where, and moves that call. */
+export async function listPendingSdrFor(accountIds: string[]): Promise<SdrScheduleItem[]> {
+  const ids = [...new Set(accountIds.filter((v) => /^[\w-]+$/.test(v)))].slice(0, 60);
+  if (!isConfigured() || !ids.length) return [];
+  return sbGet<SdrScheduleItem>(
+    "nb_sdr_schedule",
+    new URLSearchParams({
+      select: "id,account_id,scheduled_date,priority",
+      account_id: `in.(${ids.join(",")})`,
+      status: "eq.pending",
+      scheduled_date: `gte.${todayStartLA().slice(0, 10)}`,
+      order: "scheduled_date.asc",
+      limit: "120",
+    }),
+  );
+}
+
 export type NewSdrScheduleItem = {
   account_id?: string | null;
   prospect_name?: string | null;
@@ -345,12 +363,14 @@ export async function insertSdrScheduleItem(input: NewSdrScheduleItem): Promise<
   return row;
 }
 
-export async function rescheduleSdrScheduleItem(id: string, scheduledDate: string): Promise<SdrScheduleItem> {
+export async function rescheduleSdrScheduleItem(id: string, scheduledDate: string, priority?: SdrPriority | null): Promise<SdrScheduleItem> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) throw new Error("Not a date.");
+  const patch: Record<string, unknown> = { scheduled_date: scheduledDate, rescheduled_at: new Date().toISOString() };
+  if (priority === "high" || priority === "mid" || priority === "low") patch.priority = priority;
   const [row] = await sbWrite<SdrScheduleItem>(
     "nb_sdr_schedule",
     "PATCH",
-    { scheduled_date: scheduledDate, rescheduled_at: new Date().toISOString() },
+    patch,
     new URLSearchParams({ id: `eq.${id}` }),
   );
   return row;
