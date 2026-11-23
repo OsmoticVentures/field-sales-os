@@ -13,6 +13,8 @@ import { recordTouchpoint, type ParsedTouchpoint } from "../../../../lib/feature
 import { withdrawUnfiledVisit } from "../../../../lib/features/visit/dal";
 import { invalidatePriorityBook } from "../../../../lib/features/prospect/dal";
 import { AI_CAP_STATUS, isAiCap } from "../../../../lib/core/ai/client";
+import { WAITING_FOR_LAPTOP } from "../../../../lib/core/outbox-core";
+import { keepWaiting } from "../../../../lib/features/visit/waiting";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -65,6 +67,18 @@ export async function POST(req: Request) {
   } catch (err) {
     if (err instanceof NotSure) return Response.json({ ok: true, result: err.result, replayed: false });
     if (isAiCap(err)) return Response.json({ ok: false, error: err.message }, { status: AI_CAP_STATUS });
+    // Waiting for the laptop: a copy stays here so the Mac files it as soon as
+    // it is back online, app open or not (nb_waiting_notes, waiting.ts).
+    if (err instanceof NotFiled && err.message === WAITING_FOR_LAPTOP) {
+      await keepWaiting({
+        key,
+        text,
+        account_id_hint: accountIdHint,
+        kind_override: kindOverride ?? null,
+        force_new_account: forceNewAccount,
+        occurred_at: occurredAt,
+      });
+    }
     const status = err instanceof NotFiled ? 422 : 500;
     return Response.json({ ok: false, error: err instanceof Error ? err.message : "That note did not file." }, { status });
   }

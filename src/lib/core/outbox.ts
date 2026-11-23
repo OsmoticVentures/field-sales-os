@@ -190,6 +190,7 @@ export function dismissDone(id: string) {
 
 async function pass(force: boolean) {
   await load();
+  await flushWithdrawals();
   const now = Date.now();
   for (const id of [...cache.keys()]) {
     const it = cache.get(id);
@@ -337,9 +338,57 @@ export async function chooseType(id: string, channel: string | null): Promise<vo
   void runOutbox();
 }
 
+// ---------------------------------------------------------------------------
+// withdrawals: the server keeps a copy of a note waiting for the laptop
+// (api/visit/touchpoint), and the Mac files it when it is back online. A note
+// discarded or taken back to edit is withdrawn from that copy first. Kept in
+// localStorage until the server has it, so a discard made offline still lands.
+// Bounded: an id leaves the list once withdrawn, and the list keeps 50 at most.
+// ---------------------------------------------------------------------------
+
+const WITHDRAW_KEY = "clientos-outbox-withdraw";
+
+function pendingWithdrawals(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(WITHDRAW_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function setWithdrawals(ids: string[]) {
+  try {
+    if (ids.length) localStorage.setItem(WITHDRAW_KEY, JSON.stringify(ids.slice(-50)));
+    else localStorage.removeItem(WITHDRAW_KEY);
+  } catch {
+    /* no storage: the online try below is the only one */
+  }
+}
+
+async function flushWithdrawals(): Promise<void> {
+  const ids = pendingWithdrawals();
+  if (!ids.length) return;
+  const left: string[] = [];
+  for (const id of ids) {
+    const out = await send({ path: "/api/visit/withdraw", json: { id } }).catch(() => ({ type: "network" }) as Outcome);
+    if (out.type !== "ok") left.push(id);
+  }
+  // Ids added while this ran stay too.
+  const now = pendingWithdrawals();
+  setWithdrawals(now.filter((id) => left.includes(id) || !ids.includes(id)));
+}
+
+function withdraw(id: string) {
+  const ids = pendingWithdrawals();
+  if (!ids.includes(id)) setWithdrawals([...ids, id]);
+  void flushWithdrawals();
+}
+
 /** Discard, after the two-tap confirm: the only other way an item leaves. */
 export async function discard(id: string): Promise<void> {
   discarded.add(id);
+  withdraw(id);
   await remove(id);
 }
 
@@ -350,6 +399,7 @@ export async function takeBack(id: string): Promise<OutboxItem | null> {
   // A filed visit can come back only when HubSpot refused it: its edit replaces it.
   if (!it || state.running === id || (it.filed && !(it.hubspotRefused && it.touchpointId && it.activityId))) return null;
   discarded.add(id);
+  if (!it.filed) withdraw(id);
   await remove(id);
   return it;
 }
