@@ -49,12 +49,17 @@ export function SdrStopButton({
   title,
   className,
   initial,
+  label = "Add to SDR",
+  icon = "phone-arrow",
 }: {
   accountId: string;
   title: string;
   className: string;
   /** The call already pending for this account, if any. */
   initial?: QueuedSdr | null;
+  /** The closed button's words and glyph, shorter where it sits beside Call. */
+  label?: string;
+  icon?: string;
 }) {
   const [step, setStep] = useState<"closed" | "urgency" | "day">("closed");
   const [priority, setPriority] = useState<SdrPriority | null>(null);
@@ -127,8 +132,8 @@ export function SdrStopButton({
   if (step === "closed") {
     return (
       <button type="button" onClick={() => setStep("urgency")} aria-label={`Add ${title} to SDR`} className={className}>
-        <Ico name="phone-arrow" size={13} />
-        Add to SDR
+        <Ico name={icon} size={13} />
+        {label}
       </button>
     );
   }

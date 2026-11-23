@@ -804,7 +804,7 @@ function ProspectSdrButton({ accountId, title }: { accountId: string; title: str
     };
   }, [accountId]);
   if (queued?.for !== accountId) return null;
-  return <SdrStopButton key={accountId} accountId={accountId} title={title} initial={queued.q} className={`${ghostBtn} inline-flex items-center gap-1.5 whitespace-nowrap`} />;
+  return <SdrStopButton key={accountId} accountId={accountId} title={title} initial={queued.q} label="SDR" icon="plus" className={`${ghostBtn} inline-flex items-center gap-1 whitespace-nowrap !px-3`} />;
 }
 
 function AccountPanel({ item, areas, onDone, showSuccess, onUndo }: { item: ScheduleItem; areas: AreaGroup[]; onDone: () => void; showSuccess?: boolean; onUndo?: () => void }) {
