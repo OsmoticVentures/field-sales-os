@@ -1219,7 +1219,7 @@ function TierFold({ id, label, count, children }: { id: string; label: string | 
   );
 }
 
-/** Keep the call notes at the top of the screen while the account above
+/** Focus the note box and keep the call notes at the top of the screen while the account above
  *  them is still loading in, until the rep touches or scrolls the page or a
  *  few seconds pass. Without notes (a prospect with no account), the
  *  account itself. Returns the cleanup. */
@@ -1242,7 +1242,11 @@ function holdOnNotes(panel: HTMLElement | null): () => void {
   window.addEventListener("wheel", stop, { passive: true });
   window.addEventListener("keydown", stop);
   if (panel) ro?.observe(panel);
-  requestAnimationFrame(land);
+  requestAnimationFrame(() => {
+    land();
+    // Ready to type: the caret waits in the note box.
+    document.querySelector<HTMLTextAreaElement>("#sdr-notes textarea")?.focus({ preventScroll: true });
+  });
   return stop;
 }
 

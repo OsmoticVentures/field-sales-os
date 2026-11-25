@@ -11,7 +11,7 @@ import WidgetKit
 ///                        (no tel: red alert, nothing dials)
 ///   sdrcall?id=ID&name=N&account=A&tel=T  the SDR page on that client, then the
 ///                        dialer; the result sheet waits for the return
-///   sdrlog?id=ID&name=N  the result sheet for that call, now
+///   sdrlog?id=ID&name=N  older faces: that call's SDR notes, no sheet
 ///   route?day=D&stop=ID  the route view on that day, scrolled to the stop
 ///   account?id=ID        the account sheet
 ///   odo?kind=start|end   odometer prompt (photo stays on the phone), then
@@ -80,6 +80,9 @@ enum DeepLink {
                 Task { await resolveAndOpen(day: day, stop: stop, vc: vc) }
             }
         case "sdr":
+            // A tap on a client lands on its notes, never under a result sheet
+            // left armed by an earlier dial.
+            SdrResult.disarm()
             var c = URLComponents()
             c.queryItems = ["account", "call", "to"].compactMap { k in q[k].map { URLQueryItem(name: k, value: $0) } }
             if !(c.queryItems ?? []).isEmpty, let query = c.percentEncodedQuery { load(webView, "/prospect?\(query)") }
@@ -99,7 +102,9 @@ enum DeepLink {
             SdrResult.armed(call, name: q["name"] ?? "")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { UIApplication.shared.open(dial) }
         case "sdrlog":
-            if let call = q["id"] { SdrResult.ask(call, name: q["name"] ?? "", vc: vc) }
+            // Older widget faces: the call's notes, no sheet.
+            SdrResult.disarm()
+            if let call = q["id"], let v = call.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) { load(webView, "/prospect?call=\(v)&to=notes") }
         case "route":
             load(webView, "/route?day=\(q["day"] ?? "")&stop=\(q["stop"] ?? "")")
         case "account":
@@ -179,6 +184,11 @@ enum SdrResult {
 
     static func armed(_ id: String, name: String) {
         UserDefaults.standard.set(["id": id, "name": name, "at": String(Date().timeIntervalSince1970)], forKey: key)
+        wentAway = false
+    }
+
+    static func disarm() {
+        UserDefaults.standard.removeObject(forKey: key)
         wentAway = false
     }
 

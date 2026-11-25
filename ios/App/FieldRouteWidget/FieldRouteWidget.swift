@@ -490,10 +490,7 @@ func sdrCallURL(_ c: SdrCall) -> URL {
     if let t = c.tel_url { items["tel"] = t.replacingOccurrences(of: "tel:", with: "") }
     return deepLink("sdrcall", items)
 }
-func sdrLogURL(_ c: SdrCall) -> URL {
-    deepLink("sdrlog", ["id": c.id, "name": c.name])
-}
-/// The name opens that client's SDR page, landed on the call notes.
+/// A tap on a client opens its SDR page, landed on the call notes, nothing over it.
 func sdrNotesURL(_ c: SdrCall) -> URL {
     var items = ["call": c.id, "to": "notes"]
     if let a = c.account_id { items["account"] = a }
@@ -530,15 +527,6 @@ struct SdrRow: View {
                     }
                 }
                 Spacer(minLength: 4)
-            }
-            // How the call went, without dialing from here.
-            Link(destination: sdrLogURL(call)) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(Pal.ink)
-                    .frame(width: 36, height: 32)
-                    .background(Pal.control)
-                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             if call.tel_url != nil {
                 Link(destination: sdrCallURL(call)) {
@@ -621,7 +609,7 @@ struct SdrView: View {
                 doneState(d)
             }
         }
-        .widgetURL(d.calls.first.map(sdrCallURL))
+        .widgetURL(d.calls.first.map(sdrNotesURL))
     }
 
     func list(_ d: SdrData) -> some View {
@@ -661,7 +649,7 @@ struct SdrView: View {
                 Text(readable(c.name)).font(.system(size: 13)).lineLimit(1)
             }
         }
-        .widgetURL(d.calls.first.map(sdrCallURL))
+        .widgetURL(d.calls.first.map(sdrNotesURL))
     }
 }
 
