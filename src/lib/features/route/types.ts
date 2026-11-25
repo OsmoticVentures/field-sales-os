@@ -29,6 +29,12 @@ export type RouteSchedulePrefs = {
   lunchMinutes: number;
 };
 
+/** The stay and lunch lengths nb_ui_prefs accepts (its
+ *  ui_prefs_route_minutes_sane check, on integer columns). */
+export const DWELL_RANGE = { min: 1, max: 240 };
+export const LUNCH_RANGE = { min: 0, max: 240 };
+export const minutesInRange = (n: number, r: { min: number; max: number }) => Number.isInteger(n) && n >= r.min && n <= r.max;
+
 /** A field day leaves at 9 and aims to be done with its stops by 3. */
 export const DEFAULT_DEPART = "09:00";
 export const FINISH_BY_MINUTES = 15 * 60;
