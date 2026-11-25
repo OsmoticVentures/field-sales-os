@@ -29,6 +29,13 @@ export type RouteSchedulePrefs = {
   lunchMinutes: number;
 };
 
+/** Whether the stay and lunch lengths fit nb_ui_prefs: whole minutes, a stay
+ *  of 1 to 240 and a lunch of 0 to 240. A box mid-edit often does not. */
+export function savableStopLengths(p: RouteSchedulePrefs): boolean {
+  const within = (n: number, min: number) => Number.isInteger(n) && n >= min && n <= 240;
+  return within(p.dwellMinutes, 1) && within(p.lunchMinutes, 0);
+}
+
 /** A field day leaves at 9 and aims to be done with its stops by 3. */
 export const DEFAULT_DEPART = "09:00";
 export const FINISH_BY_MINUTES = 15 * 60;
