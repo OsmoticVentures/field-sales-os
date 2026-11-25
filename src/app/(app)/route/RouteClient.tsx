@@ -28,7 +28,7 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursOnDay, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, movedToSdr, sdrMovedKey, uniqueEntries } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, DEPART_KEY, DWELL_RANGE, FINISH_BY_MINUTES, LUNCH_OFF, LUNCH_RANGE, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, minutesInRange, movedToSdr, sdrMovedKey, uniqueEntries } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -2219,6 +2219,27 @@ function LunchPlace({ near, picked, onPick }: { near: { lat: number; lng: number
   );
 }
 
+/** A minutes box that can sit empty mid-edit: only a length that can be saved
+ *  is passed on, and leaving the box puts the last one back. */
+function MinutesInput({ value, range, onChange }: { value: number; range: { min: number; max: number }; onChange: (n: number) => void }) {
+  const [typed, setTyped] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      min={range.min}
+      max={range.max}
+      value={typed ?? String(value)}
+      onChange={(e) => {
+        const text = e.target.value;
+        setTyped(text);
+        if (text !== "" && minutesInRange(Number(text), range)) onChange(Number(text));
+      }}
+      onBlur={() => setTyped(null)}
+      className={`${inputCls} w-[4.5rem] text-center tabular-nums font-medium`}
+    />
+  );
+}
+
 function DayBar({
   prefs,
   onChange,
@@ -2257,25 +2278,11 @@ function DayBar({
           <input type="time" value={prefs.depart} onChange={(e) => onChange({ ...prefs, depart: e.target.value })} className={`${inputCls} w-auto tabular-nums font-medium`} />
         </span>
         <label className="flex items-center gap-1.5">
-          <input
-            type="number"
-            min={1}
-            max={240}
-            value={prefs.dwellMinutes}
-            onChange={(e) => onChange({ ...prefs, dwellMinutes: Number(e.target.value) })}
-            className={`${inputCls} w-[4.5rem] text-center tabular-nums font-medium`}
-          />
+          <MinutesInput value={prefs.dwellMinutes} range={DWELL_RANGE} onChange={(n) => onChange({ ...prefs, dwellMinutes: n })} />
           min per stop
         </label>
         <label className="flex items-center gap-1.5">
-          <input
-            type="number"
-            min={0}
-            max={240}
-            value={prefs.lunchMinutes}
-            onChange={(e) => onChange({ ...prefs, lunchMinutes: Number(e.target.value) })}
-            className={`${inputCls} w-[4.5rem] text-center tabular-nums font-medium`}
-          />
+          <MinutesInput value={prefs.lunchMinutes} range={LUNCH_RANGE} onChange={(n) => onChange({ ...prefs, lunchMinutes: n })} />
           min lunch
         </label>
         <span className="flex items-center gap-1.5">
