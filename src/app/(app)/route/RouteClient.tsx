@@ -28,7 +28,7 @@ import { dayLabel, defaultActiveDay, laTodayIso, planningHorizonDates } from "@/
 import { pushToOpenWindow, hoursOnDay, hoursStatusNow } from "@/lib/features/route/hours";
 import { cheapestGap, haversineMatrix, haversineMiles, optimizedStopOrder, type Matrix } from "@/lib/features/route/route-optimize";
 import { BAND_STYLE, driveBand, likelyDriveMinutes } from "@/lib/features/route/traffic";
-import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, movedToSdr, sdrMovedKey, uniqueEntries } from "@/lib/features/route/types";
+import { CUSTOM_STOP_LABEL, DEPART_KEY, FINISH_BY_MINUTES, LUNCH_OFF, SDR_KEPT, calendarBaseKey, calendarChoiceKey, lunchDue, movedToSdr, scheduleMinutesValid, sdrMovedKey, uniqueEntries } from "@/lib/features/route/types";
 import { calendarDay, placeByTime, reconcileCalendar, type CalendarHold } from "@/lib/features/route/calendar";
 import type {
   CalendarEvent,
@@ -1142,6 +1142,8 @@ function RouteDay({
     setPrefsLocal(next);
     // The leave time belongs to this day; stay and lunch lengths are saved for every day.
     if (next.depart !== prefs.depart) patchTimes(activeDay, { ...stopTimes, [DEPART_KEY]: next.depart });
+    // A cleared or half-typed box reads as 0 or out of range: keep it on screen, save once it is valid.
+    if (!scheduleMinutesValid(next)) return;
     postJson<{ ok: boolean }>("/api/route/prefs", { ...next, depart: data.prefs.depart }).catch(() => {});
   }
   function patchEndpoint(day: string, which: "start" | "end", ep: RouteEndpoint | null) {
